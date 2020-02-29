@@ -50,7 +50,7 @@ class RpcNode(Client, Provider):
     def is_testnet(self) -> bool:
         '''check if node is configured to use testnet or mainnet'''
 
-        if self.getinfo()["testnet"] is True:
+        if self.getblockchaininfo()["chain"] == "test": # MODIFIED for 0.8
             return True
         else:
             return False
@@ -77,3 +77,28 @@ class RpcNode(Client, Provider):
             return self.req("listunspent", [minconf, maxconf, [address]])
 
         return self.req("listunspent", [minconf, maxconf])
+
+    def getbalance(self, address): ### NEW FEATURE, because getbalance doesn't work with addresses in rpcnode. ###
+        '''wrapper, because there is no address balance feature for rpcnode.
+           Seems to work, but it's possible that not all addresses can be shown.'''
+        # better base it on listunspent?
+        groups = self.req("listaddressgroupings")
+        for g in groups:
+            for entry in g:
+                if entry[0] == address:
+                    return entry[1]
+        else:
+            raise Exception("Address not found in wallet managed by the RPC node. Import it there or use another provider.")
+
+    def getbalance2(self, address): ### ALTERNATIVE with listunspent, seems to work, too (TODO: test if other version does not work in certain circumstances.)
+        unspent = self.listunspent(address=address)
+        print(unspent)
+        values = [ v["amount"] for v in unspent ]
+        print(values)
+        return sum(values)
+        
+
+    def listtransactions(self, account="", many=999, since=0, include_watchonly=True): ### NEW FEATURE ###
+        '''wrapper, because P2TH needs watchonly to be set by default. May even have to be extended to allow more than 999 transactions.'''
+        return self.req("listtransactions", [account, many, since, include_watchonly])
+         

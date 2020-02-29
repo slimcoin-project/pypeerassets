@@ -67,7 +67,7 @@ PeercoinMainnet = Constants(
     op_return_max_bytes=256
 )
 
-
+### MODIFIED: changed testnet min_fee to 0.01, 0.001 does not work! ###
 PeercoinTestnet = Constants(
     name='peercoin-testnet',
     shortname='tppc',
@@ -87,7 +87,7 @@ PeercoinTestnet = Constants(
     wif_prefix=0xef,
     from_unit=Decimal('1e-6'),
     to_unit=Decimal('1e6'),
-    min_tx_fee=Decimal(0.001),
+    min_tx_fee=Decimal(0.01),
     tx_timestamp=True,
     tx_out_cls=PeercoinTxOut,
     op_return_max_bytes=256

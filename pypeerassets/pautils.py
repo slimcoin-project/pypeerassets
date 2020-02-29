@@ -99,11 +99,15 @@ def deck_parser(args: Tuple[Provider, dict, int, str],
             try:
                 d["issue_time"] = raw_tx["blocktime"]
             except KeyError:
-                d["time"] = 0
+                d["issue_time"] = 0
             d["issuer"] = find_tx_sender(provider, raw_tx)
             d["network"] = provider.network
             d["production"] = prod
-            d["tx_confirmations"] = raw_tx["confirmations"]
+            try:
+                d["tx_confirmations"] = raw_tx["confirmations"]
+            except KeyError:
+                d["tx_confirmations"] = 0
+
             return Deck(**d)
 
     except (InvalidDeckSpawn, InvalidDeckMetainfo, InvalidDeckVersion,
@@ -116,7 +120,7 @@ def deck_parser(args: Tuple[Provider, dict, int, str],
 def tx_serialization_order(provider: Provider, blockhash: str, txid: str) -> int:
     '''find index of this tx in the blockid'''
 
-    return provider.getblock(blockhash)["tx"].index(txid)
+    return provider.getblock(blockhash, decode=True)["tx"].index(txid) ### BUGFIX ###
 
 
 def read_tx_opreturn(vout: dict) -> bytes:
@@ -235,6 +239,7 @@ def validate_card_transfer_p2th(deck: Deck, vout: dict) -> None:
         address = vout["scriptPubKey"].get("addresses")[0]
         if not address == deck.p2th_address:
             raise InvalidCardTransferP2TH(error)
+
     except TypeError as e:
         raise e
 
@@ -286,7 +291,6 @@ def card_bundle_parser(bundle: CardBundle, debug=False) -> Iterator:
     try:
         # first vout of the bundle must pay to deck.p2th
         validate_card_transfer_p2th(bundle.deck, bundle.vouts[0])
-
         # second vout must be OP_RETURN with card_metainfo
         card_metainfo = parse_card_transfer_metainfo(
                             read_tx_opreturn(bundle.vouts[1]),

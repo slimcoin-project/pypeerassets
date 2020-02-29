@@ -1,5 +1,7 @@
 """all things PeerAssets protocol."""
 
+# EXPERIMENTAL: All code changes related to "address tracking" assets are marked with ADDRESSTRACK
+
 from enum import Enum
 from operator import itemgetter
 from typing import List, Optional, Generator, cast, Callable
@@ -14,6 +16,11 @@ from pypeerassets.exceptions import (
 )
 from pypeerassets.card_parsers import parsers
 from pypeerassets.networks import net_query
+
+### ADDRESSTRACK ###
+from pypeerassets.addresstrack_identify import is_addresstrack_deck_datastring, is_addresstrack_issuance_data
+from pypeerassets.provider import Provider # not very elegant, but would need more refactoring otherwise
+from pypeerassets.addresstrack_parser import at_parser
 
 
 class IssueMode(Enum):
@@ -85,13 +92,50 @@ class Deck:
         self.network = network
         self.production = production
 
-    @property
+    """@property
     def p2th_address(self) -> Optional[str]:
         '''P2TH address of this deck'''
 
         if self.id:
             return Kutil(network=self.network,
                          privkey=bytearray.fromhex(self.id)).address
+        else:
+            return None"""
+
+    """@property ### MODIFIED VERSION TO OPTIMIZE SPEED ###
+    def p2th_address(self) -> Optional[str]:
+        '''P2TH address of this deck'''
+
+        global G_p2th_addresses # this is ugly but MUCH faster then previous version, maybe it's possible more elegant
+        if self.id:          
+            try:
+                if self.id in G_p2th_addresses:
+                    return G_p2th_addresses[self.id]
+            except NameError:                
+                G_p2th_addresses = {}
+            print(G_p2th_addresses)
+
+            p2th_addr = Kutil(network=self.network,
+                         privkey=bytearray.fromhex(self.id)).address
+            G_p2th_addresses.update({ self.id : p2th_addr })
+            print(G_p2th_addresses)
+            return p2th_addr
+        else:
+            return None"""
+
+    @property ### MODIFIED VERSION 2 TO OPTIMIZE SPEED ###
+    def p2th_address(self) -> Optional[str]:
+        '''P2TH address of this deck'''
+
+        if self.id:          
+            try:
+                if self.p2th_address_stored:
+                    return self.p2th_address_stored
+            except AttributeError:                
+                self.p2th_address_stored = Kutil(network=self.network,
+                         privkey=bytearray.fromhex(self.id)).address
+
+            return self.p2th_address_stored
         else:
             return None
 
@@ -266,6 +310,8 @@ class CardTransfer:
 
         self.receiver = receiver
         self.amount = amount
+        ### ADDRESSTRACK workaround ###
+        self.deck_data = deck.asset_specific_data
 
         if blockhash:
             self.blockhash = blockhash
@@ -282,7 +328,19 @@ class CardTransfer:
             self.cardseq = 0
             self.tx_confirmations = 0
 
-        if self.sender == deck.issuer:
+        ### ADDRESSTRACK ###
+        # if deck contains correct addresstrack-specific metadata and the card references a txid
+        # card type is CardIssue. Will be validated later by custom parser.
+        # modified order because with addresstrack, deck issuer can be the receiver.
+
+        if deck.issue_mode == IssueMode.CUSTOM.value:
+            if is_addresstrack_deck_datastring(deck.asset_specific_data) == True:
+                if is_addresstrack_issuance_data(self.asset_specific_data) == True:
+                    self.type = "CardIssue"
+                else:
+                    self.type = "CardTransfer" # includes, for now, issuance attempts with completely invalid data
+
+        elif self.sender == deck.issuer:
             # if deck issuer is issuing cards to the deck issuing address,
             # card is burn and issue at the same time - which is invalid!
             if deck.issuer in self.receiver:
@@ -299,6 +357,7 @@ class CardTransfer:
 
         # issuer is anyone else,
         # card type is CardTransfer
+ 
         else:
             self.type = "CardTransfer"
 
@@ -361,9 +420,16 @@ class CardTransfer:
 
         return ', '.join(r)
 
+    def deck_data(self): ### ADDRESSTRACK: needed for parser. Look for a more elegant solution. ###
+        return deck.asset_specific_data
 
-def validate_card_issue_modes(issue_mode: int, cards: list) -> list:
+
+def validate_card_issue_modes(issue_mode: int, cards: list, provider: Provider=None) -> list:
     """validate cards against deck_issue modes"""
+    ### ADDRESSTRACK modification: including provider variable for custom parser ###
+
+    if len(cards) == 0: ### MODIF., else if there are no cards, cards[0] cannot work ###
+        return []
 
     supported_mask = 63  # sum of all issue_mode values
 
@@ -381,7 +447,11 @@ def validate_card_issue_modes(issue_mode: int, cards: list) -> list:
             except ValueError:
                 continue
 
-            parsed_cards = parser_fn(cards)
+            if is_addresstrack_deck_datastring(cards[0].deck_data): ### ADDRESSTRACK modification ###
+                parsed_cards = parser_fn(cards, at_parser, provider)
+            else:
+                parsed_cards = parser_fn(cards)
+ 
             if not parsed_cards:
                 return []
             cards = parsed_cards

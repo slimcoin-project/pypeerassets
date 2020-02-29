@@ -146,11 +146,11 @@ def card_bundler(provider: Provider, deck: Deck, tx: dict) -> CardBundle:
                       blockseq=tx_serialization_order(provider,
                                                       tx["blockhash"],
                                                       tx["txid"]),
-                      blocknum=provider.getblock(tx["blockhash"])["height"],
+                      blocknum=provider.getblock(tx["blockhash"], decode=True)["height"],
                       sender=find_tx_sender(provider, tx),
                       vouts=tx['vout'],
                       tx_confirmations=tx['confirmations']
-                      )
+                      ) ### BUGFIX ###
 
 
 def find_card_bundles(provider: Provider, deck: Deck) -> Optional[Iterator]:
@@ -162,8 +162,8 @@ def find_card_bundles(provider: Provider, deck: Deck) -> Optional[Iterator]:
             raise Exception("deck.id required to listtransactions")
 
         p2th_account = provider.getaccount(deck.p2th_address)
-        batch_data = [('getrawtransaction', [i["txid"], 1]) for
-                      i in provider.listtransactions(p2th_account)]
+        batch_data = [('getrawtransaction', [i["txid"], 1]) for i in provider.listtransactions(p2th_account)]
+
         result = provider.batch(batch_data)
 
         if result is not None:
@@ -215,7 +215,8 @@ def find_all_valid_cards(provider: Provider, deck: Deck) -> Generator:
     # validate_card_issue_modes must recieve a full list of cards, not batches
     unfiltered = (card for batch in get_card_bundles(provider, deck) for card in batch)
 
-    for card in validate_card_issue_modes(deck.issue_mode, list(unfiltered)):
+    ### ADDRESSTRACK modification: includes provider ###
+    for card in validate_card_issue_modes(deck.issue_mode, list(unfiltered), provider):
         yield card
 
 
