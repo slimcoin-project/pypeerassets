@@ -101,4 +101,7 @@ class RpcNode(Client, Provider):
     def listtransactions(self, account="", many=999, since=0, include_watchonly=True): ### NEW FEATURE ###
         '''wrapper, because P2TH needs watchonly to be set by default. May even have to be extended to allow more than 999 transactions.'''
         return self.req("listtransactions", [account, many, since, include_watchonly])
+
+    def getblockchaininfo(self): ### NEW FEATURE ###
+        return self.req("getblockchaininfo")
          
