@@ -104,4 +104,13 @@ class RpcNode(Client, Provider):
 
     def getblockchaininfo(self): ### NEW FEATURE ###
         return self.req("getblockchaininfo")
-         
+
+    def importaddress(self, address, label=None, rescan=False, p2sh=False): ### NEW FEATURE ###
+        return self.req("importaddress", [address, label, rescan, p2sh])
+
+    def setaccount(self, address, account): ### NEW FEATURE ###
+        return self.req("setaccount", [address, account])
+
+    def getblock(self, blockhash, decode=True): ### NEW: overrides getblock because the original expects a decode (boolean) value, otherwise doesn't work as expected. This is a bug in the Peerassets original code.
+        return self.req("getblock", [blockhash, decode])
+
