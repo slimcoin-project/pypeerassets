@@ -211,6 +211,7 @@ def get_card_transfer(provider: Provider, deck: Deck,
 def find_all_valid_cards(provider: Provider, deck: Deck) -> Generator:
     '''find all the valid cards on this deck,
        filtering out cards which don't play nice with deck issue mode'''
+    ### TODO: call of parser has to be changed. ###
 
     # validate_card_issue_modes must recieve a full list of cards, not batches
     unfiltered = (card for batch in get_card_bundles(provider, deck) for card in batch)

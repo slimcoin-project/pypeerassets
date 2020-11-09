@@ -18,9 +18,9 @@ from pypeerassets.card_parsers import parsers
 from pypeerassets.networks import net_query
 
 ### ADDRESSTRACK ###
-from pypeerassets.addresstrack_identify import is_addresstrack_deck_datastring, is_addresstrack_issuance_data
-from pypeerassets.provider import Provider # not very elegant, but would need more refactoring otherwise
-from pypeerassets.addresstrack_parser import at_parser
+from pypeerassets.provider import Provider
+from pypeerassets.at.transaction_formats import getfmt, DECK_SPAWN_AT_FORMAT, DECK_SPAWN_DT_FORMAT, CARD_ISSUE_DT_FORMAT, P2TH_MODIFIER
+from pypeerassets.at.identify import is_at_deck, is_at_cardissue
 
 
 class IssueMode(Enum):
@@ -74,11 +74,17 @@ class Deck:
                  issuer: str="",
                  issue_time: int=None,
                  id: str=None,
-                 tx_confirmations: int=None) -> None:
+                 tx_confirmations: int=None,
+                 at_type=None,
+                 multiplier: int=None,
+                 epoch_length: int=None,
+                 epoch_quantity: int=None,
+                 min_vote: int=None,
+                 sdp_periods: int=None,
+                 sdp_deck: str=None) -> None:
         '''
         Initialize deck object, load from dictionary Deck(**dict) or initilize
-        with kwargs Deck("deck", 3, "ONCE")
-        '''
+        with kwargs Deck("deck", 3, "ONCE")'''
 
         self.version = version  # protocol version
         self.name = name  # deck name
@@ -92,60 +98,127 @@ class Deck:
         self.network = network
         self.production = production
 
-    """@property
+        
+        ### additional Deck attributes for AT/DT types:
+        if self.asset_specific_data and self.issue_mode == IssueMode.CUSTOM.value:
+
+            at_fmt = DECK_SPAWN_AT_FORMAT
+            dt_fmt = DECK_SPAWN_DT_FORMAT
+            data = self.asset_specific_data
+
+            identifier = data[:2].decode()
+
+            if identifier in ("AT", "DT"): # common to both formats
+                self.at_type = identifier
+                self.multiplier = int.from_bytes(getfmt(data, at_fmt, "mlt"), "big")
+
+            if self.at_type == "DT":
+                if not epoch_length:
+                    self.epoch_length = int.from_bytes(getfmt(data, dt_fmt, "dpl"), "big")
+                if not epoch_quantity:
+                    self.epoch_quantity = int.from_bytes(getfmt(data, dt_fmt, "tq"), "big")
+                if not min_vote:
+                    self.min_vote = int.from_bytes(getfmt(data, dt_fmt, "mnv"), "big")
+                if not sdp_periods:
+                    try:
+                        self.sdp_periods = int.from_bytes(getfmt(data, dt_fmt, "sdq"), "big")
+                        self.sdp_deck = getfmt(data, dt_fmt, "sdd").hex()
+                    except IndexError:
+                        pass # these 2 parameters are optional.
+
+            elif self.at_type == "AT":
+                if not at_address:
+                    self.at_address = getfmt(data, at_fmt, "adr").decode()
+
+    @property ### MODIFIED VERSION TO OPTIMIZE SPEED ###
     def p2th_address(self) -> Optional[str]:
         '''P2TH address of this deck'''
 
         if self.id:
-            return Kutil(network=self.network,
-                         privkey=bytearray.fromhex(self.id)).address
-        else:
-            return None"""
-
-    """@property ### MODIFIED VERSION TO OPTIMIZE SPEED ###
-    def p2th_address(self) -> Optional[str]:
-        '''P2TH address of this deck'''
-
-        global G_p2th_addresses # this is ugly but MUCH faster then previous version, maybe it's possible more elegant
-        if self.id:          
             try:
-                if self.id in G_p2th_addresses:
-                    return G_p2th_addresses[self.id]
-            except NameError:                
-                G_p2th_addresses = {}
-            print(G_p2th_addresses)
-
-            p2th_addr = Kutil(network=self.network,
-                         privkey=bytearray.fromhex(self.id)).address
-            G_p2th_addresses.update({ self.id : p2th_addr })
-            print(G_p2th_addresses)
-            return p2th_addr
-        else:
-            return None"""
-
-    @property ### MODIFIED VERSION 2 TO OPTIMIZE SPEED ###
-    def p2th_address(self) -> Optional[str]:
-        '''P2TH address of this deck'''
-
-        if self.id:          
-            try:
-                if self.p2th_address_stored:
-                    return self.p2th_address_stored
+                if self._p2th_address:
+                    return self._p2th_address
             except AttributeError:                
-                self.p2th_address_stored = Kutil(network=self.network,
+                self._p2th_address = Kutil(network=self.network,
                          privkey=bytearray.fromhex(self.id)).address
 
-            return self.p2th_address_stored
+            return self._p2th_address
         else:
             return None
 
-    @property
-    def p2th_wif(self) -> Optional[str]:
-        '''P2TH privkey in WIF format'''
 
-        if self.id:
-            return Kutil(network=self.network,
+    @property ### MODIFIED VERSION TO OPTIMIZE SPEED ###
+    def p2th_wif(self) -> Optional[str]:
+        '''P2TH address of this deck'''
+
+        if self.id:          
+            try:
+                if self._p2th_wif:
+                    return self._p2th_wif
+            except AttributeError:                
+                self._p2th_wif = Kutil(network=self.network,
                          privkey=bytearray.fromhex(self.id)).wif
+
+            return self._p2th_wif
+        else:
+            return None
+
+    # EXPERIMENTAL: ids for the p2th addresses/keys for donation/proposal/signalling txs
+    # They are stored in a dictionary, to avoid too much code repetition.
+
+    def derived_id(self, tx_type) -> Optional[bytes]:
+        if self.id:
+            try:
+                int_id = int(self.id, 16)
+                derived_id = int_id - P2TH_MODIFIER[tx_type]
+                return derived_id.to_bytes(32, "big")
+            except KeyError:
+                return None
+            except OverflowError:
+                # TODO: this is a workaround, should be done better!
+                # It abuses that the OverflowError only can be raised because number becomes negative
+                # So in theory a Proposal can be a high number, and signalling/donationtx a low one.
+                max_id = int(b'\xff' * 32, 16)
+                new_id = max_id - derived_id # TODO won't work as hex() gives strings!
+                return new_id.to_bytes(32, "big")
+
+        else:
+            return None
+
+    def derived_p2th_wif(self, tx_type) -> Optional[str]:
+        if self.id:    
+            try:
+
+                if self.derived_p2th_wifs[tx_type] is not None:
+                    return self.derived_p2th_wifs[tx_type]
+
+            except AttributeError:
+                self.derived_p2th_wifs = { tx_type : Kutil(network=self.network,
+                         privkey=self.derived_id(tx_type)).wif }
+
+            except KeyError:                
+                self.derived_p2th_wifs.update({ tx_type : Kutil(network=self.network,
+                         privkey=self.derived_id(tx_type)).wif })
+
+            return self.derived_p2th_wifs[tx_type]
+        else:
+            return None
+
+    def derived_p2th_address(self, tx_type) -> Optional[str]:
+
+        if self.id:    
+
+            try:
+                if self.derived_p2th_addresses[tx_type] is not None:
+                    return self.derived_p2th_addresses[tx_type]
+            except AttributeError:
+                self.derived_p2th_addresses = { tx_type : Kutil(network=self.network,
+                         privkey=self.derived_id(tx_type)).address }
+            except KeyError:                
+                self.derived_p2th_addresses.update({ tx_type : Kutil(network=self.network,
+                         privkey=self.derived_id(tx_type)).address })
+
+            return self.derived_p2th_addresses[tx_type]
         else:
             return None
 
@@ -259,6 +332,7 @@ class CardBundle:
 
 class CardTransfer:
 
+
     def __init__(self, deck: Deck, 
                  receiver: list=[],
                  amount: List[int]=[],
@@ -273,7 +347,9 @@ class CardTransfer:
                  blocknum: int=None,
                  timestamp: int=None,
                  tx_confirmations: int=None,
-                 type: str=None) -> None:
+                 type: str=None,
+                 move_txid: str=None,
+                 donation_txid: str=None) -> None:
 
         '''CardTransfer object, used when parsing card_transfers from the blockchain
         or when sending out new card_transfer.
@@ -328,16 +404,37 @@ class CardTransfer:
             self.cardseq = 0
             self.tx_confirmations = 0
 
-        ### ADDRESSTRACK ###
-        # if deck contains correct addresstrack-specific metadata and the card references a txid
-        # card type is CardIssue. Will be validated later by custom parser.
-        # modified order because with addresstrack, deck issuer can be the receiver.
+        ### AT ###
+        # if deck contains correct addresstrack-specific metadata and the card references a txid,
+        # the card type is CardIssue. Will be validated later by custom parser.
+        # modified order because with AT tokens, deck issuer can be the receiver.
+        # CardBurn is not implemented in AT, because the deck issuer should be
+        # able to participate normally in the transfer process. Cards can however
+        # be burnt sending them to unspendable addresses.
 
         if deck.issue_mode == IssueMode.CUSTOM.value:
-            if is_addresstrack_deck_datastring(deck.asset_specific_data) == True:
-                if is_addresstrack_issuance_data(self.asset_specific_data) == True:
+
+            if is_at_deck(deck.asset_specific_data) == True:
+
+                dt_fmt = CARD_ISSUE_DT_FORMAT
+                if is_at_cardissue(self.asset_specific_data) == True:
+
                     self.type = "CardIssue"
+
+                    if not donation_txid:
+                        self.donation_txid = getfmt(self.asset_specific_data, dt_fmt, "dtx").hex()
+                    else:
+                        self.donation_txid = donation_txid
+                  
+                    # TODO: for now ID is hardcoded, should be changed
+                    if deck.asset_specific_data[:2] == b'DT' and not move_txid:
+
+                        if len(self.asset_specific_data) > 35:
+                            self.move_txid = getfmt(self.asset_specific_data, dt_fmt, "mtx").hex()
+                        else:
+                            self.move_txid = None
                 else:
+
                     self.type = "CardTransfer" # includes, for now, issuance attempts with completely invalid data
 
         elif self.sender == deck.issuer:
@@ -363,6 +460,9 @@ class CardTransfer:
 
         if type:
             self.type = type
+
+    def deck_data(self): ### ADDRESSTRACK: needed for parser. Look for a more elegant solution. ###
+        return deck.asset_specific_data
 
     @property
     def metainfo_to_protobuf(self) -> bytes:
@@ -428,7 +528,7 @@ def validate_card_issue_modes(issue_mode: int, cards: list, provider: Provider=N
     """validate cards against deck_issue modes"""
     ### ADDRESSTRACK modification: including provider variable for custom parser ###
 
-    if len(cards) == 0: ### MODIF., else if there are no cards, cards[0] cannot work ###
+    if len(cards) == 0: ### MODIF: if there are no cards, cards[0] cannot work ###
         return []
 
     supported_mask = 63  # sum of all issue_mode values

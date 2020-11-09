@@ -93,8 +93,62 @@ PeercoinTestnet = Constants(
     op_return_max_bytes=256
 )
 
+SlimcoinMainnet = Constants(
+    name='slimcoin',
+    shortname='slm',
+    base58_prefixes={
+        'S': 'p2pkh',
+        's': 'p2sh', ##
+    },
+    base58_raw_prefixes={
+        'p2pkh': bytearray(b'\x37'), ##
+        'p2sh': bytearray(b'\x75'), ##
+    },
+    bech32_hrp='', ## no bech32 support
+    bech32_net='', ## no bech32 support
+    xkeys_prefix='x', ##
+    xpub_version=b'\x04\x88\xb2\x1e', ##
+    xprv_version=b'\x04\x88\xad\xe4', ##
+    wif_prefix=0xb7, ##
+    from_unit=Decimal('1e-6'), ## should be similar to PPC
+    to_unit=Decimal('1e6'), ## should be similar to PPC
+    min_tx_fee=Decimal(0.01),
+    tx_timestamp=True, ## should be True
+    tx_out_cls=PeercoinTxOut, ## should be similar to PPC
+    op_return_max_bytes=80 ## should be 80
+)
 
-networks = (PeercoinMainnet, PeercoinTestnet,)
+### MODIFIED: changed testnet min_fee to 0.01, 0.001 does not work! ###
+
+### ## -> revisar ### 
+
+SlimcoinTestnet = Constants(
+    name='slimcoin-testnet',
+    shortname='tslm',
+    base58_prefixes={
+        'm': 'p2pkh',
+        'n': 'p2pkh', ## dudoso
+    },
+    base58_raw_prefixes={
+        'p2pkh': bytearray(b'\x6f'), ##
+        'p2sh': bytearray(b'\xc4'), ##
+    },
+    bech32_hrp='', ## no support
+    bech32_net='', ## no support
+    xkeys_prefix='t', ##
+    xpub_version=b'\x04\x35\x87\xcf', ##
+    xprv_version=b'\x04\x35\x83\x94', ##
+    wif_prefix=0xef, ##
+    from_unit=Decimal('1e-6'), ## should be similar
+    to_unit=Decimal('1e6'), ## should be similar
+    min_tx_fee=Decimal(0.01),
+    tx_timestamp=True, ## should be True
+    tx_out_cls=PeercoinTxOut, ## see above
+    op_return_max_bytes=80 ## should be 80
+)
+
+
+networks = (PeercoinMainnet, PeercoinTestnet, SlimcoinMainnet, SlimcoinTestnet)
 
 
 def net_query(name: str) -> Constants:
