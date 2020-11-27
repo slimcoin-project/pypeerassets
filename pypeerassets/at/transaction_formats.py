@@ -10,12 +10,12 @@ Format is a a dictionary with tuples:
 Note: OP_RETURN has 100 bytes maximum, so no large numbers of items can be stored.
 """
 
-ID_LEN = 2 # TODO: this has to be changed to 1. For the testing purposes it can stay at 2.
+ID_LEN = 2 # TODO: this maybe has to be changed to 1. For the testing purposes it can stay at 2.
 TX_LEN = 32 # length of all items comprising TXIDs
 EPOCH_LEN = 2 # up to 65535 epochs
 SLOTAC_LEN = 2 # slot allocation, up to 65535 blocks (~65 days).
 AMOUNT_LEN = 6 # up to 256 million SLM
-MLT_LEN = 2 # multiplier of up to 65535
+MLT_LEN = 2 # multiplier of up to 65535 # only AT
 DP_LEN = 3 # distribution length of up to ~16 million blocks
 MNV_LEN = 1 # minimum vote (0/256 to 256/256)
 TQ_LEN = 2 # token quantity per round, up to 65535
@@ -24,14 +24,14 @@ SDP_LEN = 1 # sdp periods, up to 256
 # some general constants (originally in parser file, but we need them elsewhere.)
 
 # This is the minimum amount of blocks after a new epoch start before a new voting or slot allocation period can start, to prevent any edge effects.
-# TODO: This would better be realized as a variable depending from epoch length. Minimum can stay 2.
-DEFAULT_SECURITY_PERIOD=1
+# TODO: This would better be realized as a variable depending from epoch length. Minimum can stay at 1.
+DEFAULT_SECURITY_PERIOD = 1
 # roughly equivalent to 7 days; 1 day has between ~960 and ~1100 blocks
-DEFAULT_VOTING_PERIOD=1 # test for PPC # was 7500 
+DEFAULT_VOTING_PERIOD = 1 # test for PPC # was 7500 
 
 # slot allocation phases/rounds
-PHASE1_ROUNDS=(0,1,2,3)
-PHASE2_ROUNDS=(4,5,6,7,8)
+PHASE1_ROUNDS = (0, 1, 2, 3)
+PHASE2_ROUNDS = (4, 5, 6, 7, 8)
 
 # Proposal transaction
 # TODO: Maybe previous_txid is not necessary, it could be enough to use the epoch where the vote took place.
@@ -93,8 +93,7 @@ CARD_ISSUE_DT_FORMAT = { "id" : (0, ID_LEN),
 
 # Deck Spawn
 # Deck data for AT: 2 bytes as AT identifier, Multiplier (2 bytes, up to 65535), Address (rest).
-# Deck data for DT: 2 bytes as DT identifier, Multiplier (2 bytes), length of distribution period (3 bytes, up to ~16 million), tokens per distribution period (2 bytes, up to 65535), Proposer vote threshold (1 byte), Special Distribution periods (1 byte), TXID of deck of SDP token (32 bytes) => 42 bytes
-# TODO: The multiplier should be better be of base 10 (e.g. 10**2, 10**3 ...). If we allow numbers like 3 there could be inaccuracies due to incorrect divisions.
+# Deck data for DT: 2 bytes as DT identifier, length of distribution period (3 bytes, up to ~16 million), tokens per distribution period (2 bytes, up to 65535), Proposer vote threshold (1 byte), Special Distribution periods (1 byte), TXID of deck of SDP token (32 bytes) => 42 bytes
 
 DECK_SPAWN_AT_FORMAT = { "id" : (0, ID_LEN), # identifier of AT decks
                   "mlt" : (ID_LEN, MLT_LEN), # multiplier
@@ -102,6 +101,14 @@ DECK_SPAWN_AT_FORMAT = { "id" : (0, ID_LEN), # identifier of AT decks
                  }
 
 DECK_SPAWN_DT_FORMAT = { "id" : (0, ID_LEN), # identifier of DT decks
+                  "dpl" : (ID_LEN, DP_LEN), # distribution period length in blocks
+                  "tq" : (ID_LEN + DP_LEN, TQ_LEN), # token quantity
+                  "mnv" : (ID_LEN + DP_LEN + TQ_LEN, MNV_LEN), # minimum vote
+                  "sdq" : (ID_LEN + DP_LEN + TQ_LEN + MNV_LEN, SDP_LEN),
+                  "sdd" : (ID_LEN + DP_LEN + TQ_LEN + MNV_LEN + SDP_LEN, TX_LEN)
+                 }
+
+DECK_SPAWN_DT_FORMAT_OLD = { "id" : (0, ID_LEN), # identifier of DT decks
                   "mlt" : (ID_LEN, MLT_LEN), # multiplier
                   "dpl" : (ID_LEN + MLT_LEN, DP_LEN), # distribution period length in blocks
                   "tq" : (ID_LEN + MLT_LEN + DP_LEN, TQ_LEN), # token quantity

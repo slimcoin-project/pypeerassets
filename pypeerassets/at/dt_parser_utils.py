@@ -190,15 +190,25 @@ def get_valid_ending_proposals(pst, deck):
         if votes_round1["positive"] <= votes_round1["negative"]:
             continue
 
+        
         valid_proposals.update({pstate.first_ptx.txid : pstate})
+
+    # Set the Distribution Factor (number to be multiplied with the donations, according to proposals and token amount)
+    # Must be in a second loop as we need the complete list of valid proposals which end in this epoch.
+    # Maybe this can still be optimized, with a special case if there is a single proposal in this epoch.
+
+    for pstate in valid_proposals.values():
+        if not pstate.dist_factor:
+            pstate.set_dist_factor(valid_proposals.values())
 
     return valid_proposals
 
-def was_vout_moved(provider, dtx):
+def was_vout_moved(provider, dtx, card):
     # we need move_txid from asset_specific_data.
-    # TODO: We need to make sure that the tx was signed with the private key of the Proposer, not the key of the Donor.
+    # TODO: We need to make sure that the tx is definitively spendable by the Proposer.
     # This is perhaps already achieved with the check for the output, but if_else structure has to be re-checked.
-    move_tx = provider.getrawtransaction(dtx.move_txid)
+    # MODIFIED: This needs the card parameter. Thus it _probably_ cannot be called from dt_entities :(
+    move_tx = provider.getrawtransaction(card.move_txid)
 
     for vin in move_tx["vin"]:
         if vin["txid"] == dtx.txid and vin["vout"] == 2:
@@ -206,22 +216,6 @@ def was_vout_moved(provider, dtx):
 
     return False
 
-def get_proposal_factor(pst, proposal_state):
-    # Proposal factor: if there is more than one proposal ending in the same epoch,
-    # the resulting slot is divided by the req_amounts of them.
-
-    ending_proposals = [p for p in pst.valid_proposals.values() if p.end_epoch == proposal_state.end_epoch]
-    if pst.debug: print("Ending proposals in the same epoch than the one referenced here:", ending_proposals)
-
-    if len(ending_proposals) > 1:
-        total_req_amount = sum([p.req_amount for p in ending_proposals])
-        proposal_factor = Decimal(proposal_state.req_amount) / total_req_amount
-    else:
-        proposal_factor = 1
-
-    if pst.debug: print("Proposal factor", proposal_factor)
-
-    return proposal_factor
 
 ## SDP
 # TODO: What if there is no SDP token defined? Somebody must vote in the first round.
@@ -297,170 +291,4 @@ def get_votes(pst, proposal, epoch):
 
     return votes
 
-## slot allocation
 
-
-def get_raw_slot(tx, req_amount, slot_rest=0, total_amount=None, round_txes=None):
-    # calculates the slot (maximum donation amount which gets translated into tokens) in a round (rd1-3/5-6))
-    # Important: This is NOT the token amount the donor gets, but the maximum proportion of the token amount per distribution round.
-    # step 1: get signalling txes in round.
-    # MODIFIED: optimized, so no heavy calculations are done always if total_amount is known
-
-    if (total_amount is None) and round_txes:
-        total_amount = sum([tx.amount for tx in round_txes])
-
-    print("Total amount", total_amount, "TX amount", tx.amount, "REQ amount", req_amount, "slot rest", slot_rest)
-    tx_proportion = Decimal(tx.amount) / total_amount
-
-    if slot_rest == 0:
-        max_slot = req_amount * tx_proportion
-    else:
-        max_slot = slot_rest * tx_proportion
-
-    print("Proportion", tx_proportion, "Max slot", max_slot)
-
-    # maximum slot is the transaction amount
-    return min(tx.amount, max_slot)
-
-def get_first_serve_slot(stx, round_txes, slot_rest=Decimal(0)):
-    # assumes chronological order of txes.
-    try:
-        stx_pos = round.txes.index(stx)
-        amounts_to_stx = [ tx.signalled_amount for tx in round_txes[:stx_pos] ]
-        if sum(amounts_to_stx) < slot_rest:
-            return tx.signalled_amount
-        else:
-            return 0
- 
-    except IndexError:
-        return 0
-
-def get_slot(tx, proposal_state, round_txes, dist_round):
-
-    # SIMPLIFIED version without prioritary groups (see below).
-    # slot distribution. Needs to be done by round, as rules are pretty different in each of them.
-    
-    # first 4 rounds require timelocks, so locked_amounts must be initalized.
-    # This is only necessary if there were donations in the first phase.
-
-    print("All normal signalled amounts", proposal_state.signalled_amounts)
-    print("Dist round of current tx:", dist_round)
-    
-    if dist_round in (0, 1, 2, 3):
-        req_amount = proposal_state.first_ptx.req_amount
-        
-        if not proposal_state.locked_amounts:
-            proposal_state.locked_amounts = [0, 0, 0, 0]
-
-        if dist_round == 0:
-            return get_raw_slot(tx, req_amount, total_amount=proposal_state.signalled_amounts[0])   
-
-        slot_rest_rd0 = req_amount - proposal_state.locked_amounts[0]
-
-        if dist_round == 1:
-            return get_raw_slot(tx, req_amount, slot_rest=slot_rest_rd0, total_amount=proposal_state.signalled_amounts[1])
-
-        slot_rest_rd1 = slot_rest_rd1 - proposal_state.locked_amounts[1]
-    
-        if dist_round == 2:
-            return get_raw_slot(tx, req_amount, slot_rest=slot_rest_rd0, total_amount=proposal_state.signalled_amounts[2])
-
-        slot_rest_rd2 = slot_rest_rd2 - proposal_state.locked_amounts[2]
-
-        if dist_round == 3:
-            return get_first_serve_slot(tx, proposal_state.signalling_txes[3], slot_rest=slot_rest_rd2)
-
-    elif dist_round in (4, 5, 6, 7):
-        # For second phase, we take the last valid Proposal Transaction to calculate slot, not the first one.
-        req_amount = proposal_state.valid_ptx.req_amount
-
-        not_donated_amount = req_amount - sum(proposal_state.donated_amounts[:3])
-        print("Not donated amount", not_donated_amount)
-
-        if dist_round == 4:        
-            return get_raw_slot(tx, req_amount, slot_rest=not_donated_amount, total_amount=proposal_state.signalled_amounts[4])
-
-        slot_rest_rd4 = not_donated_amount - proposal_state.donated_amounts[4]
-
-        if dist_round == 5:
-            return get_raw_slot(tx, req_amount, slot_rest=slot_rest_rd4, total_amount=proposal_state.signalled_amounts[5])
-
-        slot_rest_rd5 = not_donated_amount - sum(proposal_state.donated_amounts[4:6])
-
-        if dist_round == 6:        
-            return get_raw_slot(tx, req_amount, slot_rest=slot_rest_rd5, total_amount=proposal_state.signalled_amounts[6])
-
-        slot_rest_rd6 = not_donated_amount - sum(proposal_state.donated_amounts[4:7])
-
-        if dist_round == 7:        
-            return get_first_serve_slot(tx, proposal_state.signalling_txes[7], slot_rest=slot_rest_rd6)
-
-    return None # if dist_round is incorrect
-
-
-def get_slot_new(tx, proposal_state, round_txes, dist_round):
-    # TODO: This is the variant with prioritary groups in round 2/3 and 5/6/7.
-    # slot distribution. Needs to be done by round, as rules are pretty different in each of them.
-
-    # TODO: PRIORITARY GROUP implementation (round 2/3 in phase1 and 5/6/7 in phase2).
-    # instead of signalling transaction, it would be better to work with signalling outputs (because of the slot 2-3/slot 6/7 rules).
-    # -> the thing is that people signalling with ReservedAmounts should not need to create another signalling tx.
-    # thus, we need to change the algorithm so a prior DonationTransaction can also be used for signalling.
-    # first, slot is calculated according to reserved amounts.
-    
-    # first 4 rounds require timelocks, so locked_amounts must be initalized.
-    # This is only necessary if there were donations in the first phase.
-
-    print("All normal signalled amounts", proposal_state.signalled_amounts)
-    print("Dist round of current tx:", dist_round)
-    
-    if dist_round in (0, 1, 2, 3):
-        req_amount = proposal_state.first_ptx.req_amount
-        
-        if not proposal_state.locked_amounts:
-            proposal_state.locked_amounts = [0, 0, 0, 0]
-
-        if dist_round == 0:
-            return get_raw_slot(tx, req_amount, total_amount=proposal_state.signalled_amounts[0])   
-
-        slot_rest_rd0 = req_amount - proposal_state.locked_amounts[0]
-
-        if dist_round == 1:
-            return get_raw_slot(tx, req_amount, slot_rest=slot_rest_rd0, total_amount=proposal_state.signalled_amounts[1])
-
-        slot_rest_rd1 = slot_rest_rd1 - proposal_state.locked_amounts[1]
-    
-        if dist_round == 2:
-            return get_raw_slot(tx, req_amount, slot_rest=slot_rest_rd0, total_amount=proposal_state.signalled_amounts[2])
-
-        slot_rest_rd2 = slot_rest_rd2 - proposal_state.locked_amounts[2]
-
-        if dist_round == 3:
-            return get_first_serve_slot(tx, proposal_state.signalling_txes[3], slot_rest=slot_rest_rd2)
-
-    elif dist_round in (4, 5, 6, 7):
-        # For second phase, we take the last valid Proposal Transaction to calculate slot, not the first one.
-        req_amount = proposal_state.valid_ptx.req_amount
-
-        not_donated_amount = req_amount - sum(proposal_state.donated_amounts[:3])
-        print("Not donated amount", not_donated_amount)
-
-        if dist_round == 4:        
-            return get_raw_slot(tx, req_amount, slot_rest=not_donated_amount, total_amount=proposal_state.signalled_amounts[4])
-
-        slot_rest_rd4 = not_donated_amount - proposal_state.donated_amounts[4]
-
-        if dist_round == 5:
-            return get_raw_slot(tx, req_amount, slot_rest=slot_rest_rd4, total_amount=proposal_state.signalled_amounts[5])
-
-        slot_rest_rd5 = not_donated_amount - sum(proposal_state.donated_amounts[4:6])
-
-        if dist_round == 6:        
-            return get_raw_slot(tx, req_amount, slot_rest=slot_rest_rd5, total_amount=proposal_state.signalled_amounts[6])
-
-        slot_rest_rd6 = not_donated_amount - sum(proposal_state.donated_amounts[4:7])
-
-        if dist_round == 7:        
-            return get_first_serve_slot(tx, proposal_state.signalling_txes[7], slot_rest=slot_rest_rd6)
-
-    return None # if dist_round is incorrect

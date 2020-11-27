@@ -1,9 +1,13 @@
 #!/usr/bin/env python
 
-# basic classes for coin transactions in DT tokens
-# IMPORTANT MODIFICATION: All amounts are now expressed in satoshi, not in "coins" (using the "from_unit" in networks).
+"""Basic classes for coin transactions in DT tokens.
+Note: All coin amounts are expressed in Bitcoin satoshi, not in "coins" (using the "from_unit" in networks)
+This means that the satoshi amounts do not correspond to the minimum unit in currencies like SLM or PPC with less decimal places."""
 
-from btcpy.structs.script import AbsoluteTimelockScript, BaseScript
+from btcpy.structs.script import AbsoluteTimelockScript, HashlockScript, IfElseScript, P2pkhScript, ScriptBuilder
+from btcpy.structs.address import Address
+#from btcpy.lib.parsing import ScriptParser
+
 from pypeerassets.transactions import Transaction, TxIn, TxOut, Locktime
 from pypeerassets.pautils import deck_parser, read_tx_opreturn
 from decimal import Decimal
@@ -11,6 +15,7 @@ from pypeerassets.kutil import Kutil
 from pypeerassets.provider import RpcNode
 from pypeerassets.networks import PeercoinMainnet, PeercoinTestnet, SlimcoinMainnet, SlimcoinTestnet, net_query
 from pypeerassets.at.transaction_formats import getfmt, PROPOSAL_FORMAT, DONATION_FORMAT, SIGNALLING_FORMAT, DEFAULT_VOTING_PERIOD, DEFAULT_SECURITY_PERIOD
+from pypeerassets.at.dt_slots import get_slot
 
 
 # constants
@@ -116,7 +121,7 @@ class TrackedTransaction(Transaction):
 
             if not proposal:
                 # TODO: this is inefficient. We should have to create a ProposalTransaction only once per Proposal.
-                proposal = ProposalTransaction.from_txid(proposal_txid, provider, deck=deck)                                
+                proposal = ProposalTransaction.from_txid(proposal_txid, provider, deck=deck)
 
             object.__setattr__(self, 'deck', proposal.deck)
             object.__setattr__(self, 'proposal_txid', proposal_txid)
@@ -145,21 +150,6 @@ class TrackedTransaction(Transaction):
     def txid(self):
         return self._txid # only getter.
 
-    #@property
-    def dist_round(self):
-        # sets round of donation/signalling tx
-        # should normally be done from outside.
-        try:
-
-            for rd in range(8):
-                min_blockheight = self.proposal.get_round_start(rd)
-                max_blockheight = self.proposal.get_round_start(rd) + (proposal.round_length - 1) # last block of current round
-                if self.blockheight > min_blockheight and self.blockheight <= max_blockheight:
-                    object.__setattr__(self, 'dist_round', rd)
-
-        except AttributeError: # if self.proposal not set
-            object.__setattr__(self, 'dist_round', None)
-
     @classmethod
     def get_basicdata(cls, txid, provider):
         json = provider.getrawtransaction(txid, True)
@@ -168,13 +158,7 @@ class TrackedTransaction(Transaction):
 
     @classmethod
     def from_json(cls, tx_json, provider, network=PeercoinTestnet, deck=None):
-        # identifier = read_tx_opreturn(tx_json["vout"][1])[:2]
-        #if identifier == b'DP':
-        #    tx_type="proposal"
-        #elif identifier == b'DS':
-        #    tx_type="signalling"
-        #elif identifier == b'DD':
-        #    tx_type="donation"
+
         try:
             op_return_hex = tx_json['vout'][1]['scriptPubKey']['asm'][10:]
             #print(op_return_hex)
@@ -219,21 +203,44 @@ class DonationTransaction(TrackedTransaction):
             # TODO: how to handle multiple outputs to donation address? Do we need that?
             donation_out = outs[DONATION_OUTPUT]
 
-            if not timelock:
-                timelock = self.extract_timelock(donation_out)
-            if not secret_hash and (timelock != 0):
-                secret_hash = self.extract_shash(donation_out)
-            if not d_address:
-                d_address = donation_out.script_pubkey.address(network=network)
             if not d_amount:
-                d_amount = donation_out.value # amount in satoshi
+                d_amount = donation_out.value # amount in satoshi            
 
-            if not reserved_amount and len(outs) > 3:
+            if not donation_type:
+
+                # We check the structure of the ScriptPubKey to determine the transaction type.
+                if type(donation_out.script_pubkey) == P2pkhScript: # Direct Donation Transactions are simple P2pkh Scripts
+                    donation_type = 'DDT'
+                elif type(donation_out.script_pubkey) == IfElseScript: # HTLC
+                    donation_type = 'HTLC'
+
+            if donation_type == 'HTLC':
+                try:
+
+                    if not timelock:
+                        timelock = donation_out.script_pubkey.else_script.locktime
+                    if not secret_hash:
+                        secret_hash = donation_out.script_pubkey.if_script.secret_hash
+                    if not d_address:
+                        d_address = donation_out.script_pubkey.if_script.address(network=network)
+
+                except AttributeError:
+                    raise InvalidTrackedTransactionError("Incorrectly formatted HTLC.")
+
+            elif donation_type == 'DDT':
+                if not d_address:
+                    d_address = donation_out.script_pubkey.address(network=network)
+
+
+                    
+            if len(outs) > 3 and not reserved_amount:
 
                 reserved_out = outs[RESERVED_OUTPUT]
                 reserved_amount = reserved_out.value
+                reserve_address = reserved_out.script_pubkey.address(network=network)
                 
 
+        object.__setattr__(self, 'donation_type', donation_type)
         object.__setattr__(self, 'timelock', timelock)
         object.__setattr__(self, 'secret_hash', secret_hash) # secret hash
 
@@ -242,6 +249,9 @@ class DonationTransaction(TrackedTransaction):
         object.__setattr__(self, 'amount', d_amount) # donation amount
 
         object.__setattr__(self, 'reserved_amount', reserved_amount) # Output reserved for following rounds.
+        object.__setattr__(self, 'reserve_address', reserve_address) # Output reserved for following rounds.
+
+        # TODO: these two are still not implemented, but maybe are not necessary. We keep them for now.
         object.__setattr__(self, 'signalling_tx', signalling_tx) # previous signalling transaction, if existing.
         object.__setattr__(self, 'previous_dtx', previous_dtx) # previous donation transaction, if existing. (for later slot allocations).   
 
@@ -274,7 +284,8 @@ class SignallingTransaction(TrackedTransaction):
 
         # MODIFIED to address and amount (before it was signalled_amount/signalling_address)
         object.__setattr__(self, 'amount', s_amount)
-        object.__setattr__(self, 'address', s_address) # perhaps useful for some checks.
+        # address: the "project specific donation address". To preserve privileges in the later rounds it has to be always the same one.
+        object.__setattr__(self, 'address', s_address)
 
 
 class ProposalTransaction(TrackedTransaction):
@@ -290,11 +301,6 @@ class ProposalTransaction(TrackedTransaction):
 
         # this deck_id storage is redundant. It is however perhaps better to do this here.
         # deck_id = getfmt(self.datastr, fmt, "dck").hex() # MODIFIED to hex. check if it does harm.
-
-        # this is the multiplier to the "coin" based req_amount (the number of satoshis for a COIN)
-        # coin_multiplier = int(1 / getattr(network, "from_unit"))
-        # seems wrong, PA uses the satoshi from Bitcoin as base. So we make a constant (see above)
-
 
         epoch_number = int.from_bytes(getfmt(self.datastr, fmt, "eps"), "big")
         round_length = int.from_bytes(getfmt(self.datastr, fmt, "sla"), "big")
@@ -366,7 +372,7 @@ class ProposalState(object):
    # i.e. which can change after the first proposal transaction was sent.
    # TODO: For efficiency the getblockcount call should be made in the parser at the start.
 
-    def __init__(self, valid_ptx, first_ptx, round_starts=[], signalling_txes=[], donation_txes=[], signalled_amounts=[], locked_amounts=[], donated_amounts=[], provider=None, current_blockheight=None, all_signalling_txes=None, all_donation_txes=None):
+    def __init__(self, valid_ptx, first_ptx, round_starts=[], signalling_txes=[], donation_txes=[], signalled_amounts=[], locked_amounts=[], donated_amounts=[], total_donated_amount=None, provider=None, current_blockheight=None, all_signalling_txes=None, all_donation_txes=None, dist_factor=None):
 
         self.valid_ptx = valid_ptx # the last proposal transaction which is valid.
         self.first_ptx = first_ptx # first ptx, in the case there was a Proposal Modification.
@@ -375,13 +381,8 @@ class ProposalState(object):
         self.start_epoch = self.first_ptx.epoch
         self.end_epoch = self.first_ptx.epoch + self.valid_ptx.epoch_number # MODIFIED: first tx is always the base.
 
-        # round attributes -> are lists with values for each of the 8 distribution rounds
-        #if not round_starts:
-        #    self.set_round_starts()
-        #else:
-        #    self.round_starts = round_starts
-
-        # MODIFIED: we only set this if we need it, because phase 2 varies according to Proposal.
+        # Slot Allocation Round Attributes are lists with values for each of the 8 distribution rounds
+        # We only set this if we need it, because phase 2 varies according to Proposal.
         self.round_starts = round_starts 
 
         deck = self.first_ptx.deck
@@ -397,15 +398,14 @@ class ProposalState(object):
         self.locked_amounts = locked_amounts # this is only used during the proposal lifetime (between start and end)
         self.donation_txes = donation_txes
         self.donated_amounts = donated_amounts
-        
-    @property
-    def extract_donation_address(self):
-         # extracts address from sending output.
-        pass
+        self.total_donated_amount = total_donated_amount
 
-    def extract_expiration(self):
-        # extracts expiration from OP_RETURN
-        pass
+        # Factor to be multiplied with token amounts.
+        # It depends on the Token Quantity per distribution period
+        # and the number of coins required by the proposals in the ending period. 
+
+        self.dist_factor = dist_factor 
+
 
     def set_round_starts(self, phase=0):
         # all rounds of first or second phase
@@ -450,87 +450,11 @@ class ProposalState(object):
 
             print(self.round_starts)
 
-
-    def get_round_start(self, dist_round):
-        # This is probably largely obsolete. It doesn't make sense to set this number individually per round, as the calculation amount is very low.
-        # We could neet this however for the application which shows selected donations and slots.
-  
-        epoch_length = self.valid_ptx.deck.epoch_length
-        pre_allocation_period = SECURITY_PERIOD + VOTING_PERIOD 
-
-        if len(self.round_txes) == 0:
-            self.round_starts = [[]] * 9
-
-        if dist_round < 5:
-            distribution_length = pre_allocation_period + (self.first_ptx.round_length * 4) # or better first ptx?
-            # blocks in epoch: blocks which have passed since last epoch start.
-            blocks_in_epoch = (self.first_ptx.blockheight - (self.start_epoch - 1) * epoch_length)
-            blocks_remaining = epoch_length - blocks_in_epoch
-
-            # - should this be integrated as "voting_epoch" into proposal object ??
-            if blocks_remaining > distribution_length:
-                epoch = self.start_epoch
-            else:
-                epoch = self.start_epoch + 1
-
-            period_round = dist_round # in period 1, dist_round is equivalent to period_round.
-                 
-        else:
-            epoch = self.end_epoch # final vote/distribution should always begin at the start of the end epoch.
-            period_round = dist_round - 4 # round 5 is round 1 of second period.
-
-        epoch_start = (epoch - 1) * epoch_length
-        round_start = epoch_start + pre_allocation_period + ((period_round - 1)* round_length)
-
-        self.round_starts[dist_round] = round_start
-
-    # @property
-    # TODO changed: if it's a property it interferes with __init__
-    # MODIFIED: this now only addes txes, is not used anymore in __init__. Should be used per round.
-    def add_signalling_txes(self, all_signalling_txes):
-        for tx in all_signalling_txes:
-            if (tx.proposal_txid == self.txid) and (tx not in self.donation_txes):
-                signalling_txes.append(tx)
-        return signalling_txes
-
-    # @property
-    def add_donation_txes(self, all_donation_txes):
-        # TODO: must DDT transactions be treated differently than timelocked transactions?
-        for tx in all_donation_txes:
-            if (tx.proposal_txid == self.txid) and (tx not in self.donation_txes):
-                donation_txes.append(tx)
-        return donation_txes
-         
-
-    def get_round_txes(self, dist_round, txes):
-        # gets the donation or signalling txes in a round. Does not need a pre-selection by proposal (TODO: see if this is the most efficient approach).
-        # Probably largely obsolete, except for the app which shows slots when they are distributed.
-        # dist_round starts at 0.
-        # argument for 1: we can use 0 to use the start of dist_round 1.
-        # but what to do with round 5 (first round of period 2)?
-        min_blockheight = self.get_round_start(dist_round)
-        max_blockheight = self.get_round_start(dist_round) + (ptx.round_length - 1) # - 1 because otherwise next round start block would be included.
-
-        # gets all txes which compete in a specified distribution round for a Proposal (ptx=proposal transaction).
-        for tx in txes:
-
-            if tx.proposal != self.txid:
-                continue
-
-            if tx.blockheight < min_blockheight:
-                continue
-            elif tx.blockheight >= max_blockheight:
-                break # assumes strict chronological order in listtransactions. TODO: check that!
-
-        round_txes[dist_round].append[tx]
-        return round_txes
-
-
     def set_phase_txes_and_amounts(self, txes, tx_type, phase=0):
-        # This is the main loop called in __init__
-        # sets the donation or signalling txes and amounts in ALL rounds of a phase, or in both phases.
-        # phase 0: both phases are done
+        # sets the donation or signalling txes and amounts in all rounds of a phase, or in both phases.
+        # phase 0 means both phases
         # TODO: self.donated_amounts in phase 1 needs a check for locked and moved amounts.
+        # TODO: set reserved amounts and locked amounts.
 
         if len(self.round_starts) == 0: # TODO: check if we must differentiate per phase in check!
             self.set_round_starts(phase)
@@ -541,6 +465,8 @@ class ProposalState(object):
 
         round_txes = [[],[],[],[],[],[],[],[],[]] # [[]] * 9 leads to a strange bug, appends to all elements
         round_amounts = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+        completed_donations = [[],[],[],[],[],[],[],[],[]]
+        donated_amounts = [0, 0, 0, 0, 0, 0, 0, 0, 0]
 
         
         if tx_type == "signalling":
@@ -551,7 +477,7 @@ class ProposalState(object):
             end_offset = round_length - 1
 
         if phase == 0:
-            rounds = list(range(8))
+            rounds = range(8)
         elif phase == 1:
             rounds = range(4)
         elif phase == 2:
@@ -564,13 +490,28 @@ class ProposalState(object):
             # print("Checking tx", tx.txid, "of type", tx_type, "at block", tx.blockheight, "Round starts:", self.round_starts)
 
             for rd in rounds:
-
                 rd_start, rd_end = self.round_starts[rd] + start_offset, self.round_starts[rd] + end_offset
+                if rd_start <= tx.blockheight and tx.blockheight < rd_end:                    
+                    # special rules for round 2/3 and 5/6 (priority groups)
+                    if (tx_type == "signalling") and (not self.validate_priority(tx, rd)):
+                        break
 
-                if rd_start <= tx.blockheight and tx.blockheight < rd_end:
+                    if tx_type == "donation":
+                        # check of the timelock in round 1-4.
+                        if not self.validate_timelock(tx, rd)):
+                            break
+                        # to be added to completed donations, in rd 1-4 it is necessary
+                        # that the vout is moved to the Proposer.
 
+                        if (rd >= 4) or (was_vout_moved(self.provider, tx)):
+                            completed_donations[rd].append(tx)
+                            donated_amounts[rd] += tx.amount
+                        
                     round_txes[rd].append(tx)
                     round_amounts[rd] += tx.amount
+
+                    # check for completed donations
+                    break
 
         # print("Round txes:", round_txes)
 
@@ -582,44 +523,139 @@ class ProposalState(object):
                 self.signalled_amounts = round_amounts
 
             elif phase == 2:
-                self.signalling_txes[4:] = round_amounts[4:]
+
+                self.signalling_txes[4:] = round_txes[4:]
+                self.signalled_amounts[4:] = round_amounts[4:]
 
 
         elif tx_type == "donation":
 
+            # As the timelock was checked here, all tx amounts can be added to locked_amounts.
+            # It is only added to donated amounts if it is in phase 5+ or the output was already moved, or it is a DDT.
             if not self.donation_txes or (phase in (0, 1)):
 
                 self.donation_txes = round_txes
-                self.donated_amounts = round_amounts
+                self.locked_amounts = round_amounts
+
 
             elif phase == 2:
-                self.donation_txes[4:] = round_amounts[4:]
+                self.donation_txes[4:] = round_txes[4:]
+                self.locked_amounts[4:] = round_amounts[4:]
 
-    def get_round_amounts(self, dist_round, txes, tx_type="signalling"):
-        # can be used for signalling, locked and donated amounts.
-        if len(self.round_amounts) == 0:
-            self.round_amounts = [[]] * 9
-        amount = Decimal(0)
-        for tx in self.get_round_txes(txes, dist_round):
-            amount += tx.signalled_amount
-        self.round_amounts[dist_round] = amount
+            if phase in (0,2): # these values are set at the end of all calculations.
 
+                self.completed_donations = completed_donations
+                self.donated_amounts = donated_amounts
+                self.total_donated_amount = sum(self.donated_amounts)
+
+    def set_dist_factor(self, ending_proposals):
+        # Proposal factor: if there is more than one proposal ending in the same epoch,
+        # the resulting slot is divided by the req_amounts of them.
+        # This is set in the function dt_parser_utils.get_valid_ending_proposals.
+
+        # ending_proposals = [p for p in pst.valid_proposals.values() if p.end_epoch == proposal_state.end_epoch]
+
+        if pst.debug: print("Ending proposals in the same epoch than the one referenced here:", ending_proposals)
+
+        if len(ending_proposals) > 1:
+            total_req_amount = sum([p.req_amount for p in ending_proposals])
+            self.dist_factor = Decimal(self.req_amount) / total_req_amount
+        else:
+            self.dist_factor = Decimal(1)
+
+        if pst.debug: print("Dist factor", self.dist_factor)
+
+
+    def validate_priority(self, stx, dist_round):
+        """Validates the priority of signalling transactions in round 2, 3, 5 and 6."""
+
+        if dist_round in (0, 3, 6, 7):
+            return True # rounds without priority check
+
+        elif dist_round == 4: # rd 5 is special because all donors of previous rounds are admitted.
+            valid_rounds = (0, 1, 2, 3)
+
+        else:
+            valid_rounds = (dist_round - 1)
+
+        for rd in valid_rounds:
+            # idea: check if address in stx is found in donation txes of previous rounds.
+            for dtx in self.donation_txes[rd]:
+                if stx.address == dtx.reserve_address:
+                    # was slot filled?
+                    # TODO: check how this works with ProposalModifications which increase req_amount.
+                    if dtx.amount >= get_slot(dtx, self.req_amount, total_amount=self.signalled_amounts[rd], dist_round=rd):
+                        return True
+        return False
+
+    def validate_timelock(self, dtx, dist_round):
+        """Checks that the timelock of the donation is correct."""
+        if dist_round > 3:
+            return True
+        # Timelock must be set at least to the block height of the start of round 5.
+        elif dtx.timelock >= self.round_starts[4]:
+            return True
+        else:
+            return False
+        
+# Scripts for HTLC
+# we can use the verify function to extract the locktime from the script.
+# Script (with opcodes) -> bytes: compile function
+# bytes -> Script: decompile
 
 class DonationTimeLockScript(AbsoluteTimelockScript):
 
-    def __init__(raw_locktime, dest_address):
+    def __init__(self, raw_locktime, dest_address_string, network=PeercoinTestnet):
         """
         :param args: if one arg is provided it is interpreted as a script, which is in turn
         verified and `locktime` and `locked_script` are extracted. If two args are provided,
         they are interpreted as `locktime` and `locked_script` respectively, the script is
         then generated from these params
         """
+        dest_address = Address.from_string(dest_address_string, network=network)
         locktime = Locktime(raw_locktime)
-        locked_script = BaseScript(dest_address)
+        locked_script = P2pkhScript(dest_address)
         super().__init__(locktime, locked_script)
 
-class DonationHashLockScript():
-    pass
+
+class DonationHashLockScript(Hashlock256Script):
+    def __init__(self, locking_hash, dest_address, network=PeercoinTestnet):
+        """first arg: hash, second arg: locked script. """
+        dest_address = Address.from_string(dest_address_string, network=network)
+        locked_script = P2pkhScript(dest_address)
+        super().__init__(locking_hash, locked_script)
+
+
+
+class DonationHTLC(IfElseScript):
+    """The Donation HTLC is an If-Else-script with the following structure:
+       - IF a secret is provided, the Proposer can spend the money. 
+       - ELSE if the timelock expires, the Donor can spend the money. """
+
+    def __init__(timelock_address, hashlock_address, raw_locktime, locking_hash, network=PeercoinTestnet):
+        hashlockscript = DonationHashLockScript(locking_hash, hashlock_address, network=PeercoinTestnet)
+        timelockscript = DonationTimeLockScript(raw_locktime, timelock_address, network=network)
+        super().__init__(hashlockscript, timelockscript)
+
+    @staticmethod
+    def from_txdata(txjson, vout):
+        return ScriptBuilder.identify(txjson["vout"][vout]["scriptPubKey"]["hex"])
+
+    @classmethod
+    def from_scriptpubkey(scriptpubkey):
+        return cls(scriptpubkey)
+
+    def extract_locktime(self):
+        return self.else_script.locktime
+
+    def extract_hash(self):
+        return self.if_script.hash
+
+    def extract_proposer_address(self):
+        return self.if_script.locked_script.address(network=network)
+
+    def extract_donor_address(self):
+        return self.else_script.locked_script.address(network=network)
 
 
 class InvalidTrackedTransactionError(ValueError):

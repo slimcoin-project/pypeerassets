@@ -11,6 +11,7 @@ from pypeerassets.at.dt_entities import ProposalTransaction, ProposalState, Sign
 from pypeerassets.at.dt_entities import InvalidTrackedTransactionError, COIN_MULTIPLIER
 from pypeerassets.at.transaction_formats import *
 from pypeerassets.at.dt_parser_utils import *
+from pypeerassets.at.dt_slots import get_slot, get_raw_slot, get_first_serve_slot
 from pypeerassets.__main__ import find_all_valid_cards
 
 class ParserState(object):
@@ -68,11 +69,9 @@ def validate_proposer_issuance(pst, dtx_id, decimal_card_amount, card_sender, ca
     if len(proposal_state.donation_txes) == 0:
         proposal_state.set_phase_txes_and_amounts(pst.donation_txes, "donation")
 
-    total_donated_amount = sum(proposal_state.donated_amounts)
-    unmultiplied_card_amount = Decimal(card_satoshis) / pst.deck.multiplier
+    missing_donations = req_amount - proposal_state.total_donated_amount
 
-    proposal_factor = get_proposal_factor(pst, proposal_state)
-    if unmultiplied_card_amount != (req_amount - total_donated_amount) * proposal_factor:
+    if card_satoshis != missing_donations * proposal_state.dist_factor:
         return False
 
     return True
@@ -102,16 +101,17 @@ def validate_donation_issuance(pst, dtx_id, dtx_vout, card_satoshis, move_txid):
         if pst.debug: print("Proposal state does not exist.")
         return False
 
-    # this seems the most efficient way: only associate donation/signalling txes to a Proposal
-    # which really correspond to a card (token unit[s]) issued.
-    # This way, fake/no participation proposals and donations with no associated card issue attempts are ignored.
+    # We only associate donation/signalling txes to a Proposal which really correspond to a card (token unit[s]) issued.
+    # This way, fake/no participation proposals and donations with no associated card issue attempts are ignored,
+    # which could be a way to attack the system with spam.
+
     if len(proposal_state.signalling_txes) == 0:
         proposal_state.set_phase_txes_and_amounts(pst.signalling_txes, "signalling")
 
     if len(proposal_state.donation_txes) == 0: 
         proposal_state.set_phase_txes_and_amounts(pst.donation_txes, "donation")
 
-    if pst.debug: print("Number of txes in all rounds:", len([tx for round in proposal_state.donation_txes for tx in round ]))
+    if pst.debug: print("Number of txes in all rounds:", len([tx for r in proposal_state.donation_txes for tx in r ]))
 
     # check A2: is donation address correct?
 
@@ -169,65 +169,80 @@ def validate_donation_issuance(pst, dtx_id, dtx_vout, card_satoshis, move_txid):
     # check A6: was the transaction correctly signalled?
     # TODO: It could be better to attach the signalling tx to the donation tx, but only if we re-use this frequently
     # We don't need to re-check signalling tx, because correct "marking" is already done in get_marked_transactions, and amount is checked here.
-    try:
-        round_signalling_txes = proposal_state.signalling_txes[dist_round]
+    round_signalling_txes = proposal_state.signalling_txes[dist_round]
 
-    except IndexError: # can this happen?
+    # We check the inputs of the donation transaction, and if one of them corresponds to a correct signalling transaction,
+    # or a donation transaction with reserved amount.
+    input_transactions = [txin.txid for txin in dtx.ins]
 
-        return False
-
-    for txin in dtx.ins:
-
-        if pst.debug: print("TXIN txid", txin.txid)
-
-        for stx in round_signalling_txes:
-
-            if (txin.txid == stx.txid):
-
-                if pst.debug: print("Signalled amount:", stx.amount)
-                if pst.debug: print("Card amount in satoshi:", card_satoshis)
-
-                # the donor must have signalled at least the amount of the card. They cannot issue more than signalled.
-                if card_satoshis > stx.amount:
-
-                    continue # it is possible that there are different stxes (e.g. because of an error of the signaller)
-
-                else:
-
-                    correct_signalled = True
-                    if pst.debug: print("Correct amount signalled.")
-                    break
-
-        if correct_signalled:
+    for stx in round_signalling_txes:
+        if stx.txid in input_transactions:
+            correct_signalling_tx = stx
             break
 
+        #if pst.debug: print("Signalled amount:", stx.amount)
+        #if pst.debug: print("Card amount in satoshi:", card_satoshis)
+
+        # the donor must have signalled at least the amount of the card. They cannot issue more than signalled.
+        # TODO this is wrong, as it doesn't take into account the token distribution. Maybe get rid of this check?
+        #if card_satoshis < stx.amount:
+
+        #    if pst.debug: print("Correct amount signalled.")
+        #    break
+
     else:
-        if pst.debug: print("Incorrect signalled amount.")
-        return False
+
+        # If no signalling transaction is found, check for a donation transaction with reserved output.
+        # This is only done in the rounds with priority groups: In round 1,2 and 5 it's the donations
+        # inmediately before, in round 4 it's all donations in rounds 0-3.
+        # In rounds 4 and 5 the donations are checked for validity (only valid_donations are counted).
+
+        if dist_round in (1, 2):
+            reserve_dtxes = proposal_state.donation_txes[dist_round - 1]
+
+        elif dist_round == 4:
+            reserve_dtxes = [d for rd in proposal_state.valid_donations[:4] for d in rd])
+        elif dist_round == 5:
+            reserve_dtxes = proposal_state.valid_donations[4])
+        else:
+            reserve_dtxes = [] # we can already break this for round 0, 3, 6 and 7.
+ 
+        for reserve_dtx in reserve_dtxes:
+            if reserve_dtx.txid in input_transactions:
+                correct_signalling_tx = reserve_dtx
+                break
+
+        else:
+            if pst.debug: print("Donation not signalled correctly.")
+            return False
 
     # check A5: slot check - token amount must correspond to slot and proposal factor.
+    # The slot is the "maximum proportion of the total donated coins" which can be transformed into tokens,
+    # according to the slot rules of each round.
 
     # card_satoshis is the card amount if it were measured in satoshis (so it's always int)
-    # we divide it through the multiplier (e.g. 1000)
-    # should the multiplier only be allowed base 10? Otherwise we could get problems with multipliers like 3.
-    # Important: The slot uses the BITCOIN (not the Peercoin) satoshi as its base unit (0.00000001). 
+    # Important: The slot uses the Bitcoin (not the Peercoin) satoshi as its base unit (0.00000001). 
     # This means, all "COIN" values have to be multiplied by the COIN_MULTIPLIER (100000000)
-    # The multiplier is also based on the COIN value.
-    # MODIFIED: changed to STX.
 
-    slot = get_slot(stx, proposal_state, round_donations, dist_round)
+    # TODO: Review if get_slot takes into account the new dist_factor, which is calculated only once per proposal.
+
+    # The slot is the optimal donation amount.
+    slot = get_slot(correct_signalling_tx, proposal_state, round_donations, dist_round)
+
+    # The effective slot is the real amount to be taken into account as slot.
+    # If the donor donated more than his slot, he does not get the right to issue more tokens.
+    effective_slot = min(slot, dtx.amount)
 
     if pst.debug: print("Slot", slot)
+    if pst.debug: print("Real donation", dtx.amount)
     if pst.debug: print("Card amount in satoshi", card_satoshis)
-    if pst.debug: print("Multiplier", pst.deck.multiplier)
+    if pst.debug: print("Distribution Factor", proposal_state.dist_factor)
 
-    unmultiplied_card_amount = Decimal(card_satoshis) / pst.deck.multiplier
+    # The allowed amount is the proportion of the slot in relation to the complete required amount of the Proposal, token quantity per epoch.
+    slot_proportion = Decimal(effective_slot) / proposal_state.req_amount
+    allowed_amount = slot_proportion * deck.epoch_quantity * proposal_state.dist_factor
 
-    if pst.debug: print("Multiplier un-applied to amount:", unmultiplied_card_amount)
-
-    proposal_factor = get_proposal_factor(pst, proposal_state)
-
-    if (unmultiplied_card_amount * proposal_factor) > slot:
+    if card_satoshis > allowed_amount:
         if pst.debug: print("Incorrect amount, higher than assigned slot.")
         return False
     else:

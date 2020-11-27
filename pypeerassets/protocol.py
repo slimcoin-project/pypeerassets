@@ -110,9 +110,8 @@ class Deck:
 
             if identifier in ("AT", "DT"): # common to both formats
                 self.at_type = identifier
-                self.multiplier = int.from_bytes(getfmt(data, at_fmt, "mlt"), "big")
 
-            if self.at_type == "DT":
+            if identifier == "DT":
                 if not epoch_length:
                     self.epoch_length = int.from_bytes(getfmt(data, dt_fmt, "dpl"), "big")
                 if not epoch_quantity:
@@ -127,6 +126,7 @@ class Deck:
                         pass # these 2 parameters are optional.
 
             elif self.at_type == "AT":
+                self.multiplier = int.from_bytes(getfmt(data, at_fmt, "mlt"), "big")
                 if not at_address:
                     self.at_address = getfmt(data, at_fmt, "adr").decode()
 
