@@ -27,7 +27,9 @@ SDP_LEN = 1 # sdp periods, up to 256
 # TODO: This would better be realized as a variable depending from epoch length. Minimum can stay at 1.
 DEFAULT_SECURITY_PERIOD = 1
 # roughly equivalent to 7 days; 1 day has between ~960 and ~1100 blocks
-DEFAULT_VOTING_PERIOD = 1 # test for PPC # was 7500 
+DEFAULT_VOTING_PERIOD = 1 # test value for PPC # was 7500
+# This should also be equivalent to 7 days to give donors enough time to release donations.
+DEFAULT_RELEASE_PERIOD = 1 # test value for PPC # should be reset to 7500 in SLM
 
 # slot allocation phases/rounds
 PHASE1_ROUNDS = (0, 1, 2, 3)
@@ -119,11 +121,14 @@ DECK_SPAWN_DT_FORMAT_OLD = { "id" : (0, ID_LEN), # identifier of DT decks
 
 ######## P2TH ########
 """ PRELIMINARY convention for now:
-- proposal: deck p2th -1
-- signalling: deck p2th +1
-- donation: deck p2th +2
+- proposal: deck p2th +1
+- voting: deck p2th +2
+- donation: deck p2th +3
+- signalling: deck p2th +4
+- locking: deck p2th +5
 """
-P2TH_MODIFIER = { "donation" : 1, "signalling" : 2, "proposal" : 3 }
+P2TH_MODIFIER = { "proposal" : 1, "voting" : 2, "donation" : 3, "signalling" : 4, "locking" : 5 } # modified 11/30, ordered by importance
+# original P2TH_MODIFIER = { "signalling" : 1, "donation" : 2, "proposal" : 3 }
 
 def getfmt(strvar, fmt, key):
   # this function returns the part of a string or bytes variable defined in these formats.
