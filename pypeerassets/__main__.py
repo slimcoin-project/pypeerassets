@@ -163,7 +163,6 @@ def find_card_bundles(provider: Provider, deck: Deck) -> Optional[Iterator]:
 
         p2th_account = provider.getaccount(deck.p2th_address)
         batch_data = [('getrawtransaction', [i["txid"], 1]) for i in provider.listtransactions(p2th_account)]
-
         result = provider.batch(batch_data)
 
         if result is not None:

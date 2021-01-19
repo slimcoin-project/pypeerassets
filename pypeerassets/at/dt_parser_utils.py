@@ -2,23 +2,29 @@
 
 from decimal import Decimal
 
-from pypeerassets.at.dt_entities import ProposalTransaction, ProposalState, SignallingTransaction, DonationTransaction, LockingTransaction
+from pypeerassets.at.dt_entities import ProposalTransaction, SignallingTransaction, DonationTransaction, LockingTransaction, VotingTransaction
 from pypeerassets.at.dt_entities import InvalidTrackedTransactionError, DONATION_OUTPUT, DATASTR_OUTPUT
+from pypeerassets.at.dt_states import ProposalState
+from pypeerassets.provider import Provider
+from pypeerassets.kutil import Kutil
 from pypeerassets.at.transaction_formats import *
 
 # modified: constants went to at_transaction_formats
 
 ### Address and P2TH tools
 
-def import_p2th_address(provider, p2th_address):
+def import_p2th_address(provider: Provider, p2th_address: str) -> None:
     # this checks if a P2TH address is already imported. If not, import it (only rpcnode).
     p2th_account = provider.getaccount(p2th_address)
-    #print(p2th_account)
+
+    if (type(p2th_account) == dict) and (p2th_account.get("code") == -5):
+        raise ValueError("Invalid address.")
+
     if (p2th_account is None) or (p2th_account != p2th_address):
         provider.importaddress(p2th_address)
         provider.setaccount(p2th_address, p2th_address) # address is also the account name.
 
-def deck_p2th_from_id(network, deck_id):
+def deck_p2th_from_id(network: str, deck_id: str) -> str:
     # helper function giving the p2th.
     return Kutil(network=network,
                          privkey=bytearray.fromhex(deck_id)).address
@@ -32,16 +38,19 @@ def get_marked_txes(provider, p2th_account, min_blockheight=None, max_blockheigh
     # (see import_p2th_address)
 
     if min_blockheight:
-        min_blocktime = provider.getblockheader(provider.getblockhash(min_blockheight))["time"]
+        min_blocktime = provider.getblock(provider.getblockhash(min_blockheight))["time"]
     if max_blockheight:
-        max_blocktime = provider.getblockheader(provider.getblockhash(max_blockheight))["time"]
+        max_blocktime = provider.getblock(provider.getblockhash(max_blockheight))["time"]
     txlist = []
     start = 0
     while True:
         newtxes = provider.listtransactions(p2th_account, 999, start)
         for tx in newtxes:
-           if max_blockheight or min_blockheight:
-              if (tx["blocktime"] > max_blocktime) or (tx["blocktime"] < min_blocktime):
+           if max_blockheight:
+              if tx["blocktime"] > max_blocktime:
+                  continue
+           if min_blockheight:
+              if tx["blocktime"] < min_blocktime:
                   continue
            
            txlist.append(provider.getrawtransaction(tx["txid"], 1))
@@ -50,10 +59,10 @@ def get_marked_txes(provider, p2th_account, min_blockheight=None, max_blockheigh
             return txlist
         start += 999
 
-def get_donation_txes(provider, deck, pst):
-    # gets ALL locking txes of a deck. Needs P2TH.
+def get_donation_txes(provider, deck, pst, min_blockheight=None, max_blockheight=None):
+    # gets ALL donation txes of a deck. Needs P2TH.
     txlist = []
-    for rawtx in get_marked_txes(provider, deck.derived_p2th_address("donation")):
+    for rawtx in get_marked_txes(provider, deck.derived_p2th_address("donation"), min_blockheight=min_blockheight, max_blockheight=max_blockheight):
         try:
             tx = DonationTransaction.from_json(tx_json=rawtx, provider=provider, deck=deck)
             # We add the tx directly to the corresponding ProposalState.
@@ -65,10 +74,10 @@ def get_donation_txes(provider, deck, pst):
     return txlist
 
 
-def get_locking_txes(provider, deck, pst):
+def get_locking_txes(provider, deck, pst, min_blockheight=None, max_blockheight=None):
     # gets all locking txes of a deck. Needs P2TH.
     txlist = []
-    for rawtx in get_marked_txes(provider, deck.derived_p2th_address("locking")):
+    for rawtx in get_marked_txes(provider, deck.derived_p2th_address("locking"), min_blockheight=min_blockheight, max_blockheight=max_blockheight):
         try:
             tx = LockingTransaction.from_json(tx_json=rawtx, provider=provider, deck=deck)
             # We add the tx directly to the corresponding ProposalState.
@@ -80,10 +89,10 @@ def get_locking_txes(provider, deck, pst):
         txlist.append(tx) # check if this is really needed if it already is added to the ProposalState.
     return txlist
 
-def get_signalling_txes(provider, deck, pst):
+def get_signalling_txes(provider, deck, pst, min_blockheight=None, max_blockheight=None):
     # gets all signalling txes of a deck. Needs P2TH.
     txlist = []
-    for rawtx in get_marked_txes(provider, deck.derived_p2th_address("signalling")):
+    for rawtx in get_marked_txes(provider, deck.derived_p2th_address("signalling"), min_blockheight=min_blockheight, max_blockheight=max_blockheight):
         try:
             tx = SignallingTransaction.from_json(tx_json=rawtx, provider=provider, deck=deck)
             # We add the tx directly to the corresponding ProposalState.
@@ -94,10 +103,11 @@ def get_signalling_txes(provider, deck, pst):
         txlist.append(tx) # check if this is really needed if it already is added to the ProposalState.
     return txlist
 
-def get_proposal_txes(provider, deck):
+def get_proposal_txes(provider, deck, min_blockheight=None, max_blockheight=None):
     # gets ALL proposal txes of a deck. Needs P2TH.
+    # TODO: I think this was obsolete, as it's replaced by get_proposal_states. Not included in test suite.
     txlist = []
-    for rawtx in get_marked_txes(provider, deck.derived_p2th_address("proposal")):
+    for rawtx in get_marked_txes(provider, deck.derived_p2th_address("proposal"), min_blockheight=min_blockheight, max_blockheight=max_blockheight):
         try:
             tx = ProposalTransaction.from_json(tx_json=rawtx, provider=provider, deck=deck)
         except InvalidTrackedTransactionError:
@@ -105,12 +115,12 @@ def get_proposal_txes(provider, deck):
         txlist.append(tx)
     return txlist
 
-def get_voting_txes(provider, deck):
+def get_voting_txes(provider, deck, min_blockheight=None, max_blockheight=None):
     # gets ALL proposal txes of a deck. Needs P2TH.
     # uses a dict to group votes by proposal and by outcome ("positive" and "negative")
     # b'+' is the value for a positive vote, b'-' is negative, others are invalid.
     txdict = {}
-    for rawtx in get_marked_txes(provider, deck.derived_p2th_address("voting")):
+    for rawtx in get_marked_txes(provider, deck.derived_p2th_address("voting"), min_blockheight=min_blockheight, max_blockheight=max_blockheight):
 
         try:
             tx = VotingTransaction.from_json(tx_json=rawtx, provider=provider, deck=deck)
@@ -125,19 +135,18 @@ def get_voting_txes(provider, deck):
             continue # invalid
         proposal_txid = tx.proposal.txid
 
-        try:            
+        try:
             txdict[proposal_txid][outcome].append(tx)
 
         except KeyError:
-
-            if proposal_txid in txdict:
-                txdict[proposal_txid].update({ outcome : tx })
-            else:
-                txdict.update({ proposal_txid : { outcome : tx }})
+            if proposal_txid in txdict: # if "outcome" still not present
+                txdict[proposal_txid].update({ outcome : [tx] })
+            else: # if proposal_txid not present
+                txdict.update({ proposal_txid : { outcome : [tx] }})
 
     return txdict
 
-def get_proposal_states(provider, deck, current_blockheight=None, all_signalling_txes=None, all_donation_txes=None):
+def get_proposal_states(provider, deck, current_blockheight=None, all_signalling_txes=None, all_donation_txes=None, all_locking_txes=None):
     # gets ALL proposal txes of a deck and calculates the initial ProposalState. Needs P2TH.
     # if a new Proposal Transaction referencing an earlier one is found, the ProposalState is modified.
     # Modified: if provided, then donation/signalling txes are calculated
@@ -150,7 +159,7 @@ def get_proposal_states(provider, deck, current_blockheight=None, all_signalling
             tx = ProposalTransaction.from_json(tx_json=rawtx, provider=provider, deck=deck)
             # print("tx:", tx)
             if tx.txid not in used_firsttxids:
-                state = ProposalState(first_ptx=tx, valid_ptx=tx, current_blockheight=current_blockheight, all_signalling_txes=all_signalling_txes, all_donation_txes=all_donation_txes, provider=provider)
+                state = ProposalState(first_ptx=tx, valid_ptx=tx, current_blockheight=current_blockheight, all_signalling_txes=all_signalling_txes, all_donation_txes=all_donation_txes, all_locking_txes=all_locking_txes, provider=provider)
             else:
                 state = statedict[tx.txid]
                 if state.first_ptx.txid == tx.first_ptx_txid:
@@ -216,11 +225,13 @@ def get_sdp_balances(pst):
 
     return cards
 
-def get_sdp_weight(epochs_from_start, sdp_periods):
+def get_sdp_weight(epochs_from_start: int, sdp_periods: int) -> Decimal:
     # Weight calculation for SDP token holders
     # This function rounds percentages, to avoid problems with period lengths like 3.
     # (e.g. if there are 3 SDP epochs, last epoch will have weight 0.33)
-    return ((sdp_periods - epochs_from_start) * 100 // sdp_periods) * 100
+    # IMPROVEMENT: Maybe it would make sense if this gives an int value which later is divided into 100,
+    # because anyway there must be some rounding being done.
+    return (Decimal((sdp_periods - epochs_from_start) * 100) // sdp_periods) / 100
 
 ### Voting
 
@@ -232,26 +243,33 @@ def update_voters(voters={}, new_cards=[], weight=1):
     # which could be done with CardTransfer.
     # MODIFIED: added weight, this is for SDP voters.
 
+    if weight != 1:
+        for voter in voters:
+           old_amount = voters[voter]
+           voters.update({ voter : int(old_amount * weight) })
+
     for card in new_cards:
 
         for receiver in card.receiver:
             rec_position = card.receiver.index(receiver)
-            rec_amount = card.amount[rec_position] * weight
+            rec_amount = int(card.amount[rec_position] * weight)
 
             if receiver not in voters:
                 voters.update({receiver : rec_amount})
             else:
-                old_amount = voters[receiver] * weight
+                # old_amount = int(voters[receiver] * weight)
+                old_amount = voters[receiver]
                 voters.update({receiver : old_amount + rec_amount})
 
         # if cardissue, we only add balances to receivers, nothing is deducted.
         # Donors have to send the CardIssue to themselves if they want their coins.
         if card.type == "CardTransfer":
+            rest = int(-sum(card.amount) * weight)
             if card.sender not in voters:
-                voters.update({card.sender : -sum(card.amount) * weight})
+                voters.update({card.sender : rest})
             else:
-                old_amount = voters[card.sender] * weight
-                voters.update({receiver : old_amount - sum(card.amount) * weight})
+                old_amount = voters[card.sender]
+                voters.update({receiver : old_amount + rest})
 
     return voters
 

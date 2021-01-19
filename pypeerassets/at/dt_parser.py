@@ -7,11 +7,11 @@ Minor functions are in dt_parser_utils. """
 
 from decimal import Decimal
 
-from pypeerassets.at.dt_entities import ProposalTransaction, ProposalState, SignallingTransaction, DonationTransaction, LockingTransaction
+from pypeerassets.at.dt_entities import ProposalTransaction, SignallingTransaction, DonationTransaction, LockingTransaction
 from pypeerassets.at.dt_entities import InvalidTrackedTransactionError, COIN_MULTIPLIER
+from pypeerassets.at.dt_states import ProposalState, DonationState
 from pypeerassets.at.transaction_formats import *
 from pypeerassets.at.dt_parser_utils import *
-from pypeerassets.at.dt_slots import get_slot, get_raw_slot, get_first_serve_slot
 from pypeerassets.__main__ import find_all_valid_cards
 
 class ParserState(object):
@@ -47,6 +47,7 @@ class ParserState(object):
         self.debug = debug # print statements for debugging
 
 def validate_proposer_issuance(pst, dtx_id, decimal_card_amount, card_sender, card_blocknum):
+    # MODIFIED: A large part has been moved to the ProposalState and DonationState classes.
 
     proposal_state = pst.valid_proposals(dtx_id) # this is checked just before the call, so no "try/except" necessary.
 
@@ -94,19 +95,7 @@ def validate_donation_issuance(pst, dtx_id, dtx_vout, card_satoshis, card_sender
 
     if pst.debug: print("Checking donation tx:", dtx_id)
 
-    # Probably faster (but anyway we don't need it ...).
-    #for tx in pst.donation_txes:
-    #    if dtx_id == tx.txid:
-    #        dtx = tx
-    #        break
-
-    #dtx_ids = [ tx.txid for tx in pst.donation_txes ]
-    #dtx_pos = dtx_ids.index(dtx_id)
-    #dtx = pst.donation_txes[dtx_pos]
-
-    # A checks: General donation transaction check.
-
-    # check A1: does proposal exist?
+    # check A: does proposal exist?
     if pst.debug: print("Valid proposals:", pst.valid_proposals)
 
     try:
@@ -124,6 +113,7 @@ def validate_donation_issuance(pst, dtx_id, dtx_vout, card_satoshis, card_sender
 
     if pst.debug: print("Total number of donation txes:", len([tx for r in proposal_state.donation_txes for tx in r ]))
 
+    # check B: Does txid correspond to a real donation?
     # We go through the DonationStates per round and search for the dtx_id.
     # When we find it, we get the DonationState for the card issuance. 
     for rd_states in proposal_state.donation_states:
@@ -134,112 +124,16 @@ def validate_donation_issuance(pst, dtx_id, dtx_vout, card_satoshis, card_sender
                 continue
         break
 
-    # Check if the card issuance transaction was signed really by the donor:
+    # Check C: The card issuance transaction was signed really by the donor?
     if card_sender != ds.donor_address:
         return False
-
-    # check A2: is donation address correct?
-    # MODIFIED: These checks have been moved into a method from ProposalState. Otherwise, it won't be possible
-    # to check the total donated amount and the slots of the second round.
-
-    #if str(dtx.address) != proposal_state.first_ptx.donation_address:
-
-    #    if pst.debug: print("Incorrect donation address.")
-    #    return False
-
-    #if dtx.epoch == proposal_state.start_epoch:
-    #    dist_phase_rounds = PHASE1_ROUNDS # Phase 1: early donations after first vote.
-    #elif dtx.epoch == proposal_state.end_epoch:
-    #    dist_phase_rounds = PHASE2_ROUNDS # Phase 2: late donations after second vote.
-
-    # else: # this can't happen, as dtx is always in one of both epochs (see check before).
-
-        # if pst.debug: print("Incorrect epoch.")
-        # return False # incorrect round -> invalid tx.
-
-    # check round
-    # MODIFIED: Is now directly done when DonationState is calculated.
-    # MODIFIED: The rounds are now correct as in rd 1-3 DTXes are categorized by the LockingTransaction round.
-    #for dist_round in dist_phase_rounds:
-    #    round_donations = proposal_state.donation_txes[dist_round] # new structure
-    #    if pst.debug: print("All donations", round_donations, "donation tx", [dtx])
-    #    if dtx in round_donations:
-    #        break
-    #else:
-    #    return False # donation transaction not found
-
-    # check A6: was the transaction correctly signalled?
-    # TODO: It could be better to attach the signalling tx to the donation tx, but only if we re-use this frequently
-    #round_signalling_txes = proposal_state.signalling_txes[dist_round]
-
-    # We check the inputs of the donation transaction, and if one of them corresponds to a correct signalling transaction,
-    # or a donation transaction with reserved amount.
-    #input_transactions = [txin.txid for txin in dtx.ins]
-
-    #for stx in round_signalling_txes:
-    #    if stx.txid in input_transactions:
-    #        correct_signalling_tx = stx
-    #        break
-
-        #if pst.debug: print("Signalled amount:", stx.amount)
-        #if pst.debug: print("Card amount in satoshi:", card_satoshis)
-
-        # the donor must have signalled at least the amount of the card. They cannot issue more than signalled.
-        # TODO this is wrong, as it doesn't take into account the token distribution. Maybe get rid of this check?
-        #if card_satoshis < stx.amount:
-
-        #    if pst.debug: print("Correct amount signalled.")
-        #    break
-
-    #else:
-
-        # If no signalling transaction is found, check for a donation transaction with reserved output.
-        # This is only done in the rounds with priority groups: In round 1,2 and 5 it's the donations
-        # inmediately before, in round 4 it's all donations in rounds 0-3.
-        # In rounds 4 and 5 the donations are checked for validity (only valid_donations are counted).
-
-    #    if dist_round in (1, 2):
-    #        reserve_dtxes = proposal_state.donation_txes[dist_round - 1]
-
-    #    elif dist_round == 4:
-    
-    #        reserve_dtxes = [d for rd in proposal_state.valid_donations[:4] for d in rd]
-    #    elif dist_round == 5:
-    #        reserve_dtxes = proposal_state.valid_donations[4]
-    #    else:
-    #        reserve_dtxes = [] # we can already break this for round 0, 3, 6 and 7.
- 
-    #    for reserve_dtx in reserve_dtxes:
-    #        if reserve_dtx.txid in input_transactions:
-    #            correct_signalling_tx = reserve_dtx
-    #            break
-
-    #    else:
-    #        if pst.debug: print("Donation not signalled correctly.")
-    #        return False
-
-    # check A5: slot check - token amount must correspond to slot and proposal factor.
-    # The slot is the "maximum donated coins" which will be taken into account in a specific distribution round,
-    # according to the slot rules of each round. It can be described as the optimal donation amount.
-
-    # card_satoshis is the card amount if it were measured in satoshis (so it's always int)
-    # Important: The slot uses the Bitcoin (not the Peercoin) satoshi as its base unit (0.00000001). 
-    # This means, all "COIN" values have to be multiplied by the COIN_MULTIPLIER (100000000)
-
-    # TODO: Review if get_slot takes into account the new dist_factor, which is calculated only once per proposal.
-
-    # slot = get_slot(correct_signalling_tx, proposal_state, round_donations, dist_round)
-
-    # The effective slot is the real amount to be taken into account as slot.
-    # If the donor donated more than his slot, he does not get the right to issue more tokens.
-    # But if they donate less, then the dtx.amount becomes his slot.
-    # effective_slot = min(slot, dtx.amount)
 
     if pst.debug: print("Slot:", ds.slot, "Effective slot:", ds.effective_slot)
     if pst.debug: print("Real donation", ds.amount)
     if pst.debug: print("Card amount in satoshi", card_satoshis)
     if pst.debug: print("Distribution Factor", proposal_state.dist_factor)
 
+    # Check D: Was the issued amount correct? 
     # The allowed amount is the proportion of the slot in relation to the complete required amount of all ending proposals together, multiplied by the token quantity per epoch.
     slot_proportion = Decimal(ds.effective_slot) / proposal_state.req_amount
     allowed_amount = slot_proportion * pst.deck.epoch_quantity * proposal_state.dist_factor

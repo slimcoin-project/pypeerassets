@@ -25,6 +25,7 @@ from typing import Iterable, Iterator, Optional, Tuple, List
 from pypeerassets.paproto_pb2 import DeckSpawn as DeckSpawnProto
 from pypeerassets.paproto_pb2 import CardTransfer as CardTransferProto
 from pypeerassets.protocol import Deck, CardTransfer, CardBundle
+from pypeerassets.kutil import Kutil ### ADDRESSTRACK ###
 
 
 def load_p2th_privkey_into_local_node(provider: RpcNode, prod: bool=True) -> None:
@@ -112,6 +113,7 @@ def deck_parser(args: Tuple[Provider, dict, int, str],
 
     except (InvalidDeckSpawn, InvalidDeckMetainfo, InvalidDeckVersion,
             InvalidNulldataOutput) as err:
+        print(err)
         pass
 
     return None
@@ -206,6 +208,8 @@ def validate_deckspawn_p2th(provider: Provider, rawtx: dict, p2th: str) -> bool:
         vout = rawtx["vout"][0]["scriptPubKey"].get("addresses")[0]
     except TypeError:
         '''TypeError: 'NoneType' object is not subscriptable error on some of the deck spawns.'''
+        raise InvalidDeckSpawn("Invalid Deck P2TH.")
+    except KeyError: ### DEBUG WORKAROUND: ADDRESSTRACK ###
         raise InvalidDeckSpawn("Invalid Deck P2TH.")
 
     if not vout == p2th:
@@ -347,3 +351,12 @@ def exponent_to_amount(exponent: int, number_of_decimals: int) -> float:
     '''exponent to integer to be written on the chain'''
 
     return exponent / 10**number_of_decimals
+
+def deck_from_tx(txid: str, provider: Provider, deck_version: int=1, prod: bool=True): ### ADDRESSTRACK ###
+    '''Wrapper for deck parser, gets the deck from the TXID.'''
+
+    params = param_query(provider.network)
+    p2th = params.P2TH_addr
+    raw_tx = provider.getrawtransaction(txid, 1)
+    vout = raw_tx["vout"][0]["scriptPubKey"].get("addresses")[0]
+    return deck_parser((provider, raw_tx, deck_version, p2th), prod)

@@ -57,7 +57,13 @@ PROPOSAL_FORMAT = { "id" : (0, ID_LEN), # identification of proposal txes, 2 byt
 # MODIFIED: Deck deleted in the following three formats. It is derived from the associated Proposal.
 
 DONATION_FORMAT = { "id" : (0, ID_LEN), # identification of donation txes
-                    "prp" : (ID_LEN, TX_LEN), # proposal txid
+                    "prp" : (ID_LEN, TX_LEN) # proposal txid
+                  }
+
+# Lockling transaction: for now, same format as Donation.
+
+LOCKING_FORMAT = { "id" : (0, ID_LEN), # identification of locking txes
+                    "prp" : (ID_LEN, TX_LEN) # proposal txid
                   }
 
 # Signalling transaction
@@ -65,7 +71,7 @@ DONATION_FORMAT = { "id" : (0, ID_LEN), # identification of donation txes
 # Deck may not be necessary! Can be derived probably from the P2TH id.
 
 SIGNALLING_FORMAT = { "id" : (0, ID_LEN),
-                    "prp" : (ID_LEN, TX_LEN), 
+                    "prp" : (ID_LEN, TX_LEN) 
                     }
 
 VOTING_FORMAT = { "id" : (0, ID_LEN),
@@ -77,9 +83,6 @@ VOTING_FORMAT = { "id" : (0, ID_LEN),
 # Deck not necessary, as it's already in the CardTransfer structure.
 # Card Issue data for AT: 2 bytes as AT identifier, TXID (32 bytes), vout (rest)
 # Card Issue data for DT: 2 bytes as DT identifier, TXID (32 bytes), vout (rest)
-# MODIFIED: optional argument "mtx" (moving transaction)
-# CHECK: It could be possible to only require MTX OR DTX if it's possible to differentiate them
-# probably yes: because MTX has always be checked for DTX.
 
 CARD_ISSUE_AT_FORMAT = { "id" : (0, ID_LEN),
                   "dtx" : (ID_LEN, TX_LEN),
@@ -87,7 +90,13 @@ CARD_ISSUE_AT_FORMAT = { "id" : (0, ID_LEN),
                 }
 
 # TODO: check if "out" is needed, as per convention donation amounts are always in vout "2".
+# MODIFIED: MTX is no longer needed.
 CARD_ISSUE_DT_FORMAT = { "id" : (0, ID_LEN),
+                  "dtx" : (ID_LEN, TX_LEN),
+                  "out" : (ID_LEN + TX_LEN, 1),
+                }
+
+CARD_ISSUE_DT_FORMAT_LEGACY = { "id" : (0, ID_LEN),
                   "dtx" : (ID_LEN, TX_LEN),
                   "out" : (ID_LEN + TX_LEN, 1),
                   "mtx" : (ID_LEN + TX_LEN + 1, TX_LEN)
@@ -110,7 +119,7 @@ DECK_SPAWN_DT_FORMAT = { "id" : (0, ID_LEN), # identifier of DT decks
                   "sdd" : (ID_LEN + DP_LEN + TQ_LEN + MNV_LEN + SDP_LEN, TX_LEN)
                  }
 
-DECK_SPAWN_DT_FORMAT_OLD = { "id" : (0, ID_LEN), # identifier of DT decks
+DECK_SPAWN_DT_FORMAT_LEGACY = { "id" : (0, ID_LEN), # identifier of DT decks
                   "mlt" : (ID_LEN, MLT_LEN), # multiplier
                   "dpl" : (ID_LEN + MLT_LEN, DP_LEN), # distribution period length in blocks
                   "tq" : (ID_LEN + MLT_LEN + DP_LEN, TQ_LEN), # token quantity

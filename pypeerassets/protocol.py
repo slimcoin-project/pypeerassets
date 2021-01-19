@@ -125,7 +125,7 @@ class Deck:
                     except IndexError:
                         pass # these 2 parameters are optional.
 
-            elif self.at_type == "AT":
+            elif identifier == "AT":
                 self.multiplier = int.from_bytes(getfmt(data, at_fmt, "mlt"), "big")
                 if not at_address:
                     self.at_address = getfmt(data, at_fmt, "adr").decode()
@@ -165,7 +165,6 @@ class Deck:
 
     # EXPERIMENTAL: ids for the p2th addresses/keys for donation/proposal/signalling txs
     # They are stored in a dictionary, to avoid too much code repetition.
-
     def derived_id(self, tx_type) -> Optional[bytes]:
         if self.id:
             try:
@@ -277,7 +276,7 @@ class Deck:
         except KeyError:
             pass
 
-        return cls(**json)
+        return cls(**json)        
 
     def __str__(self) -> str:
 
@@ -461,9 +460,6 @@ class CardTransfer:
         if type:
             self.type = type
 
-    def deck_data(self): ### ADDRESSTRACK: needed for parser. Look for a more elegant solution. ###
-        return deck.asset_specific_data
-
     @property
     def metainfo_to_protobuf(self) -> bytes:
         '''encode card_transfer info to protobuf'''
@@ -547,7 +543,7 @@ def validate_card_issue_modes(issue_mode: int, cards: list, provider: Provider=N
             except ValueError:
                 continue
 
-            if is_addresstrack_deck_datastring(cards[0].deck_data): ### ADDRESSTRACK modification ###
+            if is_at_deck(cards[0].deck_data): ### ADDRESSTRACK modification ###
                 parsed_cards = parser_fn(cards, at_parser, provider)
             else:
                 parsed_cards = parser_fn(cards)
