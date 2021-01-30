@@ -1,9 +1,10 @@
 import pytest
 import pypeerassets.at.dt_parser_utils as pu
+import pypeerassets.at.dt_misc_utils as mu
 import json
 from decimal import Decimal
 from pypeerassets.provider import RpcNode
-from pypeerassets.pautils import deck_from_tx
+from pypeerassets.at.dt_parser_utils import deck_from_tx
 from pypeerassets.__main__ import find_all_valid_cards
 
 # Note: These tests need a running client daemon (peercoind, slimcoind).
@@ -29,11 +30,11 @@ P2TH_LOCKING = DECK_OBJ.derived_p2th_address("locking")
 P2TH_SIGNALLING = DECK_OBJ.derived_p2th_address("signalling")
 P2TH_PROPOSAL = DECK_OBJ.derived_p2th_address("proposal")
 P2TH_VOTING = DECK_OBJ.derived_p2th_address("voting")
-pu.import_p2th_address(PROVIDER, P2TH_DONATION)
-pu.import_p2th_address(PROVIDER, P2TH_LOCKING)
-pu.import_p2th_address(PROVIDER, P2TH_SIGNALLING)
-pu.import_p2th_address(PROVIDER, P2TH_PROPOSAL)
-pu.import_p2th_address(PROVIDER, P2TH_VOTING)
+mu.import_p2th_address(PROVIDER, P2TH_DONATION)
+mu.import_p2th_address(PROVIDER, P2TH_LOCKING)
+mu.import_p2th_address(PROVIDER, P2TH_SIGNALLING)
+mu.import_p2th_address(PROVIDER, P2TH_PROPOSAL)
+mu.import_p2th_address(PROVIDER, P2TH_VOTING)
 
 PROPOSAL_TXID = "697a33f5fdeeef1d136e342ecce6f42dd7aa16a3eb57b6f9273c5692dec74799"
 SDP_DECK_ID = "7ffb89b247a91cc1759885442bacfdbbaf27d1a3329d998abc5072f8ef3ea110"
@@ -45,22 +46,7 @@ NEGTX = [ TestObj(sender = "mnm7c3LcfkZGSwHZXpDBAZc67ugUgd3E3X", epoch=20000), T
 POSTX = [ TestObj(sender = "miC3Vsh2WeZzmrzCRJuu5T7q9snvGvB353", epoch=20000)]
 VOTINGTX = { PROPOSAL_TXID : { "negative" : NEGTX, "positive" : POSTX }}
 VOTERS = {"mnm7c3LcfkZGSwHZXpDBAZc67ugUgd3E3X" : 5, "mybLEsXFH6emUt54bS3tci45d8vakZhdVT" : 5, "miC3Vsh2WeZzmrzCRJuu5T7q9snvGvB353" : 9}
-PST = TestObj(proposal_states={PROPOSAL_TXID: PST_PROPOSAL}, deck=DECK_OBJ, epoch=22008, sdp_cards=list(SDP_CARDS), voting_transactions = VOTINGTX, enabled_voters=VOTERS)
-
-
-def test_import_p2th_address():
-    p2th_addr = DECK_P2TH
-    importtest = pu.import_p2th_address(PROVIDER, p2th_addr)
-
-def test_import_incorrect_p2th_address():
-    with pytest.raises(ValueError):
-        p2th_addr = "Fg5tRy8UUD5H1pwiyZnjeNzTdtfFrX6d1n" # incorrect address
-        importtest = pu.import_p2th_address(PROVIDER, p2th_addr)
-
-def test_deck_p2th_from_id():
-    deck_id = DECK_ID
-    dtest = pu.deck_p2th_from_id("tppc", deck_id)
-    assert dtest == DECK_P2TH
+PST = TestObj(proposal_states={PROPOSAL_TXID: PST_PROPOSAL}, deck=DECK_OBJ, epoch=22008, sdp_cards=list(SDP_CARDS), voting_txes = VOTINGTX, enabled_voters=VOTERS)
 
 def test_get_marked_txes():
     p2th_account = P2TH_PROPOSAL
@@ -116,7 +102,7 @@ def test_update_voters():
 
 
 def test_get_votes():
-    # from pst needs: pst.voting_transactions, pst.enabled_voters
+    # from pst needs: pst.voting_txes, pst.enabled_voters
     # from proposal needs: proposal.first_ptx.txid
     pst = PST
     proposal = PST_PROPOSAL

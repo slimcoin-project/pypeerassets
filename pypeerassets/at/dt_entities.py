@@ -2,9 +2,7 @@
 
 """Basic classes for coin transactions in DT tokens.
 Note: All coin amounts are expressed in Bitcoin satoshi, not in "coins" (using the "from_unit" in networks)
-This means that the satoshi amounts do not correspond to the minimum unit in currencies like SLM or PPC with less decimal places.
-
-MODIFIED: ProposalState and DonationState are now in dt_states.py."""
+This means that the satoshi amounts do not correspond to the minimum unit in currencies like SLM or PPC with less decimal places."""
 
 from btcpy.structs.script import AbsoluteTimelockScript, Hashlock256Script, IfElseScript, P2pkhScript, ScriptBuilder
 from btcpy.structs.address import Address
@@ -16,7 +14,7 @@ from decimal import Decimal
 from pypeerassets.kutil import Kutil
 from pypeerassets.provider import RpcNode
 from pypeerassets.networks import PeercoinMainnet, PeercoinTestnet, SlimcoinMainnet, SlimcoinTestnet, net_query
-from pypeerassets.at.transaction_formats import getfmt, PROPOSAL_FORMAT, DONATION_FORMAT, SIGNALLING_FORMAT, LOCKING_FORMAT, VOTING_FORMAT, DEFAULT_VOTING_PERIOD, DEFAULT_SECURITY_PERIOD, DEFAULT_RELEASE_PERIOD
+from pypeerassets.at.transaction_formats import getfmt, PROPOSAL_FORMAT, DONATION_FORMAT, SIGNALLING_FORMAT, LOCKING_FORMAT, VOTING_FORMAT
 
 
 # constants
@@ -101,12 +99,13 @@ class TrackedTransaction(Transaction):
                 deckspawntx_json = provider.getrawtransaction(deck_id, True)
 
                 try:
+                    # TODO: This seems to be a dirty hack. Replace by the correct way using the network constants (PAPROD/PATEST address).
                     deck_p2th_addr = deckspawntx_json["vout"][0]["scriptPubKey"]["addresses"][0]
                 except (KeyError, IndexError):
                     raise InvalidTrackedTransactionError(ValueError)
 
                 deck = deck_parser((provider, deckspawntx_json, 1, deck_p2th_addr), True)
-                print("No deck found")
+                print("NOTE: Deck extracted from transaction:", deck.id)
 
             object.__setattr__(self, 'deck', deck)
 
@@ -146,7 +145,7 @@ class TrackedTransaction(Transaction):
 
         object.__setattr__(self, 'p2th_address', p2th_address)
         object.__setattr__(self, 'p2th_wif', p2th_wif) 
-        object.__setattr__(self, 'epoch', self.blockheight // self.deck.epoch_length) # Epoch in which the transaction was sent.
+        object.__setattr__(self, 'epoch', self.blockheight // self.deck.epoch_length) # Epoch in which the transaction was sent. Epochs begin with 0.
 
     @property
     def txid(self):

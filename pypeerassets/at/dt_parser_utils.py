@@ -5,29 +5,11 @@ from decimal import Decimal
 from pypeerassets.at.dt_entities import ProposalTransaction, SignallingTransaction, DonationTransaction, LockingTransaction, VotingTransaction
 from pypeerassets.at.dt_entities import InvalidTrackedTransactionError, DONATION_OUTPUT, DATASTR_OUTPUT
 from pypeerassets.at.dt_states import ProposalState
+from pypeerassets.at.transaction_formats import *
 from pypeerassets.provider import Provider
 from pypeerassets.kutil import Kutil
-from pypeerassets.at.transaction_formats import *
-
-# modified: constants went to at_transaction_formats
-
-### Address and P2TH tools
-
-def import_p2th_address(provider: Provider, p2th_address: str) -> None:
-    # this checks if a P2TH address is already imported. If not, import it (only rpcnode).
-    p2th_account = provider.getaccount(p2th_address)
-
-    if (type(p2th_account) == dict) and (p2th_account.get("code") == -5):
-        raise ValueError("Invalid address.")
-
-    if (p2th_account is None) or (p2th_account != p2th_address):
-        provider.importaddress(p2th_address)
-        provider.setaccount(p2th_address, p2th_address) # address is also the account name.
-
-def deck_p2th_from_id(network: str, deck_id: str) -> str:
-    # helper function giving the p2th.
-    return Kutil(network=network,
-                         privkey=bytearray.fromhex(deck_id)).address
+from pypeerassets.pa_constants import param_query
+from pypeerassets.pautils import deck_parser
 
 ### Transaction retrieval
 ### These functions retrieve all transactions of a certain type and store them in a dictionary with their basic attributes.
@@ -67,6 +49,7 @@ def get_donation_txes(provider, deck, pst, min_blockheight=None, max_blockheight
             tx = DonationTransaction.from_json(tx_json=rawtx, provider=provider, deck=deck)
             # We add the tx directly to the corresponding ProposalState.
             # If the ProposalState does not exist, KeyError is thrown and the tx is ignored.
+            print(pst.proposal_states[tx.proposal_txid].__dict__)
             pst.proposal_states[tx.proposal_txid].all_donation_txes.append(tx)
         except (InvalidTrackedTransactionError, KeyError):
             continue
@@ -103,17 +86,6 @@ def get_signalling_txes(provider, deck, pst, min_blockheight=None, max_blockheig
         txlist.append(tx) # check if this is really needed if it already is added to the ProposalState.
     return txlist
 
-def get_proposal_txes(provider, deck, min_blockheight=None, max_blockheight=None):
-    # gets ALL proposal txes of a deck. Needs P2TH.
-    # TODO: I think this was obsolete, as it's replaced by get_proposal_states. Not included in test suite.
-    txlist = []
-    for rawtx in get_marked_txes(provider, deck.derived_p2th_address("proposal"), min_blockheight=min_blockheight, max_blockheight=max_blockheight):
-        try:
-            tx = ProposalTransaction.from_json(tx_json=rawtx, provider=provider, deck=deck)
-        except InvalidTrackedTransactionError:
-            continue
-        txlist.append(tx)
-    return txlist
 
 def get_voting_txes(provider, deck, min_blockheight=None, max_blockheight=None):
     # gets ALL proposal txes of a deck. Needs P2TH.
@@ -146,12 +118,14 @@ def get_voting_txes(provider, deck, min_blockheight=None, max_blockheight=None):
 
     return txdict
 
-def get_proposal_states(provider, deck, current_blockheight=None, all_signalling_txes=None, all_donation_txes=None, all_locking_txes=None):
+def get_proposal_states(provider, deck, current_blockheight=None, all_signalling_txes=[], all_donation_txes=[], all_locking_txes=[], force_dstates=False):
     # gets ALL proposal txes of a deck and calculates the initial ProposalState. Needs P2TH.
     # if a new Proposal Transaction referencing an earlier one is found, the ProposalState is modified.
     # Modified: if provided, then donation/signalling txes are calculated
+    # Modified: force_dstates option (for pacli commands) calculates all phases/rounds and DonationStates, even if no card was issued.
     statedict = {}
     used_firsttxids = []
+    print("adt", all_donation_txes)
 
     for rawtx in get_marked_txes(provider, deck.derived_p2th_address("proposal")):
         try:
@@ -163,7 +137,7 @@ def get_proposal_states(provider, deck, current_blockheight=None, all_signalling
             else:
                 state = statedict[tx.txid]
                 if state.first_ptx.txid == tx.first_ptx_txid:
-                    state.valid_ptx = tx
+                    state.valid_ptx = tx # TODO: This could need an additional validation step, although it is unlikely it can be used for attacks.
                 else:
                     continue
 
@@ -218,7 +192,9 @@ def get_valid_ending_proposals(pst, deck):
 
 def get_sdp_balances(pst):
 
-    limit_blockheight = pst.epoch * pst.deck.epoch_length
+    limit_blockheight = pst.epoch * pst.deck.epoch_length # balance at the start of the epoch.
+    print("blocklimit", limit_blockheight, "epoch", pst.epoch)
+    print([card.blocknum for card in pst.sdp_cards])
 
     # TODO: define if the limit is the last block of epoch before, or first block of current epoch!
     cards = [ card for card in pst.sdp_cards if card.blocknum <= limit_blockheight ]
@@ -276,21 +252,38 @@ def update_voters(voters={}, new_cards=[], weight=1):
 def get_votes(pst, proposal, epoch):
     # returns a dictionary with two keys: "positive" and "negative",
     # containing the amounts of the tokens with whom an address was voted.
+    # NOTE: The balances are valid for the epoch of the ParserState. So this cannot be called
+    #       for votes in other epochs.
+    # NOTE 2: In this protocol the first vote always counts. You cannot change your vote. 
     # TODO: This is still without the "first vote can also be valid for second round" system.
 
     votes = {}
+    voters = []
     for outcome in ("positive", "negative"):
        balance = 0
        try:
-           vtxs = pst.voting_transactions[proposal.first_ptx.txid][outcome]
-       except KeyError:
+           vtxs = pst.voting_txes[proposal.first_ptx.txid][outcome]
+       except KeyError: # thrown if there are no votes with this outcome
            votes.update({outcome : 0})
            continue
        for vote in vtxs:
-           if vote.epoch == epoch:
-                balance += pst.enabled_voters[vote.sender]
+           print("enabled", pst.enabled_voters)
+           print("vote epoch", vote.epoch, "vote txid", vote.txid)
+           if (vote.epoch == epoch) and (vote.sender not in voters):
+                try:
+                    balance += pst.enabled_voters[vote.sender]
+                    voters.append(vote.sender)
+                except KeyError: # will always be thrown if a voter is not enabled in the "current" epoch.
+                    continue
        votes.update({outcome : balance})
-
+ 
     return votes
 
+def deck_from_tx(txid: str, provider: Provider, deck_version: int=1, prod: bool=True):
+    '''Wrapper for deck_parser, gets the deck from the TXID.'''
 
+    params = param_query(provider.network)
+    p2th = params.P2TH_addr
+    raw_tx = provider.getrawtransaction(txid, 1)
+    vout = raw_tx["vout"][0]["scriptPubKey"].get("addresses")[0]
+    return deck_parser((provider, raw_tx, deck_version, p2th), prod)

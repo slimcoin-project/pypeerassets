@@ -17,7 +17,7 @@ from pypeerassets.__main__ import find_all_valid_cards
 class ParserState(object):
     """contains the current state of basic variables"""
 
-    def __init__(self, deck, initial_cards, provider, proposal_states={}, valid_proposals={}, signalling_txes=None, donation_txes=None, voting_txes=None, epoch=None, start_epoch=None, used_issuance_tuples=[], valid_cards=[], enabled_voters={}, sdp_cards=[], current_blockheight=None, debug=False):
+    def __init__(self, deck, initial_cards, provider, proposal_states={}, valid_proposals={}, signalling_txes=[], locking_txes=[], donation_txes=[], voting_txes=[], epoch=None, start_epoch=None, used_issuance_tuples=[], valid_cards=[], enabled_voters={}, sdp_cards=[], current_blockheight=None, debug=False):
 
         self.deck = deck
         self.initial_cards = initial_cards
@@ -45,6 +45,44 @@ class ParserState(object):
         self.start_epoch = start_epoch # needed for SDP
 
         self.debug = debug # print statements for debugging
+
+def init_parser(pst, force_dstates=False):
+    """Bundles all on-chain extractions."""
+    # SDP cards:
+    sdp_deck_obj = deck_from_tx(pst.deck.sdp_deck, pst.provider)
+
+    if sdp_deck_obj != None:
+        pst.sdp_cards = list(find_all_valid_cards(pst.provider, sdp_deck_obj))
+    else:
+        pst.sdp_cards = None
+    print("sdp_cards", pst.sdp_cards)
+
+    # init_parser(provider, pst, current_blockheight)
+
+    if pst.debug: print("Get proposal states ...", )
+    pst.proposal_states = get_proposal_states(pst.provider, pst.deck, pst.current_blockheight, pst.signalling_txes, pst.donation_txes)
+    if pst.debug: print(len(pst.proposal_states), "found.")
+
+    if pst.debug: print("Get donation txes ...", )
+    pst.donation_txes = get_donation_txes(pst.provider, pst.deck, pst)
+    if pst.debug: print(len(pst.donation_txes), "found.")
+
+    if pst.debug: print("Get locking txes ...", )
+    pst.locking_txes = get_locking_txes(pst.provider, pst.deck, pst)
+    if pst.debug: print(len(pst.locking_txes), "found.")
+
+    if pst.debug: print("Get signalling txes ...", )
+    pst.signalling_txes = get_signalling_txes(pst.provider, pst.deck, pst)
+    if pst.debug: print(len(pst.signalling_txes), "found.")
+
+    if pst.debug: print("Get voting txes ...", )
+    pst.voting_txes = get_voting_txes(pst.provider, pst.deck)
+    if pst.debug: print(len(pst.voting_txes), "voting transactions found.")
+
+    if force_dstates: # Allows to set all states even if no card has been issued. # TODO: Check epochs.
+         for p in pst.proposal_states.values():
+             print(p)
+             p.set_donation_states()
 
 def validate_proposer_issuance(pst, dtx_id, decimal_card_amount, card_sender, card_blocknum):
     # MODIFIED: A large part has been moved to the ProposalState and DonationState classes.
@@ -214,7 +252,7 @@ def get_valid_epoch_cards(pst, epoch_cards):
     return valid_cards
 
 
-def dt_parser(cards, provider, current_blockheight, deck, debug=True):
+def dt_parser(cards, provider, current_blockheight, deck, debug=True, initial_parser_state=None, force_dstates=False, force_continue=False, end_epoch=None):
 
     """Basic parser loop. Loops through all cards by epoch."""
 
@@ -226,50 +264,33 @@ def dt_parser(cards, provider, current_blockheight, deck, debug=True):
     start_epoch = deckspawn_block // deck.epoch_length # Epoch count is from genesis block
     startblock = start_epoch * deck.epoch_length # first block of the epoch the deck was spawned.
 
-    if deck.sdp_deck != None:
-        sdp_cards = find_all_valid_cards(provider, deck.sdp_deck)
+    # The initial_parser_state enables to continue parsing from a certain blockheight or use the parser from "outside".
+    # Use with caution.
+    if initial_parser_state:
+        if debug: print("Using initial parser state provided.")
+        pst = initial_parser_state
+        if not pst.start_epoch: # workaround, should be done more elegant. Better move the whole section to ParserState.__init__.
+            pst.start_epoch = start_epoch # normally start when the deck was spawned.
     else:
-        sdp_cards = None
+        pst = ParserState(deck, cards, provider, current_blockheight=current_blockheight, start_epoch=start_epoch, debug=debug)
 
-    pst = ParserState(deck, cards, provider, current_blockheight=current_blockheight, start_epoch=start_epoch, debug=debug)
+    init_parser(pst, force_dstates=force_dstates)
 
     if pst.debug: print("Starting epoch count at deck spawn block", startblock)
 
     cards_len = len(pst.initial_cards)
-
     if pst.debug: print("Total number of cards:", cards_len)
 
+    if pst.debug: print("Starting epoch loop ...")
     oldtxid = ""
     pos = 0 # card position
     highpos = 0
     current_epoch = current_blockheight // deck.epoch_length + 1 # includes an incomplete epoch which just started
 
-    multiplier = pst.deck.multiplier
-
-    # modified: now first.
-    if pst.debug: print("Get proposal states ...", )
-    pst.proposal_states = get_proposal_states(provider, deck, current_blockheight, pst.signalling_txes, pst.donation_txes)
-    if pst.debug: print(len(pst.proposal_states), "found.")
-
-    if pst.debug: print("Get donation txes ...", )
-    pst.donation_txes = get_donation_txes(provider, deck)
-    if pst.debug: print(len(pst.donation_txes), "found.")
-
-    if pst.debug: print("Get locking txes ...", )
-    pst.locking_txes = get_locking_txes(provider, deck)
-    if pst.debug: print(len(pst.locking_txes), "found.")
-
-    if pst.debug: print("Get signalling txes ...", )
-    pst.signalling_txes = get_signalling_txes(provider, deck)
-    if pst.debug: print(len(pst.signalling_txes), "found.")
-
-    if pst.debug: print("Get voting txes ...", )
-    pst.voting_txes = get_voting_txes(provider, deck)
-    if pst.debug: print(len(pst.voting_txes), "voting transactions found.")
-
-    if pst.debug: print("Starting epoch loop ...")
+    if not end_epoch:
+        end_epoch = current_epoch
     
-    for epoch in range(start_epoch, current_epoch):
+    for epoch in range(start_epoch, end_epoch):
 
         pst.epoch = epoch
         epoch_firstblock = deck.epoch_length * epoch
@@ -297,20 +318,22 @@ def dt_parser(cards, provider, current_blockheight, deck, debug=True):
         epoch_cards = cards[lowpos:highpos]
 
         if pst.debug: print("Cards found in this epoch:", len(epoch_cards))
-        if pst.debug: print("SDP periods:", deck.sdp_periods)
+        
 
         # Epochs which have passed since the deck spawn
         epochs_from_start = epoch - pst.start_epoch
+        if pst.debug: print("SDP periods remaining:", (deck.sdp_periods - epochs_from_start))
 
         if (deck.sdp_periods != 0) and (epochs_from_start <= deck.sdp_periods): # voters from other tokens
 
             # We set apart all CardTransfers of SDP voters before the epoch start
             sdp_epoch_balances = get_sdp_balances(pst)
+            print("sdpbalances", sdp_epoch_balances)
 
             # Weight is calculated according to the epoch
             sdp_weight = get_sdp_weight(epochs_from_start, deck.sdp_periods)
 
-            if len(new_sdp_voters) > 0:
+            if len(sdp_epoch_balances) > 0: # MODIFIED: was originally new_sdp_voters
                 pst.enabled_voters.update(update_voters(pst.enabled_voters, sdp_epoch_balances, weight=sdp_weight))
 
         # as card issues can occur any time after the proposal has been voted
@@ -328,7 +351,7 @@ def dt_parser(cards, provider, current_blockheight, deck, debug=True):
 
         pst.valid_cards += valid_epoch_cards
 
-        if pos == cards_len: # we don't need to continue if there are no cards left
+        if (pos == cards_len) and not force_continue: # we don't need to continue if there are no cards left
             break
 
     return pst.valid_cards

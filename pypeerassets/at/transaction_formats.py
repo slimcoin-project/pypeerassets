@@ -7,14 +7,14 @@ Format is a a dictionary with tuples:
 - the first is the position of the first byte of the item in the OP_RETURN bytestring 
 - the second one is the byte length of the item. If it is variable, then this value has to be 0.
 
-Note: OP_RETURN has 100 bytes maximum, so no large numbers of items can be stored.
+Note: OP_RETURN has 100 bytes maximum, so no large numbers of items can be stored. Current maximum of this protocol is 76 bytes for the Proposal format (which doesn't need other additions).
 """
 
-ID_LEN = 2 # TODO: this maybe has to be changed to 1. For the testing purposes it can stay at 2.
+ID_LEN = 2 # TODO: this maybe could be changed to 1 so we save 1 byte. For the testing purposes it can stay at 2.
 TX_LEN = 32 # length of all items comprising TXIDs
 EPOCH_LEN = 2 # up to 65535 epochs
 SLOTAC_LEN = 2 # slot allocation, up to 65535 blocks (~65 days).
-AMOUNT_LEN = 6 # up to 256 million SLM
+AMOUNT_LEN = 6 # up to 256 million COINs # TODO: do we need decimal places here, or do it in satoshis or mCOINs?
 MLT_LEN = 2 # multiplier of up to 65535 # only AT
 DP_LEN = 3 # distribution length of up to ~16 million blocks
 MNV_LEN = 1 # minimum vote (0/256 to 256/256)
@@ -24,12 +24,12 @@ SDP_LEN = 1 # sdp periods, up to 256
 # some general constants (originally in parser file, but we need them elsewhere.)
 
 # This is the minimum amount of blocks after a new epoch start before a new voting or slot allocation period can start, to prevent any edge effects.
-# TODO: This would better be realized as a variable depending from epoch length. Minimum can stay at 1.
-DEFAULT_SECURITY_PERIOD = 1
+# MODIFIED: The following values now depend on ProposalState.round_length. Security period is half of a round_length (minimum 2), voting_period 4 times round_length (equivalent to a whole "distribution phase"). 
+#DEFAULT_SECURITY_PERIOD = 2
 # roughly equivalent to 7 days; 1 day has between ~960 and ~1100 blocks
-DEFAULT_VOTING_PERIOD = 1 # test value for PPC # was 7500
-# This should also be equivalent to 7 days to give donors enough time to release donations.
-DEFAULT_RELEASE_PERIOD = 1 # test value for PPC # should be reset to 7500 in SLM
+#DEFAULT_VOTING_PERIOD = 288 # for PPC. 144 is one day.
+# Release period is also now dependant on round_length (second phase round_length *4)
+# DEFAULT_RELEASE_PERIOD = 0 # test value for PPC # should be reset to 7500 in SLM
 
 # slot allocation phases/rounds
 PHASE1_ROUNDS = (0, 1, 2, 3)

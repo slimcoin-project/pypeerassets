@@ -351,12 +351,3 @@ def exponent_to_amount(exponent: int, number_of_decimals: int) -> float:
     '''exponent to integer to be written on the chain'''
 
     return exponent / 10**number_of_decimals
-
-def deck_from_tx(txid: str, provider: Provider, deck_version: int=1, prod: bool=True): ### ADDRESSTRACK ###
-    '''Wrapper for deck parser, gets the deck from the TXID.'''
-
-    params = param_query(provider.network)
-    p2th = params.P2TH_addr
-    raw_tx = provider.getrawtransaction(txid, 1)
-    vout = raw_tx["vout"][0]["scriptPubKey"].get("addresses")[0]
-    return deck_parser((provider, raw_tx, deck_version, p2th), prod)

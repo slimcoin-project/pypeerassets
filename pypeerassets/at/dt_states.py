@@ -1,11 +1,12 @@
 from pypeerassets.at.dt_slots import get_slot
+from decimal import Decimal
 
 class ProposalState(object):
    # A ProposalState unifies all functions from proposals which are mutable.
    # i.e. which can change after the first proposal transaction was sent.
    # TODO: For efficiency the getblockcount call should be made in the parser at the start.
 
-    def __init__(self, valid_ptx, first_ptx, round_starts=[], round_halfway=[], signalling_txes=[], locking_txes=[], donation_txes=[], signalled_amounts=[], locked_amounts=[], donated_amounts=[], effective_slots=[], effective_locking_slots=[], donation_states=[], total_donated_amount=None, provider=None, current_blockheight=None, all_signalling_txes=None, all_donation_txes=None, all_locking_txes=None, dist_factor=None):
+    def __init__(self, valid_ptx, first_ptx, round_starts=[], round_halfway=[], signalling_txes=[], locking_txes=[], donation_txes=[], signalled_amounts=[], locked_amounts=[], donated_amounts=[], effective_slots=[], effective_locking_slots=[], donation_states=[], total_donated_amount=None, provider=None, current_blockheight=None, all_signalling_txes=[], all_donation_txes=[], all_locking_txes=[], dist_factor=None):
 
         self.valid_ptx = valid_ptx # the last proposal transaction which is valid.
         self.first_ptx = first_ptx # first ptx, in the case there was a Proposal Modification.
@@ -13,12 +14,25 @@ class ProposalState(object):
         self.req_amount = valid_ptx.req_amount
         self.start_epoch = self.first_ptx.epoch
         self.end_epoch = self.first_ptx.epoch + self.valid_ptx.epoch_number # MODIFIED: first tx is always the base.
+
+        # The round length of the second phase (not the first one) can be changed in ProposalModifications. 
+        # Thus all values based on round_length have 2 values, for the first and the second phase.
+        self.round_lengths = [self.first_ptx.round_length, self.valid_ptx.round_length]
+        self.security_periods = [max(l // 2, 2) for l in self.round_lengths]
+        self.voting_periods = [l * 4 for l in self.round_lengths] # equal to a full slot distribution phase.
+        self.release_period = self.voting_periods[1] # equal to the second phase voting period
+
         self.donation_address = self.first_ptx.donation_address
+        self.deck = self.first_ptx.deck
 
         # Slot Allocation Round Attributes are lists with values for each of the 8 distribution rounds
-        # We only set this if we need it, because phase 2 varies according to Proposal.
-        self.round_starts = round_starts
-        self.round_halfway = round_halfway
+        # Phase 2 can vary if there is a ProposalModification, so this can be set various times.
+        if not round_starts:
+            self.set_round_starts(phase=0)
+        else:
+            self.round_starts = round_starts
+            self.round_halfway = round_halfway
+            self.dist_start = dist_start # start block of first voting/distribution round.
 
         deck = self.first_ptx.deck
 
@@ -57,30 +71,35 @@ class ProposalState(object):
         # It should be ensured that this method is only called once per phase, or when a proposal has been modified.
 
         epoch_length = self.valid_ptx.deck.epoch_length
-        pre_allocation_period = DEFAULT_SECURITY_PERIOD + DEFAULT_VOTING_PERIOD # for now hardcoded, should be variable.
 
-        self.round_starts = [None] * 8
-        self.round_halfway = [None] * 8
+        self.round_starts = [None] * 9
+        self.round_halfway = [None] * 9
+
         halfway = self.first_ptx.round_length // 2
-
+        pre_allocation_period_phase1 = self.security_periods[0] + self.voting_periods[0]
+        pre_allocation_period_phase2 = self.security_periods[1] + self.voting_periods[1] + self.release_period
         # phase 0 means: both phases are calculated.
 
         if phase in (0, 1):
-            distribution_length = pre_allocation_period + (self.first_ptx.round_length * 4)
+            distribution_length = pre_allocation_period_phase1 + (self.round_lengths[0] * 4)
             # blocks in epoch: blocks which have passed since last epoch start.
-            blocks_in_epoch = (self.first_ptx.blockheight - (self.start_epoch - 1) * epoch_length)
+            blocks_in_epoch = self.first_ptx.blockheight - (self.start_epoch * epoch_length) # MODIFIED, TODO: Re-check!
             blocks_remaining = epoch_length - blocks_in_epoch
+            print("dl", distribution_length, "bie", blocks_in_epoch, "el", epoch_length)
             
 
-            # if proposal can still be voted, then do it in the current period
+            # if proposal can still be voted and slots distributed, then do it in the current epoch.
             if blocks_remaining > distribution_length:
 
-                phase_start = self.blockheight + pre_allocation_period
+                # MODIFIED. Introduced dist_start to avoid confusion regarding the voting period.
+                self.dist_start = self.first_ptx.blockheight
             else:
-                phase_start = self.start_epoch * epoch_length + pre_allocation_period # next epoch
+                self.dist_start = (self.start_epoch + 1) * epoch_length # MODIFIED, TODO: Re-check!
+
+            phase_start = self.dist_start + pre_allocation_period_phase1
 
             for i in range(4): # first phase has 4 rounds
-                self.round_starts[i] = phase_start + self.first_ptx.round_length * i
+                self.round_starts[i] = phase_start + self.round_lengths[0] * i
                 self.round_halfway[i] = self.round_starts[i] + halfway
 
                  
@@ -88,11 +107,12 @@ class ProposalState(object):
 
             epoch = self.end_epoch # final vote/distribution should always begin at the start of the end epoch.
 
-            phase_start = self.end_epoch * epoch_length + pre_allocation_period + DEFAULT_RELEASE_PERIOD
+            phase_start = self.end_epoch * epoch_length + pre_allocation_period_phase2
 
             for i in range(5): # second phase has 5 rounds, the last one being the Proposer round.
                 # we use valid_ptx here, this gives the option to change the round length of 2nd round.
-                self.round_starts[i + 4] = phase_start + self.valid_ptx.round_length * i
+                # TODO: should we really make this value changeable? This prevents us to set an unitary round_length value.
+                self.round_starts[i + 4] = phase_start + self.round_lengths[1] * i
                 self.round_halfway[i + 4] = self.round_starts[i + 4] + halfway
 
             # print(self.round_starts)
