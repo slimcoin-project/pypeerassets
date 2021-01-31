@@ -49,11 +49,10 @@ def get_donation_txes(provider, deck, pst, min_blockheight=None, max_blockheight
             tx = DonationTransaction.from_json(tx_json=rawtx, provider=provider, deck=deck)
             # We add the tx directly to the corresponding ProposalState.
             # If the ProposalState does not exist, KeyError is thrown and the tx is ignored.
-            print(pst.proposal_states[tx.proposal_txid].__dict__)
             pst.proposal_states[tx.proposal_txid].all_donation_txes.append(tx)
         except (InvalidTrackedTransactionError, KeyError):
             continue
-        txlist.append(tx) # TODO: do we still need this complete list? It is probably better to keep it for DonationTransactions, to be able to create the DonationTX for the parser without additional blockchain lookup. For signalling/locking probably we don't need it.
+        txlist.append(tx)
     return txlist
 
 
@@ -125,7 +124,6 @@ def get_proposal_states(provider, deck, current_blockheight=None, all_signalling
     # Modified: force_dstates option (for pacli commands) calculates all phases/rounds and DonationStates, even if no card was issued.
     statedict = {}
     used_firsttxids = []
-    print("adt", all_donation_txes)
 
     for rawtx in get_marked_txes(provider, deck.derived_p2th_address("proposal")):
         try:
@@ -155,21 +153,23 @@ def get_valid_ending_proposals(pst, deck):
     # this function checks all proposals which end in a determinated epoch 
     # valid proposals are those who are voted in round1 and round2 with _more_ than 50% (50% is not enough).
     # MODIFIED: modified_proposals no longer parameter.
+    # TODO: Round 1 calculation does not work properly. We need to track the votes at this epoch. This will probably require an additional attribute for ParserState, e.g. voting_state, updated in each round.
 
     proposal_states, epoch, epoch_length, enabled_voters = pst.proposal_states, pst.epoch, deck.epoch_length, pst.enabled_voters
 
     valid_proposals = {}
 
     for pstate in proposal_states.values():
-        print("End epoch", pstate.end_epoch)
+        if pst.debug: print("End epoch", pstate.end_epoch)
         if (pstate.end_epoch != epoch):
             continue
         # donation address should not be possible to change (otherwise it's a headache for donors), so we use first ptx.
         votes_round2 = get_votes(pst, pstate, epoch)
-        print("Votes:", votes_round2)
+        if pst.debug: print("Votes round 2 for Proposal", pstate.first_ptx.txid, ":", votes_round2)
         if votes_round2["positive"] <= votes_round2["negative"]:
             continue
         votes_round1 = get_votes(pst, pstate, pstate.start_epoch)
+        if pst.debug: print("Votes round 1 for Proposal", pstate.first_ptx.txid, ":", votes_round1)
         if votes_round1["positive"] <= votes_round1["negative"]:
             continue  
         valid_proposals.update({pstate.first_ptx.txid : pstate})
@@ -193,8 +193,8 @@ def get_valid_ending_proposals(pst, deck):
 def get_sdp_balances(pst):
 
     limit_blockheight = pst.epoch * pst.deck.epoch_length # balance at the start of the epoch.
-    print("blocklimit", limit_blockheight, "epoch", pst.epoch)
-    print([card.blocknum for card in pst.sdp_cards])
+    if pst.debug: print("Blocklimit for this epoch:", limit_blockheight, "Epoch number:", pst.epoch)
+    if pst.debug: print("Card blocks:", [card.blocknum for card in pst.sdp_cards])
 
     # TODO: define if the limit is the last block of epoch before, or first block of current epoch!
     cards = [ card for card in pst.sdp_cards if card.blocknum <= limit_blockheight ]
@@ -215,9 +215,7 @@ def update_voters(voters={}, new_cards=[], weight=1):
     # voter dict:
     # key: sender (address)
     # value: combined value of card_transfers (can be negative).
-    # TODO: maybe we need to implement CardBurn as well,
-    # which could be done with CardTransfer.
-    # MODIFIED: added weight, this is for SDP voters.
+    # MODIFIED: added weight, this is for SDP voters. Added CardBurn.
 
     if weight != 1:
         for voter in voters:
@@ -226,20 +224,22 @@ def update_voters(voters={}, new_cards=[], weight=1):
 
     for card in new_cards:
 
-        for receiver in card.receiver:
-            rec_position = card.receiver.index(receiver)
-            rec_amount = int(card.amount[rec_position] * weight)
+        if card.type != "CardBurn":
 
-            if receiver not in voters:
-                voters.update({receiver : rec_amount})
-            else:
-                # old_amount = int(voters[receiver] * weight)
-                old_amount = voters[receiver]
-                voters.update({receiver : old_amount + rec_amount})
+            for receiver in card.receiver:
+                rec_position = card.receiver.index(receiver)
+                rec_amount = int(card.amount[rec_position] * weight)
+
+                if receiver not in voters:
+                    voters.update({receiver : rec_amount})
+                else:
+                    # old_amount = int(voters[receiver] * weight)
+                    old_amount = voters[receiver]
+                    voters.update({receiver : old_amount + rec_amount})
 
         # if cardissue, we only add balances to receivers, nothing is deducted.
         # Donors have to send the CardIssue to themselves if they want their coins.
-        if card.type == "CardTransfer":
+        if card.type in ("CardTransfer", "CardBurn"):
             rest = int(-sum(card.amount) * weight)
             if card.sender not in voters:
                 voters.update({card.sender : rest})
@@ -249,32 +249,39 @@ def update_voters(voters={}, new_cards=[], weight=1):
 
     return voters
 
-def get_votes(pst, proposal, epoch):
+def get_votes(pst, proposal, epoch, formatted_result=False):
     # returns a dictionary with two keys: "positive" and "negative",
     # containing the amounts of the tokens with whom an address was voted.
     # NOTE: The balances are valid for the epoch of the ParserState. So this cannot be called
     #       for votes in other epochs.
     # NOTE 2: In this protocol the first vote always counts. You cannot change your vote. 
     # TODO: This is still without the "first vote can also be valid for second round" system.
+    # Formatted_result returns the "decimal" value of the votes, i.e. the number of "tokens"
+    # which voted for the proposal, which depends on the "number_of_decimals" value.
 
     votes = {}
     voters = []
+    if pst.debug: print("Enabled Voters:", pst.enabled_voters)
     for outcome in ("positive", "negative"):
        balance = 0
+       if pst.debug: print("Checking outcome:", outcome)
        try:
            vtxs = pst.voting_txes[proposal.first_ptx.txid][outcome]
        except KeyError: # thrown if there are no votes with this outcome
            votes.update({outcome : 0})
            continue
        for vote in vtxs:
-           print("enabled", pst.enabled_voters)
-           print("vote epoch", vote.epoch, "vote txid", vote.txid)
+           if pst.debug: print("Vote: Epoch", vote.epoch, "txid:", vote.txid, "sender:", vote.sender)
            if (vote.epoch == epoch) and (vote.sender not in voters):
                 try:
                     balance += pst.enabled_voters[vote.sender]
                     voters.append(vote.sender)
                 except KeyError: # will always be thrown if a voter is not enabled in the "current" epoch.
                     continue
+       if formatted_result:
+           dec_balance = Decimal(balance)
+           balance = dec_balance / 10**pst.sdp_deck_obj.number_of_decimals
+
        votes.update({outcome : balance})
  
     return votes

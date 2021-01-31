@@ -16,16 +16,11 @@ def get_startendvalues(provider, proposal_txid, period):
     # and the second dist_round for signalling is: ("signalling", 1)
 
     proposal_tx = ProposalTransaction.from_txid(proposal_txid, provider)
-    # TODO: This still doesn't deal with Proposal Modifications. Will probably need something like get_last_proposal.
+    # TODO: This still doesn't deal with Proposal Modifications. Will probably need a function get_last_proposal.
     p = ProposalState(first_ptx=proposal_tx, valid_ptx=proposal_tx, provider=provider)
     print("period", period)
 
-    # TODO: Revise epoch count (they begin with 0).
-    # Seems like the system is counting one epoch less when determining phase 2:
-    # Instead of start_epoch + (epoch_length * epoch_quantity) it must be one more, because the start of the 
-    # second phase starts one epoch after the END of the start_epoch (not after the start).
     # TODO 2: Look if we can already implement the "voting only once and change vote" system (maybe we can simply go with the following rule for round 2: round 1 votes are added to round 2 votes, and only the last vote counts)
-    # We anyway must filter all votes from the same person (I think this is still not done.)
     if (period == ("voting", 0)) or (period[0] in ("signalling", "locking", "donation") and period[1] < 5):
         phase_start = p.dist_start # (p.start_epoch + 1) * p.deck.epoch_length
     else:
@@ -48,12 +43,9 @@ def get_startendvalues(provider, proposal_txid, period):
 
     return {"start" : startblock, "end" : endblock}
 
-def get_votestate(provider, proposal_txid, phase=0):
+def get_votestate(provider, proposal_txid, phase=0, debug=False):
     """Get the state of the votes of a Proposal without calling the parser completely."""
-    # TODO: We need a method to get only the sdp balances of the epochs the transactions were sent.
-    # Also it would be good to limit it to the start/end epochs.
     
-    #print("prov", provider, "ptxid", proposal_txid, "phase", phase)
     current_blockheight = provider.getblockcount()
     ptx = ProposalTransaction.from_txid(proposal_txid, provider)
     # TODO: Does probably not deal with ProposalModifications still.
@@ -61,16 +53,16 @@ def get_votestate(provider, proposal_txid, phase=0):
     unfiltered_cards = list((card for batch in get_card_bundles(provider, ptx.deck) for card in batch))
 
     if phase == 0:
-        current_blockheight = pstate.dist_start
+        lastblock = min(current_blockheight, pstate.dist_start)
     elif phase == 1:
-        current_blockheight = pstate.end_epoch / pstate.deck.epoch_length
+        lastblock = min(current_blockheight, pstate.end_epoch * pstate.deck.epoch_length)
+    # print("currentblock", lastblock)
 
-    pst = ParserState(ptx.deck, unfiltered_cards, provider, current_blockheight=current_blockheight, debug=True)
+    pst = ParserState(ptx.deck, unfiltered_cards, provider, current_blockheight=lastblock, debug=debug)
 
-    valid_cards = dt_parser(unfiltered_cards, provider, current_blockheight, ptx.deck, debug=True, initial_parser_state=pst, force_continue=True) # later add: force_dstates=True
+    valid_cards = dt_parser(unfiltered_cards, provider, lastblock, ptx.deck, debug=debug, initial_parser_state=pst, force_continue=True) # later add: force_dstates=True
 
     for p in pst.proposal_states.values():
-        print(p.first_ptx.txid, proposal_txid)
         if p.first_ptx.txid == proposal_txid:
             proposal = p
             break
@@ -82,7 +74,8 @@ def get_votestate(provider, proposal_txid, phase=0):
         epoch = proposal.dist_start // proposal.deck.epoch_length # start_epoch cannot be used as the voting phase is often in start_epoch + 1
     elif phase == 1:
         epoch = proposal.end_epoch
-    votes = get_votes(pst, proposal, epoch)
+    # print("Checked epoch:", epoch, "dist_start", proposal.dist_start, "startep", proposal.start_epoch, "endep", proposal.end_epoch)
+    votes = get_votes(pst, proposal, epoch, formatted_result=True)
     return votes
 
 

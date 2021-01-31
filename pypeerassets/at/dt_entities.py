@@ -105,7 +105,7 @@ class TrackedTransaction(Transaction):
                     raise InvalidTrackedTransactionError(ValueError)
 
                 deck = deck_parser((provider, deckspawntx_json, 1, deck_p2th_addr), True)
-                print("NOTE: Deck extracted from transaction:", deck.id)
+                # print("NOTE: Deck extracted from transaction:", deck.id)
 
             object.__setattr__(self, 'deck', deck)
 
@@ -116,12 +116,11 @@ class TrackedTransaction(Transaction):
                 if proposal:
                     proposal_txid = proposal.txid
                 else:
-                    # TODO: workaround: Signalling and Donation datastr format are identic.
+                    # Note: Donation and Signalling format are identic.
                     proposal_txid = getfmt(self.datastr, DONATION_FORMAT, "prp").hex()
 
             if not proposal:
-                # TODO: this is inefficient. We should have to create a ProposalTransaction only once per Proposal.
-                # Probably it is also not needed.
+                # Note: This is inefficient and should only be used for Pacli functions, not for the parser.
                 proposal = ProposalTransaction.from_txid(proposal_txid, provider, deck=deck)
 
             object.__setattr__(self, 'deck', proposal.deck)

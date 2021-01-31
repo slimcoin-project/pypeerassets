@@ -4,7 +4,6 @@ from decimal import Decimal
 class ProposalState(object):
    # A ProposalState unifies all functions from proposals which are mutable.
    # i.e. which can change after the first proposal transaction was sent.
-   # TODO: For efficiency the getblockcount call should be made in the parser at the start.
 
     def __init__(self, valid_ptx, first_ptx, round_starts=[], round_halfway=[], signalling_txes=[], locking_txes=[], donation_txes=[], signalled_amounts=[], locked_amounts=[], donated_amounts=[], effective_slots=[], effective_locking_slots=[], donation_states=[], total_donated_amount=None, provider=None, current_blockheight=None, all_signalling_txes=[], all_donation_txes=[], all_locking_txes=[], dist_factor=None):
 
@@ -12,8 +11,6 @@ class ProposalState(object):
         self.first_ptx = first_ptx # first ptx, in the case there was a Proposal Modification.
         # TODO: algorithm has to specify how the first ptx is selected.
         self.req_amount = valid_ptx.req_amount
-        self.start_epoch = self.first_ptx.epoch
-        self.end_epoch = self.first_ptx.epoch + self.valid_ptx.epoch_number # MODIFIED: first tx is always the base.
 
         # The round length of the second phase (not the first one) can be changed in ProposalModifications. 
         # Thus all values based on round_length have 2 values, for the first and the second phase.
@@ -83,18 +80,25 @@ class ProposalState(object):
         if phase in (0, 1):
             distribution_length = pre_allocation_period_phase1 + (self.round_lengths[0] * 4)
             # blocks in epoch: blocks which have passed since last epoch start.
-            blocks_in_epoch = self.first_ptx.blockheight - (self.start_epoch * epoch_length) # MODIFIED, TODO: Re-check!
+            # blocks_in_epoch = self.first_ptx.blockheight - (self.start_epoch * epoch_length) # MODIFIED, TODO: Re-check!
+            blocks_in_epoch = self.first_ptx.blockheight % epoch_length # modified to modulo.
             blocks_remaining = epoch_length - blocks_in_epoch
-            print("dl", distribution_length, "bie", blocks_in_epoch, "el", epoch_length)
+            # print("dl", distribution_length, "bie", blocks_in_epoch, "el", epoch_length)
             
 
             # if proposal can still be voted and slots distributed, then do it in the current epoch.
             if blocks_remaining > distribution_length:
 
                 # MODIFIED. Introduced dist_start to avoid confusion regarding the voting period.
+                # MODIFIED 2. Start epoch is now the start of the DISTRIBUTION epoch.
+                self.start_epoch = self.first_ptx.epoch
                 self.dist_start = self.first_ptx.blockheight
             else:
-                self.dist_start = (self.start_epoch + 1) * epoch_length # MODIFIED, TODO: Re-check!
+                self.start_epoch = self.first_ptx.epoch + 1
+                self.dist_start = self.start_epoch * epoch_length # MODIFIED.
+
+            # MODIFIED: end epoch is 1 after last working epoch.
+            self.end_epoch = self.start_epoch + self.valid_ptx.epoch_number + 1 
 
             phase_start = self.dist_start + pre_allocation_period_phase1
 
@@ -102,11 +106,9 @@ class ProposalState(object):
                 self.round_starts[i] = phase_start + self.round_lengths[0] * i
                 self.round_halfway[i] = self.round_starts[i] + halfway
 
-                 
         if phase in (0, 2):
 
             epoch = self.end_epoch # final vote/distribution should always begin at the start of the end epoch.
-
             phase_start = self.end_epoch * epoch_length + pre_allocation_period_phase2
 
             for i in range(5): # second phase has 5 rounds, the last one being the Proposer round.
@@ -284,7 +286,6 @@ class ProposalState(object):
                     continue
             # In the case of signalling transactions, we must look for donation/locking TXes
             # using the same spending address.
-            # TODO: Input or output addr?
             elif type(tx) == SignallingTransaction:
                 for dstate in valid_dstates:
                     if tx.address == dstate.donor_address:
@@ -306,7 +307,7 @@ class ProposalState(object):
         # We take the value of the first ProposalTransaction here, because in the case of Proposal Modifications,
         # all LockedTransactions need to stay valid.
 
-        original_phase2_start = (self.first_ptx.start_epoch + self.first_ptx.epoch_number) * self.deck.epoch_length
+        original_phase2_start = (self.start_epoch + self.first_ptx.epoch_number) * self.deck.epoch_length
 
         if ltx.timelock >= original_phase2_start:
             return True

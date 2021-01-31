@@ -17,7 +17,7 @@ from pypeerassets.__main__ import find_all_valid_cards
 class ParserState(object):
     """contains the current state of basic variables"""
 
-    def __init__(self, deck, initial_cards, provider, proposal_states={}, valid_proposals={}, signalling_txes=[], locking_txes=[], donation_txes=[], voting_txes=[], epoch=None, start_epoch=None, used_issuance_tuples=[], valid_cards=[], enabled_voters={}, sdp_cards=[], current_blockheight=None, debug=False):
+    def __init__(self, deck, initial_cards, provider, proposal_states={}, valid_proposals={}, signalling_txes=[], locking_txes=[], donation_txes=[], voting_txes=[], epoch=None, start_epoch=None, used_issuance_tuples=[], valid_cards=[], enabled_voters={}, sdp_cards=[], sdp_deck_obj=None, current_blockheight=None, debug=False):
 
         self.deck = deck
         self.initial_cards = initial_cards
@@ -36,6 +36,10 @@ class ParserState(object):
         # enabled_voters are all voters with valid balances, and their balance.
         self.enabled_voters = enabled_voters
         # SDP voters/balances are stored as CardTransfers, so they can be easily retrieved with PeerAsset standard methods.
+        if self.deck.sdp_deck:
+            self.sdp_deck_obj = deck_from_tx(self.deck.sdp_deck, self.provider)
+        else:
+            self.sdp_deck_obj = sdp_deck_obj
         self.sdp_cards = sdp_cards
 
         # used_issuance_tuples list joins all issuances of sender, txid, vout:
@@ -48,14 +52,13 @@ class ParserState(object):
 
 def init_parser(pst, force_dstates=False):
     """Bundles all on-chain extractions."""
-    # SDP cards:
-    sdp_deck_obj = deck_from_tx(pst.deck.sdp_deck, pst.provider)
+    # Initial balance of SDP cards
+    # pst.sdp_deck_obj = deck_from_tx(pst.deck.sdp_deck, pst.provider)
 
-    if sdp_deck_obj != None:
-        pst.sdp_cards = list(find_all_valid_cards(pst.provider, sdp_deck_obj))
+    if pst.sdp_deck_obj != None:
+        pst.sdp_cards = list(find_all_valid_cards(pst.provider, pst.sdp_deck_obj))
     else:
         pst.sdp_cards = None
-    print("sdp_cards", pst.sdp_cards)
 
     # init_parser(provider, pst, current_blockheight)
 
@@ -252,7 +255,7 @@ def get_valid_epoch_cards(pst, epoch_cards):
     return valid_cards
 
 
-def dt_parser(cards, provider, current_blockheight, deck, debug=True, initial_parser_state=None, force_dstates=False, force_continue=False, end_epoch=None):
+def dt_parser(cards, provider, current_blockheight, deck, debug=False, initial_parser_state=None, force_dstates=False, force_continue=False, end_epoch=None):
 
     """Basic parser loop. Loops through all cards by epoch."""
 
@@ -289,6 +292,8 @@ def dt_parser(cards, provider, current_blockheight, deck, debug=True, initial_pa
 
     if not end_epoch:
         end_epoch = current_epoch
+
+    if pst.debug: print("Start and end epoch:", start_epoch, end_epoch)
     
     for epoch in range(start_epoch, end_epoch):
 
@@ -296,7 +301,7 @@ def dt_parser(cards, provider, current_blockheight, deck, debug=True, initial_pa
         epoch_firstblock = deck.epoch_length * epoch
         epoch_lastblock = deck.epoch_length * (epoch + 1)
 
-        if pst.debug: print("Checking epoch", epoch, "from block", epoch_firstblock, "to", epoch_lastblock)
+        if pst.debug: print("\nChecking epoch", epoch, "from block", epoch_firstblock, "to", epoch_lastblock)
 
         # grouping cards per epoch
 
@@ -328,7 +333,6 @@ def dt_parser(cards, provider, current_blockheight, deck, debug=True, initial_pa
 
             # We set apart all CardTransfers of SDP voters before the epoch start
             sdp_epoch_balances = get_sdp_balances(pst)
-            print("sdpbalances", sdp_epoch_balances)
 
             # Weight is calculated according to the epoch
             sdp_weight = get_sdp_weight(epochs_from_start, deck.sdp_periods)
@@ -351,7 +355,7 @@ def dt_parser(cards, provider, current_blockheight, deck, debug=True, initial_pa
 
         pst.valid_cards += valid_epoch_cards
 
-        if (pos == cards_len) and not force_continue: # we don't need to continue if there are no cards left
+        if (pos == cards_len) and not force_continue: # normally we don't need to continue if there are no cards left
             break
 
     return pst.valid_cards
