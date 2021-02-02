@@ -166,7 +166,8 @@ def find_card_bundles(provider: Provider, deck: Deck) -> Optional[Iterator]:
         result = provider.batch(batch_data)
 
         if result is not None:
-            raw_txns = [i['result'] for i in result if result]
+            raw_txns = [i['result'] for i in result if ("blockhash" in i['result'])] ### WORKAROUND / BUGFIX ###
+            # raw_txns = [i['result'] for i in result if result ] # original
 
         else:
             raise EmptyP2THDirectory({'error': 'No cards found on this deck.'})

@@ -87,15 +87,17 @@ def get_signalling_txes(provider, deck, pst, min_blockheight=None, max_blockheig
 
 
 def get_voting_txes(provider, deck, min_blockheight=None, max_blockheight=None):
-    # gets ALL proposal txes of a deck. Needs P2TH.
+    # gets ALL voting txes of a deck. Needs P2TH.
     # uses a dict to group votes by proposal and by outcome ("positive" and "negative")
     # b'+' is the value for a positive vote, b'-' is negative, others are invalid.
     txdict = {}
     for rawtx in get_marked_txes(provider, deck.derived_p2th_address("voting"), min_blockheight=min_blockheight, max_blockheight=max_blockheight):
 
         try:
+            #print("raw_tx", rawtx["txid"])
             tx = VotingTransaction.from_json(tx_json=rawtx, provider=provider, deck=deck)
-        except InvalidTrackedTransactionError:
+            #print("correct voting tx", tx.txid)
+        except (KeyError, InvalidTrackedTransactionError):
             continue
 
         if tx.vote == b'+':
@@ -211,18 +213,21 @@ def get_sdp_weight(epochs_from_start: int, sdp_periods: int) -> Decimal:
 
 ### Voting
 
-def update_voters(voters={}, new_cards=[], weight=1):
+def update_voters(voters={}, new_cards=[], weight=1, debug=False):
     # voter dict:
     # key: sender (address)
     # value: combined value of card_transfers (can be negative).
     # MODIFIED: added weight, this is for SDP voters. Added CardBurn.
 
+    if debug: print("Voters", voters)
     if weight != 1:
         for voter in voters:
            old_amount = voters[voter]
            voters.update({ voter : int(old_amount * weight) })
+           if debug: print("Updating SDP balance:", old_amount, "to", voters[voter])
 
     for card in new_cards:
+        if debug: print("Card data:", card.sender, card.receiver, card.amount, card.type)
 
         if card.type != "CardBurn":
 
@@ -231,21 +236,25 @@ def update_voters(voters={}, new_cards=[], weight=1):
                 rec_amount = int(card.amount[rec_position] * weight)
 
                 if receiver not in voters:
+                    if debug: print("New voter:", receiver, "with amount:", rec_amount)
                     voters.update({receiver : rec_amount})
                 else:
-                    # old_amount = int(voters[receiver] * weight)
                     old_amount = voters[receiver]
+                    if debug: print("Voter:", receiver, "with old_amount:", old_amount, "updated to new amount:", old_amount + rec_amount)
+                    
                     voters.update({receiver : old_amount + rec_amount})
 
         # if cardissue, we only add balances to receivers, nothing is deducted.
         # Donors have to send the CardIssue to themselves if they want their coins.
         if card.type in ("CardTransfer", "CardBurn"):
-            rest = int(-sum(card.amount) * weight)
+            rest = -int(sum(card.amount)) # MODIFIED: weight here does not apply!
             if card.sender not in voters:
+                if debug: print("Card sender not in voters. Resting the rest:", rest)
                 voters.update({card.sender : rest})
             else:
                 old_amount = voters[card.sender]
-                voters.update({receiver : old_amount + rest})
+                if debug: print("Card sender updated from:", old_amount, "to:", old_amount + rest)
+                voters.update({card.sender : old_amount + rest})
 
     return voters
 
@@ -254,7 +263,8 @@ def get_votes(pst, proposal, epoch, formatted_result=False):
     # containing the amounts of the tokens with whom an address was voted.
     # NOTE: The balances are valid for the epoch of the ParserState. So this cannot be called
     #       for votes in other epochs.
-    # NOTE 2: In this protocol the first vote always counts. You cannot change your vote. 
+    # NOTE 2: In this protocol the last vote counts (this is why the vtxs list is reversed).
+    #       You can always change you vote.
     # TODO: This is still without the "first vote can also be valid for second round" system.
     # Formatted_result returns the "decimal" value of the votes, i.e. the number of "tokens"
     # which voted for the proposal, which depends on the "number_of_decimals" value.
@@ -270,10 +280,11 @@ def get_votes(pst, proposal, epoch, formatted_result=False):
        except KeyError: # thrown if there are no votes with this outcome
            votes.update({outcome : 0})
            continue
-       for vote in vtxs:
-           if pst.debug: print("Vote: Epoch", vote.epoch, "txid:", vote.txid, "sender:", vote.sender)
+       for vote in reversed(vtxs): # reversed for the "last vote counts" rule.
+           if pst.debug: print("Vote: Epoch", vote.epoch, "txid:", vote.txid, "sender:", vote.sender, "outcome:", vote.vote)
            if (vote.epoch == epoch) and (vote.sender not in voters):
                 try:
+                    if pst.debug: print("Vote is valid.")
                     balance += pst.enabled_voters[vote.sender]
                     voters.append(vote.sender)
                 except KeyError: # will always be thrown if a voter is not enabled in the "current" epoch.

@@ -80,7 +80,7 @@ def init_parser(pst, force_dstates=False):
 
     if pst.debug: print("Get voting txes ...", )
     pst.voting_txes = get_voting_txes(pst.provider, pst.deck)
-    if pst.debug: print(len(pst.voting_txes), "voting transactions found.")
+    if pst.debug: print(len(pst.voting_txes), "proposal with voting transactions found.")
 
     if force_dstates: # Allows to set all states even if no card has been issued. # TODO: Check epochs.
          for p in pst.proposal_states.values():
@@ -350,7 +350,7 @@ def dt_parser(cards, provider, current_blockheight, deck, debug=False, initial_p
         if (highpos == lowpos) or len(epoch_cards) > 0:
             valid_epoch_cards = get_valid_epoch_cards(pst, epoch_cards)
     
-        pst.enabled_voters.update(update_voters(voters=pst.enabled_voters, new_cards=valid_epoch_cards))
+        pst.enabled_voters.update(update_voters(voters=pst.enabled_voters, new_cards=valid_epoch_cards, debug=pst.debug))
         if pst.debug: print("New voters balances:", pst.enabled_voters)
 
         pst.valid_cards += valid_epoch_cards

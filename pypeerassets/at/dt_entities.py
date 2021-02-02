@@ -159,6 +159,9 @@ class TrackedTransaction(Transaction):
     @classmethod
     def from_json(cls, tx_json, provider, network=PeercoinTestnet, deck=None):
 
+        #if 'blockhash' not in tx_json: # unconfirmed transactions are ignored
+        #    return None
+
         try:
             op_return_hex = tx_json['vout'][1]['scriptPubKey']['asm'][10:]
             #print(op_return_hex)

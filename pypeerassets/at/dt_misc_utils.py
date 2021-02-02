@@ -56,7 +56,10 @@ def get_votestate(provider, proposal_txid, phase=0, debug=False):
         lastblock = min(current_blockheight, pstate.dist_start)
     elif phase == 1:
         lastblock = min(current_blockheight, pstate.end_epoch * pstate.deck.epoch_length)
+    else:
+        raise ValueError("No correct phase number entered. Please enter 0 or 1.")
     # print("currentblock", lastblock)
+
 
     pst = ParserState(ptx.deck, unfiltered_cards, provider, current_blockheight=lastblock, debug=debug)
 
