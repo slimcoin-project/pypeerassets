@@ -270,30 +270,35 @@ def get_votes(pst, proposal, epoch, formatted_result=False):
     # which voted for the proposal, which depends on the "number_of_decimals" value.
 
     votes = {}
-    voters = []
-    if pst.debug: print("Enabled Voters:", pst.enabled_voters)
-    for outcome in ("positive", "negative"):
-       balance = 0
-       if pst.debug: print("Checking outcome:", outcome)
-       try:
-           vtxs = pst.voting_txes[proposal.first_ptx.txid][outcome]
-       except KeyError: # thrown if there are no votes with this outcome
-           votes.update({outcome : 0})
-           continue
-       for vote in reversed(vtxs): # reversed for the "last vote counts" rule.
-           if pst.debug: print("Vote: Epoch", vote.epoch, "txid:", vote.txid, "sender:", vote.sender, "outcome:", vote.vote)
-           if (vote.epoch == epoch) and (vote.sender not in voters):
-                try:
-                    if pst.debug: print("Vote is valid.")
-                    balance += pst.enabled_voters[vote.sender]
-                    voters.append(vote.sender)
-                except KeyError: # will always be thrown if a voter is not enabled in the "current" epoch.
-                    continue
-       if formatted_result:
-           dec_balance = Decimal(balance)
-           balance = dec_balance / 10**pst.sdp_deck_obj.number_of_decimals
+    voters = [] # to filter out duplicates.
 
-       votes.update({outcome : balance})
+    if pst.debug: print("Enabled Voters:", pst.enabled_voters)
+    voting_txes = pst.voting_txes[proposal.first_ptx.txid]["positive"] + pst.voting_txes[proposal.first_ptx.txid]["negative"]
+    sorted_vtxes = sorted(voting_txes, key=lambda tx: tx.blockheight, reverse=True) # newlist = sorted(ut, key=lambda x: x.count, reverse=True) # this is a workaround.
+    
+    votes = { "negative" : 0, "positive" : 0 }
+
+    for v in sorted_vtxes: # reversed for the "last vote counts" rule.
+        if pst.debug: print("Vote: Epoch", v.epoch, "txid:", v.txid, "sender:", v.sender, "outcome:", v.vote)
+        if (v.epoch == epoch) and (v.sender not in voters):
+            try:
+                if pst.debug: print("Vote is valid.")
+                voter_balance = pst.enabled_voters[v.sender] # voting token balance at start of epoch
+                if pst.debug: print("Voter balance", voter_balance)
+                vote_outcome = "positive" if v.vote == b'+' else "negative"
+                votes[vote_outcome] += voter_balance
+                if pst.debug: print("Balance of outcome", vote_outcome, "increased by", voter_balance)
+                voters.append(v.sender)
+
+            except KeyError: # will always be thrown if a voter is not enabled in the "current" epoch.
+                continue
+
+    if formatted_result:
+        for outcome in ("positive", "negative"):
+            dec_balance = Decimal(votes[outcome])
+            balance = dec_balance / 10**pst.sdp_deck_obj.number_of_decimals
+
+            votes.update({outcome : balance})
  
     return votes
 
