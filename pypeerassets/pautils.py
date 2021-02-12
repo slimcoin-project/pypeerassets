@@ -113,7 +113,6 @@ def deck_parser(args: Tuple[Provider, dict, int, str],
 
     except (InvalidDeckSpawn, InvalidDeckMetainfo, InvalidDeckVersion,
             InvalidNulldataOutput) as err:
-        print(err)
         pass
 
     return None

@@ -17,7 +17,7 @@ from pypeerassets.__main__ import find_all_valid_cards
 class ParserState(object):
     """contains the current state of basic variables"""
 
-    def __init__(self, deck, initial_cards, provider, proposal_states={}, valid_proposals={}, signalling_txes=[], locking_txes=[], donation_txes=[], voting_txes=[], epoch=None, start_epoch=None, used_issuance_tuples=[], valid_cards=[], enabled_voters={}, sdp_cards=[], sdp_deck_obj=None, current_blockheight=None, debug=False):
+    def __init__(self, deck, initial_cards, provider, proposal_states={}, approved_proposals={}, valid_proposals={}, signalling_txes=[], locking_txes=[], donation_txes=[], voting_txes=[], epoch=None, start_epoch=None, used_issuance_tuples=[], valid_cards=[], enabled_voters={}, sdp_cards=[], sdp_deck_obj=None, current_blockheight=None, epochs_with_completed_proposals=0, debug=False):
 
         self.deck = deck
         self.initial_cards = initial_cards
@@ -26,11 +26,13 @@ class ParserState(object):
 
         self.valid_cards = valid_cards
         self.proposal_states = proposal_states
-        self.valid_proposals = valid_proposals
+        self.approved_proposals = approved_proposals # approved by round 1 votes
+        self.valid_proposals = valid_proposals # successfully completed: approved by round 1 + 2 votes 
         self.signalling_txes = signalling_txes
         self.locking_txes = locking_txes
         self.donation_txes = donation_txes
         self.voting_txes = voting_txes # this is a dict, not list.
+        self.epochs_with_completed_proposals = epochs_with_completed_proposals
 
         # enabled_voters variable is calculated once per epoch, taking into account card issuances and card transfers.
         # enabled_voters are all voters with valid balances, and their balance.
@@ -285,13 +287,12 @@ def dt_parser(cards, provider, current_blockheight, deck, debug=False, initial_p
     if pst.debug: print("Total number of cards:", cards_len)
 
     if pst.debug: print("Starting epoch loop ...")
-    oldtxid = ""
+    # oldtxid = "" # probably obsolete
     pos = 0 # card position
     highpos = 0
-    current_epoch = current_blockheight // deck.epoch_length + 1 # includes an incomplete epoch which just started
 
     if not end_epoch:
-        end_epoch = current_epoch
+        end_epoch = current_blockheight // deck.epoch_length + 1 # includes an incomplete epoch which just started
 
     if pst.debug: print("Start and end epoch:", start_epoch, end_epoch)
     
@@ -327,6 +328,8 @@ def dt_parser(cards, provider, current_blockheight, deck, debug=False, initial_p
 
         # Epochs which have passed since the deck spawn
         epochs_from_start = epoch - pst.start_epoch
+
+
         if pst.debug: print("SDP periods remaining:", (deck.sdp_periods - epochs_from_start))
 
         if (deck.sdp_periods != 0) and (epochs_from_start <= deck.sdp_periods): # voters from other tokens
@@ -335,16 +338,23 @@ def dt_parser(cards, provider, current_blockheight, deck, debug=False, initial_p
             sdp_epoch_balances = get_sdp_balances(pst)
 
             # Weight is calculated according to the epoch
-            sdp_weight = get_sdp_weight(epochs_from_start, deck.sdp_periods)
+            # EXPERIMENTAL: modified, so weight is reduced only in epochs where proposals were completely approved.
+            sdp_weight = get_sdp_weight(pst.epochs_with_completed_proposals, deck.sdp_periods)
+            # sdp_weight = get_sdp_weight(epochs_from_start, deck.sdp_periods)
 
             if len(sdp_epoch_balances) > 0: # MODIFIED: was originally new_sdp_voters
-                pst.enabled_voters.update(update_voters(pst.enabled_voters, sdp_epoch_balances, weight=sdp_weight))
+                pst.enabled_voters.update(update_voters(pst.enabled_voters, sdp_epoch_balances, weight=sdp_weight, debug=pst.debug))
 
         # as card issues can occur any time after the proposal has been voted
         # we always need ALL valid proposals voted up to this epoch.
 
         if pst.debug: print("Get ending proposals ...")
-        pst.valid_proposals.update(get_valid_ending_proposals(pst, deck)) # modified for states
+        # pst.valid_proposals.update(get_valid_ending_proposals(pst, deck)) # modified for states
+        if pst.debug: print("Approved proposals before epoch", pst.epoch, pst.approved_proposals)
+        update_approved_proposals(pst)
+        if pst.debug: print("Approved proposals after epoch", pst.epoch, pst.approved_proposals)
+
+        update_valid_ending_proposals(pst)
         if pst.debug: print("Valid ending proposals:", pst.valid_proposals)
 
         if (highpos == lowpos) or len(epoch_cards) > 0:

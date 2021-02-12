@@ -45,6 +45,8 @@ def get_startendvalues(provider, proposal_txid, period):
 
 def get_votestate(provider, proposal_txid, phase=0, debug=False):
     """Get the state of the votes of a Proposal without calling the parser completely."""
+
+    # TODO: Must be reorganized, the call to get_votes by epoch does not work this way, because it can only process the current epoch of the parser state. Or reorganize get_votes.
     
     current_blockheight = provider.getblockcount()
     ptx = ProposalTransaction.from_txid(proposal_txid, provider)

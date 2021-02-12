@@ -151,7 +151,61 @@ def get_proposal_states(provider, deck, current_blockheight=None, all_signalling
     return statedict
 
 
-def get_valid_ending_proposals(pst, deck):
+def update_approved_proposals(pst):
+    # Filters proposals which were approved in the first-round-voting.
+    # TODO: To boost efficiency and avoid redundand checks, one could delete all
+    # already approved proposals from the original list (which should be re-branded to "unchecked proposals")
+    # Would also allow differentiate between unchecked and unapproved proposals.
+    # TODO: SHould be moved as a method to ParserState.
+
+    for pstate in pst.proposal_states.values():
+
+        if (pstate.start_epoch != pst.epoch):
+            continue
+
+        votes_round1 = get_votes(pst, pstate, pst.epoch)
+        if pst.debug: print("Votes round 1 for Proposal", pstate.first_ptx.txid, ":", votes_round1)
+
+        if votes_round1["positive"] <= votes_round1["negative"]:
+            continue
+
+        pst.approved_proposals.update({pstate.first_ptx.txid : pstate})
+
+
+def update_valid_ending_proposals(pst):
+    # this function checks all proposals which end in a determinated epoch 
+    # valid proposals are those who are voted in round1 and round2 with _more_ than 50% (50% is not enough).
+    # MODIFIED: modified_proposals no longer parameter.
+    # MODIFIED: Only checks round-2 votes.
+    # TODO :Should be moved as a method to ParserState.
+
+    for pstate in pst.approved_proposals.values():
+        if pst.debug: print("Checking end epoch for completed proposals:", pstate.end_epoch)
+        if (pstate.end_epoch != pst.epoch):
+            continue
+        # donation address should not be possible to change (otherwise it's a headache for donors), so we use first ptx.
+        votes_round2 = get_votes(pst, pstate, pst.epoch)
+        if pst.debug: print("Votes round 2 for Proposal", pstate.first_ptx.txid, ":", votes_round2)
+        if votes_round2["positive"] <= votes_round2["negative"]:
+            continue
+
+        pst.valid_proposals.update({pstate.first_ptx.txid : pstate})
+    else:
+        return
+
+    pst.epochs_with_completed_proposals += 1
+
+    # Set the Distribution Factor (number to be multiplied with the donation/slot, according to proposals and token amount)
+    # Must be in a second loop as we need the complete list of valid proposals which end in this epoch.
+    # Maybe this can still be optimized, with a special case if there is a single proposal in this epoch.
+    # TODO: SHould be probably a separate method. Would also allow to do the round checks in the same method for rd1 and 2.
+
+    for pstate in pst.valid_proposals.values():
+        if not pstate.dist_factor:
+            pstate.set_dist_factor(pst.valid_proposals.values())
+
+
+def get_valid_ending_proposals_old(pst, deck):
     # this function checks all proposals which end in a determinated epoch 
     # valid proposals are those who are voted in round1 and round2 with _more_ than 50% (50% is not enough).
     # MODIFIED: modified_proposals no longer parameter.
@@ -162,7 +216,7 @@ def get_valid_ending_proposals(pst, deck):
     valid_proposals = {}
 
     for pstate in proposal_states.values():
-        if pst.debug: print("End epoch", pstate.end_epoch)
+        if pst.debug: print("Checking end epoch for completed proposals:", pstate.end_epoch)
         if (pstate.end_epoch != epoch):
             continue
         # donation address should not be possible to change (otherwise it's a headache for donors), so we use first ptx.
@@ -219,12 +273,12 @@ def update_voters(voters={}, new_cards=[], weight=1, debug=False):
     # value: combined value of card_transfers (can be negative).
     # MODIFIED: added weight, this is for SDP voters. Added CardBurn.
 
-    if debug: print("Voters", voters)
+    if debug: print("Voters", voters, "\nWeight:", weight)
     if weight != 1:
         for voter in voters:
            old_amount = voters[voter]
            voters.update({ voter : int(old_amount * weight) })
-           if debug: print("Updating SDP balance:", old_amount, "to", voters[voter])
+           if debug: print("Updating SDP balance:", old_amount, "to:", voters[voter])
 
     for card in new_cards:
         if debug: print("Card data:", card.sender, card.receiver, card.amount, card.type)
@@ -268,6 +322,8 @@ def get_votes(pst, proposal, epoch, formatted_result=False):
     # TODO: This is still without the "first vote can also be valid for second round" system.
     # Formatted_result returns the "decimal" value of the votes, i.e. the number of "tokens"
     # which voted for the proposal, which depends on the "number_of_decimals" value.
+    # TODO: Trash the epoch value, it should always be taken from pst! (if not, then there is a structural problem!)
+    # TODO: WE probably need a parameter of proposals showing always the votes got in a particular epoch.
 
     votes = {}
     voters = [] # to filter out duplicates.
@@ -279,7 +335,7 @@ def get_votes(pst, proposal, epoch, formatted_result=False):
     votes = { "negative" : 0, "positive" : 0 }
 
     for v in sorted_vtxes: # reversed for the "last vote counts" rule.
-        if pst.debug: print("Vote: Epoch", v.epoch, "txid:", v.txid, "sender:", v.sender, "outcome:", v.vote)
+        if pst.debug: print("Vote: Epoch", v.epoch, "txid:", v.txid, "sender:", v.sender, "outcome:", v.vote, "height", v.blockheight)
         if (v.epoch == epoch) and (v.sender not in voters):
             try:
                 if pst.debug: print("Vote is valid.")
@@ -291,6 +347,7 @@ def get_votes(pst, proposal, epoch, formatted_result=False):
                 voters.append(v.sender)
 
             except KeyError: # will always be thrown if a voter is not enabled in the "current" epoch.
+                if pst.debug: print("Voter has no balance in the current epoch.")
                 continue
 
     if formatted_result:

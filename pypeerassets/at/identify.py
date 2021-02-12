@@ -19,7 +19,7 @@ Also these functions are all very light so they don't compromise resource usage.
 """
 
 
-def is_at_deck(datastring:bytes) -> bool:
+def is_at_deck(datastring: bytes) -> bool:
     # this needs the identification as addresstrack deck.
     #if not datastring:
     #    return False # All Addresstrack decks need asset_specific_data.
@@ -44,7 +44,7 @@ def is_at_deck(datastring:bytes) -> bool:
         return False
     return False
 
-def is_at_cardissue(datastring:bytes) -> bool:
+def is_at_cardissue(datastring: bytes) -> bool:
     # addresstrack (AT and DT) issuance transactions reference the txid of the donation in "card.asset_specific_data"
 
     try:
@@ -66,7 +66,7 @@ def is_at_cardissue(datastring:bytes) -> bool:
 
     return False
 
-def is_valid_address(address:str) -> bool:
+def is_valid_address(address: str) -> bool:
     # ultra-simplified method to ensure the address format is correct, without rpc node connection
     # could be replaced with a full regex validator as it's not really heavy
     # TODO: this only works with base58, not with bech32 addresses.
@@ -78,7 +78,7 @@ def is_valid_address(address:str) -> bool:
     if 26 < len(address) <= 35:
         return True
 
-def is_valid_txid(txid_bytes:bytes) -> bool:
+def is_valid_txid(txid_bytes: bytes) -> bool:
     # tests if txid is 32 bytes (64 hex characters) long. Not doing full validity check for performance reasons,
     # anyway the parser detects bogus issuances.
     # TODO: Probably innecessary in this format, as the length is already checked in is_at_cardissue.
