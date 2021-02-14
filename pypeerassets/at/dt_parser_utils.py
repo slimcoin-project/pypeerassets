@@ -329,7 +329,10 @@ def get_votes(pst, proposal, epoch, formatted_result=False):
     voters = [] # to filter out duplicates.
 
     if pst.debug: print("Enabled Voters:", pst.enabled_voters)
-    voting_txes = pst.voting_txes[proposal.first_ptx.txid]["positive"] + pst.voting_txes[proposal.first_ptx.txid]["negative"]
+    try:
+        voting_txes = pst.voting_txes[proposal.first_ptx.txid]["positive"] + pst.voting_txes[proposal.first_ptx.txid]["negative"]
+    except KeyError: # gets thrown if the proposal was not added to pst.voting_txes, i.e. when no votes were found.
+        return {"positive" : 0, "negative" : 0}
     sorted_vtxes = sorted(voting_txes, key=lambda tx: tx.blockheight, reverse=True) # newlist = sorted(ut, key=lambda x: x.count, reverse=True) # this is a workaround.
     
     votes = { "negative" : 0, "positive" : 0 }
