@@ -163,10 +163,10 @@ def update_approved_proposals(pst):
         if (pstate.start_epoch != pst.epoch):
             continue
 
-        votes_round1 = get_votes(pst, pstate, pst.epoch)
-        if pst.debug: print("Votes round 1 for Proposal", pstate.first_ptx.txid, ":", votes_round1)
+        pstate.initial_votes = get_votes(pst, pstate, pst.epoch)
+        if pst.debug: print("Votes round 1 for Proposal", pstate.first_ptx.txid, ":", pstate.initial_votes)
 
-        if votes_round1["positive"] <= votes_round1["negative"]:
+        if pstate.initial_votes["positive"] <= pstate.initial_votes["negative"]:
             continue
 
         pst.approved_proposals.update({pstate.first_ptx.txid : pstate})
@@ -184,9 +184,9 @@ def update_valid_ending_proposals(pst):
         if (pstate.end_epoch != pst.epoch):
             continue
         # donation address should not be possible to change (otherwise it's a headache for donors), so we use first ptx.
-        votes_round2 = get_votes(pst, pstate, pst.epoch)
-        if pst.debug: print("Votes round 2 for Proposal", pstate.first_ptx.txid, ":", votes_round2)
-        if votes_round2["positive"] <= votes_round2["negative"]:
+        pstate.final_votes = get_votes(pst, pstate, pst.epoch)
+        if pst.debug: print("Votes round 2 for Proposal", pstate.first_ptx.txid, ":", pstate.final_votes)
+        if pstate.final_votes["positive"] <= pstate.final_votes["negative"]:
             continue
 
         pst.valid_proposals.update({pstate.first_ptx.txid : pstate})
@@ -204,42 +204,6 @@ def update_valid_ending_proposals(pst):
         if not pstate.dist_factor:
             pstate.set_dist_factor(pst.valid_proposals.values())
 
-
-def get_valid_ending_proposals_old(pst, deck):
-    # this function checks all proposals which end in a determinated epoch 
-    # valid proposals are those who are voted in round1 and round2 with _more_ than 50% (50% is not enough).
-    # MODIFIED: modified_proposals no longer parameter.
-    # TODO: Round 1 calculation does not work properly. We need to track the votes at this epoch. This will probably require an additional attribute for ParserState, e.g. voting_state, updated in each round.
-
-    proposal_states, epoch, epoch_length, enabled_voters = pst.proposal_states, pst.epoch, deck.epoch_length, pst.enabled_voters
-
-    valid_proposals = {}
-
-    for pstate in proposal_states.values():
-        if pst.debug: print("Checking end epoch for completed proposals:", pstate.end_epoch)
-        if (pstate.end_epoch != epoch):
-            continue
-        # donation address should not be possible to change (otherwise it's a headache for donors), so we use first ptx.
-        votes_round2 = get_votes(pst, pstate, epoch)
-        if pst.debug: print("Votes round 2 for Proposal", pstate.first_ptx.txid, ":", votes_round2)
-        if votes_round2["positive"] <= votes_round2["negative"]:
-            continue
-        votes_round1 = get_votes(pst, pstate, pstate.start_epoch)
-        if pst.debug: print("Votes round 1 for Proposal", pstate.first_ptx.txid, ":", votes_round1)
-        if votes_round1["positive"] <= votes_round1["negative"]:
-            continue  
-        valid_proposals.update({pstate.first_ptx.txid : pstate})
-
-    # Set the Distribution Factor (number to be multiplied with the donation/slot, according to proposals and token amount)
-    # Must be in a second loop as we need the complete list of valid proposals which end in this epoch.
-    # Maybe this can still be optimized, with a special case if there is a single proposal in this epoch.
-
-    for pstate in valid_proposals.values():
-        if not pstate.dist_factor:
-            pstate.set_dist_factor(valid_proposals.values())
-
-    return valid_proposals
-
 ## SDP
 # TODO: What if there is no SDP token defined? Somebody must vote in the first round.
 # An idea could be to use burn transactions in the last epoch (if it's the first epoch, then it would be simply "counting backwards") -> but this would encourage burning perhaps too much
@@ -247,13 +211,14 @@ def get_valid_ending_proposals_old(pst, deck):
 # "all proposals are voted" or "voting by the donors" are not possible as they have a risk of cheating.
 
 def get_sdp_balances(pst):
+    # TODO this works incorrectly. It needs to retrieve always only the cards of the epoch in question.
 
-    limit_blockheight = pst.epoch * pst.deck.epoch_length # balance at the start of the epoch.
-    if pst.debug: print("Blocklimit for this epoch:", limit_blockheight, "Epoch number:", pst.epoch)
+    upper_limit = pst.epoch * pst.deck.epoch_length # balance at the start of the epoch.
+    lower_limit = (pst.epoch - 1) * pst.deck.epoch_length # balance at the start of the epoch.
+    if pst.debug: print("Blocklimit for this epoch:", upper_limit, "Epoch number:", pst.epoch)
     if pst.debug: print("Card blocks:", [card.blocknum for card in pst.sdp_cards])
 
-    # TODO: define if the limit is the last block of epoch before, or first block of current epoch!
-    cards = [ card for card in pst.sdp_cards if card.blocknum <= limit_blockheight ]
+    cards = [ card for card in pst.sdp_cards if (lower_limit <= card.blocknum < upper_limit) ]
 
     return cards
 
@@ -333,7 +298,7 @@ def get_votes(pst, proposal, epoch, formatted_result=False):
         voting_txes = pst.voting_txes[proposal.first_ptx.txid]["positive"] + pst.voting_txes[proposal.first_ptx.txid]["negative"]
     except KeyError: # gets thrown if the proposal was not added to pst.voting_txes, i.e. when no votes were found.
         return {"positive" : 0, "negative" : 0}
-    sorted_vtxes = sorted(voting_txes, key=lambda tx: tx.blockheight, reverse=True) # newlist = sorted(ut, key=lambda x: x.count, reverse=True) # this is a workaround.
+    sorted_vtxes = sorted(voting_txes, key=lambda tx: tx.blockheight, reverse=True)
     
     votes = { "negative" : 0, "positive" : 0 }
 
@@ -353,10 +318,12 @@ def get_votes(pst, proposal, epoch, formatted_result=False):
                 if pst.debug: print("Voter has no balance in the current epoch.")
                 continue
 
+        elif v.epoch < epoch: # due to it being sorted we can cut off all txes before the relevant epoch.
+            break
+
     if formatted_result:
         for outcome in ("positive", "negative"):
-            dec_balance = Decimal(votes[outcome])
-            balance = dec_balance / 10**pst.sdp_deck_obj.number_of_decimals
+            balance = Decimal(votes[outcome]) / 10**pst.sdp_deck_obj.number_of_decimals
 
             votes.update({outcome : balance})
  

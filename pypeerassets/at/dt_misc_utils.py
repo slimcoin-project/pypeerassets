@@ -5,6 +5,7 @@ from pypeerassets.at.dt_parser_utils import get_votes
 from pypeerassets.__main__ import get_card_bundles
 from pypeerassets.provider import Provider
 from pypeerassets.kutil import Kutil
+from decimal import Decimal
 
 def get_startendvalues(provider, proposal_txid, period):
     # TODO: Unittest for that (should be easy).
@@ -45,8 +46,6 @@ def get_startendvalues(provider, proposal_txid, period):
 
 def get_votestate(provider, proposal_txid, phase=0, debug=False):
     """Get the state of the votes of a Proposal without calling the parser completely."""
-
-    # TODO: Must be reorganized, the call to get_votes by epoch does not work this way, because it can only process the current epoch of the parser state. Or reorganize get_votes.
     
     current_blockheight = provider.getblockcount()
     ptx = ProposalTransaction.from_txid(proposal_txid, provider)
@@ -76,12 +75,27 @@ def get_votestate(provider, proposal_txid, phase=0, debug=False):
         return None
 
     if phase == 0:
-        epoch = proposal.dist_start // proposal.deck.epoch_length # start_epoch cannot be used as the voting phase is often in start_epoch + 1
+        votes = proposal.initial_votes
     elif phase == 1:
-        epoch = proposal.end_epoch
+        votes = proposal.final_votes
+
+    return format_votes(pst.sdp_deck_obj.number_of_decimals, votes)
+
+    #if phase == 0:
+    #    epoch = proposal.dist_start // proposal.deck.epoch_length # start_epoch cannot be used as the voting phase is often in start_epoch + 1
+    #elif phase == 1:
+    #    epoch = proposal.end_epoch
     # print("Checked epoch:", epoch, "dist_start", proposal.dist_start, "startep", proposal.start_epoch, "endep", proposal.end_epoch)
-    votes = get_votes(pst, proposal, epoch, formatted_result=True)
-    return votes
+    #votes = get_votes(pst, proposal, epoch, formatted_result=True)
+
+    # return votes
+
+def format_votes(decimals, votes):
+    fvotes = {}
+    for outcome in ["positive", "negative"]:
+        balance = Decimal(votes[outcome]) / 10**decimals
+        fvotes.update({outcome : balance})
+    return fvotes
 
 
 ### Address and P2TH tools

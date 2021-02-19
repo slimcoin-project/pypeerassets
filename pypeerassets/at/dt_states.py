@@ -5,7 +5,7 @@ class ProposalState(object):
    # A ProposalState unifies all functions from proposals which are mutable.
    # i.e. which can change after the first proposal transaction was sent.
 
-    def __init__(self, valid_ptx, first_ptx, round_starts=[], round_halfway=[], signalling_txes=[], locking_txes=[], donation_txes=[], signalled_amounts=[], locked_amounts=[], donated_amounts=[], effective_slots=[], effective_locking_slots=[], donation_states=[], total_donated_amount=None, provider=None, current_blockheight=None, all_signalling_txes=[], all_donation_txes=[], all_locking_txes=[], dist_factor=None):
+    def __init__(self, valid_ptx, first_ptx, round_starts=[], round_halfway=[], signalling_txes=[], locking_txes=[], donation_txes=[], signalled_amounts=[], locked_amounts=[], donated_amounts=[], effective_slots=[], effective_locking_slots=[], donation_states=[], total_donated_amount=None, provider=None, current_blockheight=None, all_signalling_txes=[], all_donation_txes=[], all_locking_txes=[], initial_votes=None, final_votes=None, dist_factor=None):
 
         self.valid_ptx = valid_ptx # the last proposal transaction which is valid.
         self.first_ptx = first_ptx # first ptx, in the case there was a Proposal Modification.
@@ -51,6 +51,10 @@ class ProposalState(object):
         self.donated_amounts = donated_amounts
         self.donation_states = donation_states
         self.total_donated_amount = total_donated_amount
+
+        # Votes are set after the start and the end phase.
+        self.initial_votes = initial_votes
+        self.final_votes = final_votes
 
         # The effective slot values are the sums of the effective slots in each round.
         self.effective_locking_slots = effective_locking_slots
