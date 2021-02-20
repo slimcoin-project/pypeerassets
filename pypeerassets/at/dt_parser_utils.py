@@ -211,10 +211,13 @@ def update_valid_ending_proposals(pst):
 # "all proposals are voted" or "voting by the donors" are not possible as they have a risk of cheating.
 
 def get_sdp_balances(pst):
-    # TODO this works incorrectly. It needs to retrieve always only the cards of the epoch in question.
 
     upper_limit = pst.epoch * pst.deck.epoch_length # balance at the start of the epoch.
-    lower_limit = (pst.epoch - 1) * pst.deck.epoch_length # balance at the start of the epoch.
+    if pst.epoch == pst.start_epoch:
+        if pst.debug: print("Retrieving old cards ...")
+        lower_limit = 0
+    else:
+        lower_limit = (pst.epoch - 1) * pst.deck.epoch_length # balance at the start of the epoch.
     if pst.debug: print("Blocklimit for this epoch:", upper_limit, "Epoch number:", pst.epoch)
     if pst.debug: print("Card blocks:", [card.blocknum for card in pst.sdp_cards])
 
