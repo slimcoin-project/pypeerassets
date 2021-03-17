@@ -18,10 +18,11 @@ except ImportError:
 class RpcNode(Client, Provider):
     '''JSON-RPC connection to local Peercoin node'''
 
-    def select_inputs(self, address: str, amount: int) -> dict:
+    def select_inputs(self, address: str, amount: Decimal) -> dict:
         '''finds apropriate utxo's to include in rawtx, while being careful
         to never spend old transactions with a lot of coin age.
         Argument is intiger, returns list of apropriate UTXO's'''
+        ### BUGFIX: changed amount from int to Decimal. ###
 
         utxos = []
         utxo_sum = Decimal(0)

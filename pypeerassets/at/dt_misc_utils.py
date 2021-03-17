@@ -5,7 +5,16 @@ from pypeerassets.at.dt_parser_utils import get_votes
 from pypeerassets.__main__ import get_card_bundles
 from pypeerassets.provider import Provider
 from pypeerassets.kutil import Kutil
+from pypeerassets.transactions import make_raw_transaction, p2pkh_script, nulldata_script, MutableTxIn, TxIn, TxOut, Transaction, MutableTransaction, MutableTxIn, ScriptSig, Locktime
+from pypeerassets.networks import PeercoinMainnet, PeercoinTestnet, net_query
+from pypeerassets.provider.rpcnode import Sequence
 from decimal import Decimal
+from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
+from binascii import unhexlify
+
+DEFAULT_P2TH_FEE = 1000000 # int value required # should be replaced with the minimum amount of net_query.
+#DEFAULT_SEQUENCE = 0xffffffff # we use Sequence.max()
+COIN = 100000000
 
 def get_startendvalues(provider, proposal_txid, period):
     # TODO: Unittest for that (should be easy).
@@ -115,3 +124,92 @@ def deck_p2th_from_id(network: str, deck_id: str) -> str:
     # helper function giving the p2th.
     return Kutil(network=network,
                          privkey=bytearray.fromhex(deck_id)).address
+
+
+### Unsigned transactions
+
+# could also use p2pkh_script(network: str, address: str) from pypeerassets.transactions
+
+def create_p2pkh_txout(value: int, address: str, n: int, network="tppc"):
+    #address = Address.from_string(addr_string)
+    #script = P2pkhScript(address)
+    script = p2pkh_script(network, address)
+    return TxOut(value=value, n=n, script_pubkey=script, network=network)
+
+def create_cltv_txout():
+    # TODO: Create output for locking transaction.
+    pass
+
+def create_p2th_txout(deck, tx_type, fee=DEFAULT_P2TH_FEE, network="tppc"):
+    # Warning: always creates the p2th out at n=0.
+    p2th_addr = deck.derived_p2th_address(tx_type)
+    return create_p2pkh_txout(value=fee, address=p2th_addr, n=0, network=network)
+
+def create_opreturn_txout(tx_type: str, data: bytes, network="tppc"):
+    # Warning: always creates the opreturn out at n=1.
+    #data = datastr.encode("utf-8")
+    script = nulldata_script(data)
+    return TxOut(value=0, n=1, script_pubkey=script, network=network)
+
+
+def create_unsigned_tx(deck, address, amount, provider, tx_type, data, network="tppc", version=1, change_address=None, tx_fee=None, input_txid=None, input_vout=None, input_address=None, locktime=0, cltv_timelock=0):
+
+    try:
+        if not tx_fee:
+            network_params = net_query(network)
+            tx_fee = int(network_params.min_tx_fee * COIN) # this is rough, as it is min_tx_fee per kB, but a TrackedTransaction should only seldom have more than 1 kB.
+        p2th_output = create_p2th_txout(deck, tx_type)
+        data_output = create_opreturn_txout(tx_type, data)
+        if tx_type == "locking":
+            value_output = create_cltv_txout(amount, address, 2, cltv_timelock)
+        else:
+            value_output = create_p2pkh_txout(amount, address, 2)
+
+        outputs = [p2th_output, data_output, value_output]
+        complete_amount = p2th_output.value + amount + tx_fee
+        #if (input_txid is not None) and (input_vout is not None):
+        if None not in (input_txid, input_vout):
+            input_tx = provider.getrawtransaction(input_txid, 1)
+            inp_output = input_tx["vout"][input_vout]
+            inp = MutableTxIn(txid=input_txid, txout=input_vout, script_sig=ScriptSig.empty(), sequence=Sequence.max())
+            inputs = [inp]
+            input_value = int(input_tx["vout"][input_vout]["value"] * COIN)
+        elif input_address:
+            dec_complete_amount = Decimal(complete_amount / COIN)
+            input_query = provider.select_inputs(input_address, dec_complete_amount)
+            inputs = input_query["utxos"]
+            input_value = int(input_query["total"] * COIN)
+            inp = inputs[0] # check!
+        else:
+            return None
+        
+        change_value = input_value - complete_amount
+        print(complete_amount, change_value, input_value)
+        #change_value = complete_amount - sum([i.value for i in inputs])
+
+        # Look if there is change, if yes, create fourth output.
+        # TODO: Could be improved if an option creates a higher tx fee when the rest is dust.
+
+        if change_value > 0:
+            # If no change address is delivered we use the address from the input.
+            print(inp, inp.script_sig)
+            if change_address is None:
+                if input_address is None:
+                    change_address = inp_output['scriptPubKey']['addresses'][0]
+                else:
+                    change_address = input_address
+            change_output = create_p2pkh_txout(change_value, change_address, 3)
+            outputs.append(change_output)
+        elif change_value < 0:
+            raise Exception("Not enough funds in the input transaction.")
+
+        unsigned_tx = make_raw_transaction(network=network,
+                                       inputs=inputs,
+                                       outputs=outputs,
+                                       locktime=Locktime(locktime)
+                                       )
+
+        return unsigned_tx
+
+    except IndexError: # (IndexError, AttributeError, ValueError):
+        raise InvalidTrackedTransactionError("Invalid Transaction creation.")

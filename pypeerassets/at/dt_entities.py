@@ -8,7 +8,7 @@ from btcpy.structs.script import AbsoluteTimelockScript, Hashlock256Script, IfEl
 from btcpy.structs.address import Address
 #from btcpy.lib.parsing import ScriptParser
 
-from pypeerassets.transactions import Transaction, TxIn, TxOut, Locktime
+from pypeerassets.transactions import Transaction, TxIn, TxOut, Locktime, nulldata_script, tx_output, find_parent_outputs, p2pkh_script
 from pypeerassets.pautils import deck_parser, read_tx_opreturn
 from decimal import Decimal
 from pypeerassets.kutil import Kutil
@@ -23,6 +23,7 @@ P2TH_OUTPUT=0 # output which goes to P2TH address
 DATASTR_OUTPUT=1 # output with data string (OP_RETURN)
 DONATION_OUTPUT=2 # output with donation/signalling amount
 RESERVED_OUTPUT=3 # output for a reservation for other rounds.
+DEFAULT_P2TH_FEE=Decimal("0.01")
 
 COIN_MULTIPLIER=100000000 # base unit of PeerAssets is the Bitcoin satoshi with 8 decimals, not the Peercoin/Slimcoin satoshi.
 
@@ -32,27 +33,21 @@ class TrackedTransaction(Transaction):
     """A TrackedTransaction is a transaction tracked by the AT or DT mechanisms.
        The class provides the basic features to handle and check transaction attributes comfortably.
        Note: TrackedTransactions are immutable. Once created they can't easily be changed.
-
-       TODO: For some reason this doesn't accept a parameter named json, but txjson works. Investigate! """
+    """
 
     def __init__(self, tx_type=None, txjson=None, txid=None, proposal_txid=None, proposal=None, p2th_address=None, p2th_wif=None, dist_round=None, version=None, ins=[], outs=[], locktime=0, network=PeercoinTestnet, timestamp=None, provider=None, datastr=None, deck=None, epoch=None, blockheight=None, blockhash=None):
 
         # For security, should later perhaps be replaced by Transaction.__init__()
         # The difference is that here we don't use self.txid, which results in a (relatively expensive) hashing operation.
 
-        if txjson:
-            # basic transaction data can be loaded from json
-            # TODO seems NOT to work, so probably it needs always the from_json constructor
-            self.from_json(txjson, provider, network=network)
-
-        else:
-            object.__setattr__(self, 'version', version)
-            object.__setattr__(self, 'ins', tuple(ins))
-            object.__setattr__(self, 'outs', tuple(outs))
-            object.__setattr__(self, 'locktime', locktime)
-            object.__setattr__(self, '_txid', txid)
-            object.__setattr__(self, 'network', network)
-            object.__setattr__(self, 'timestamp', timestamp)
+        
+        object.__setattr__(self, 'version', version)
+        object.__setattr__(self, 'ins', tuple(ins))
+        object.__setattr__(self, 'outs', tuple(outs))
+        object.__setattr__(self, 'locktime', locktime)
+        object.__setattr__(self, '_txid', txid)
+        object.__setattr__(self, 'network', network)
+        object.__setattr__(self, 'timestamp', timestamp)
 
         if type(self) == ProposalTransaction:
             tx_type = "proposal"
@@ -75,7 +70,12 @@ class TrackedTransaction(Transaction):
                     blockheight = None # unconfirmed transaction
 
 
-        object.__setattr__(self, 'blockheight', blockheight)      
+        object.__setattr__(self, 'blockheight', blockheight)
+
+
+        # Inputs and outputs must always be provided by constructors.
+        if len(ins) == 0 or len(outs) < 3:
+            raise InvalidTrackedTransactionError("Creating a TrackedTransaction you must provide inputs and outputs.")
 
         # other attributes come from datastr
         # CONVENTION: datastr is always in SECOND output (outs[1]) like in PeerAssets tx.
@@ -87,7 +87,7 @@ class TrackedTransaction(Transaction):
                 #print(opreturn_hex)
                 datastr = bytes.fromhex(opreturn_hex) # returns bytes.
             except Exception as e: # if no op_return it throws InvalidNulldataOutput
-                raise InvalidTrackedTransactionError(ValueError)
+                raise InvalidTrackedTransactionError("No OP_RETURN data.")
         
         object.__setattr__(self, 'datastr', datastr) # OP_RETURN data byte string
 
@@ -159,36 +159,34 @@ class TrackedTransaction(Transaction):
     @classmethod
     def from_json(cls, tx_json, provider, network=PeercoinTestnet, deck=None):
 
-        #if 'blockhash' not in tx_json: # unconfirmed transactions are ignored
-        #    return None
-
         try:
             op_return_hex = tx_json['vout'][1]['scriptPubKey']['asm'][10:]
-            #print(op_return_hex)
             datastr = bytes.fromhex(op_return_hex)
-            #print(datastr)
-        except (KeyError, IndexError, ValueError):
-            # TODO: this one should be catched by the Parser.
-            raise InvalidTrackedTransactionError("Transaction without correct datastring.")
 
-        return cls(
-            provider=provider,
-            version=tx_json['version'],
-            ins=[TxIn.from_json(txin_json) for txin_json in tx_json['vin']],
-            outs=[TxOut.from_json(txout_json) for txout_json in tx_json['vout']],
-            locktime=Locktime(tx_json['locktime']),
-            txid=tx_json['txid'],
-            network=network,
-            timestamp=tx_json['time'],
-            blockhash=tx_json['blockhash'],
-            datastr=datastr,
-            deck=deck
-        )
+            return cls(
+                provider=provider,
+                version=tx_json['version'],
+                ins=[TxIn.from_json(txin_json) for txin_json in tx_json['vin']],
+                outs=[TxOut.from_json(txout_json) for txout_json in tx_json['vout']],
+                locktime=Locktime(tx_json['locktime']),
+                txid=tx_json['txid'],
+                network=network,
+                timestamp=tx_json['time'],
+                blockhash=tx_json['blockhash'],
+                datastr=datastr,
+                deck=deck
+            )
+
+        except (KeyError, IndexError, ValueError):
+            raise InvalidTrackedTransactionError("Transaction without correct datastring or unconfirmed transaction.")
+
+
 
     @classmethod
     def from_txid(cls, txid, provider, network=PeercoinTestnet, deck=None):
         d = cls.get_basicdata(txid, provider)
         return cls.from_json(d["json"], provider=provider, network=network, deck=deck)
+
 
     def get_input_tx(self, tx_list):
         # searches a transaction which is one of the inputs of the current one in a tx list.
@@ -219,6 +217,7 @@ class TrackedTransaction(Transaction):
                 #        return None
 
                 return tx
+
 
 
 class LockingTransaction(TrackedTransaction):
@@ -270,10 +269,6 @@ class LockingTransaction(TrackedTransaction):
         object.__setattr__(self, 'reserved_amount', reserved_amount) # Output reserved for following rounds.
         object.__setattr__(self, 'reserve_address', reserve_address) # Output reserved for following rounds.
 
-        # Probably not necessary: # is now managed by DonationState
-        # object.__setattr__(self, 'signalling_tx', signalling_tx) # previous signalling transaction, if existing.
-        # object.__setattr__(self, 'previous_dtx', previous_dtx) # previous donation transaction, if existing. (for later slot allocations).   
-
 class DonationTransaction(TrackedTransaction):
     """A DonationTransaction is a transaction which transfers the donation to the Proposer."""
 
@@ -299,8 +294,6 @@ class DonationTransaction(TrackedTransaction):
 
         except AttributeError:
                 raise InvalidTrackedTransactionError("Incorrectly formatted DonationTransaction.")
-
-
 
         object.__setattr__(self, 'address', d_address) # donation address: the address defined in the referenced Proposal
         object.__setattr__(self, 'amount', d_amount) # donation amount
@@ -328,6 +321,8 @@ class SignallingTransaction(TrackedTransaction):
         # address: the "project specific donation address".
         # To preserve privileges in the later rounds it has to be always the same one.
         object.__setattr__(self, 'address', s_address)
+
+
 
 
 class ProposalTransaction(TrackedTransaction):
