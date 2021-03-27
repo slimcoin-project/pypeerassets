@@ -1,9 +1,10 @@
-from pypeerassets.at.dt_entities import ProposalTransaction
+from pypeerassets.at.dt_entities import ProposalTransaction, DonationTimeLockScript
 from pypeerassets.at.dt_states import ProposalState
 from pypeerassets.at.dt_parser import ParserState, dt_parser
 from pypeerassets.at.dt_parser_utils import get_votes
 from pypeerassets.__main__ import get_card_bundles
 from pypeerassets.provider import Provider
+from pypeerassets.protocol import Deck
 from pypeerassets.kutil import Kutil
 from pypeerassets.transactions import make_raw_transaction, p2pkh_script, nulldata_script, MutableTxIn, TxIn, TxOut, Transaction, MutableTransaction, MutableTxIn, ScriptSig, Locktime
 from pypeerassets.networks import PeercoinMainnet, PeercoinTestnet, net_query
@@ -12,9 +13,7 @@ from decimal import Decimal
 from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
 from binascii import unhexlify
 
-DEFAULT_P2TH_FEE = 1000000 # int value required # should be replaced with the minimum amount of net_query.
-#DEFAULT_SEQUENCE = 0xffffffff # we use Sequence.max()
-COIN = 100000000
+DEFAULT_P2TH_FEE = Decimal('0.01')
 
 def get_startendvalues(provider, proposal_txid, period):
     # TODO: Unittest for that (should be easy).
@@ -55,11 +54,95 @@ def get_startendvalues(provider, proposal_txid, period):
 
 def get_votestate(provider, proposal_txid, phase=0, debug=False):
     """Get the state of the votes of a Proposal without calling the parser completely."""
-    
+
+    proposal = get_proposal_state(provider, proposal_txid, phase=phase, debug=debug)
+
+    if phase == 0:
+        votes = proposal.initial_votes
+    elif phase == 1:
+        votes = proposal.final_votes
+
+    return format_votes(proposal.deck.number_of_decimals, votes)
+
+def get_dstate_from_txid(txid: str, proposal_state: ProposalState):
+    # returns donation state from a signalling, locking or donation transaction.
+
+    for ds in proposal_state.donation_states:
+        if txid in (ds.signalling_tx.txid, ds.locking_tx.txid, ds.reserve_tx.txid, ds.donation_tx.txid):
+            return ds
+    else:
+        return None
+
+def get_dstates_from_address(address: str, proposal_state: ProposalState, dist_round: int=None):
+    # returns donation state from a signalling, locking or donation transaction.
+    # Uses the destination address, which is the address from which the donor will do locking/donation.
+
+    states = []
+    print("Donation states:", proposal_state.donation_states)
+    for rd in proposal_state.donation_states:
+        for ds in rd.values():
+            for tx in [ ds.signalling_tx, ds.locking_tx, ds.reserve_tx ]:
+               if tx is None:
+                   continue
+               try:
+                   tx_addr = tx.reserve_address.__str__()
+               except AttributeError: # SignallingTX
+                   tx_addr = tx.address.__str__()
+                   print(tx_addr, address)
+               if tx_addr == address:
+                   states.append(ds)
+
+    return states
+
+def get_donation_state(provider, proposal_id=None, proposal_tx=None, tx_txid=None, address=None, phase=0, debug=False, dist_round=0, pos=None):
+
+    proposal_state = get_proposal_state(provider, proposal_id=proposal_id, proposal_tx=proposal_tx, phase=phase, debug=debug)
+
+    ## following section probably not necessary.
+    #if tx_type == "signalling":
+    #     txes = proposal.all_signalling_transactions
+    #elif tx_type == "locking":
+    #     txes = proposal.all_locking_transactions
+    #elif tx_type == "donation":
+    #     txes = proposal.all_donation_transactions
+
+    #for tx in txes:
+    #    if tx.txid == tx_txid:
+    #        break
+    #else:
+    #    raise Exception("Transaction not found.")
+
+    if tx_txid is not None:
+        result = get_dstate_from_txid(txid, proposal_state)
+    elif address is not None:
+        states = get_dstates_from_address(address, proposal_state, dist_round=dist_round)
+        if debug: print("All donation states for address {}:".format(address), states)
+        if pos is not None:
+            try:
+                result = states[pos]
+            except IndexError:
+                result = None
+        else:
+            result = states
+         
+    else:
+        result = [ s for rd in proposal_state.donation_states for s in rd ]
+ 
+    return result
+
+def get_proposal_state(provider, proposal_id=None, proposal_tx=None, phase=0, debug=False):
+
     current_blockheight = provider.getblockcount()
-    ptx = ProposalTransaction.from_txid(proposal_txid, provider)
+    if not proposal_tx:
+        ptx = ProposalTransaction.from_txid(proposal_id, provider)
+    else:
+        ptx = proposal_tx
+        proposal_id = ptx.txid
     # TODO: Does probably not deal with ProposalModifications still.
     pstate = ProposalState(first_ptx=ptx, valid_ptx=ptx, provider=provider)
+
+    if debug: print("Deck:", pstate.deck.id)
+
     unfiltered_cards = list((card for batch in get_card_bundles(provider, ptx.deck) for card in batch))
 
     if phase == 0:
@@ -68,27 +151,10 @@ def get_votestate(provider, proposal_txid, phase=0, debug=False):
         lastblock = min(current_blockheight, pstate.end_epoch * pstate.deck.epoch_length)
     else:
         raise ValueError("No correct phase number entered. Please enter 0 or 1.")
-    # print("currentblock", lastblock)
-
 
     pst = ParserState(ptx.deck, unfiltered_cards, provider, current_blockheight=lastblock, debug=debug)
 
-    valid_cards = dt_parser(unfiltered_cards, provider, lastblock, ptx.deck, debug=debug, initial_parser_state=pst, force_continue=True) # later add: force_dstates=True
-
-    for p in pst.proposal_states.values():
-        if p.first_ptx.txid == proposal_txid:
-            proposal = p
-            break
-    else:
-        print("Proposal based on transaction {} not found.".format(ptx))
-        return None
-
-    if phase == 0:
-        votes = proposal.initial_votes
-    elif phase == 1:
-        votes = proposal.final_votes
-
-    return format_votes(pst.sdp_deck_obj.number_of_decimals, votes)
+    valid_cards = dt_parser(unfiltered_cards, provider, lastblock, ptx.deck, debug=debug, initial_parser_state=pst, force_continue=True, force_dstates=True) # later add: force_dstates=True
 
     #if phase == 0:
     #    epoch = proposal.dist_start // proposal.deck.epoch_length # start_epoch cannot be used as the voting phase is often in start_epoch + 1
@@ -98,6 +164,17 @@ def get_votestate(provider, proposal_txid, phase=0, debug=False):
     #votes = get_votes(pst, proposal, epoch, formatted_result=True)
 
     # return votes
+
+    for p in pst.proposal_states.values():
+        if debug: print("Checking proposal:", p.first_ptx.txid)
+        if p.first_ptx.txid == proposal_id:
+            proposal = p
+            break
+    else:
+        print("Proposal based on transaction {} not found.".format(ptx.txid))
+        return None
+
+    return proposal
 
 def format_votes(decimals, votes):
     fvotes = {}
@@ -136,11 +213,12 @@ def create_p2pkh_txout(value: int, address: str, n: int, network="tppc"):
     script = p2pkh_script(network, address)
     return TxOut(value=value, n=n, script_pubkey=script, network=network)
 
-def create_cltv_txout():
-    # TODO: Create output for locking transaction.
-    pass
+def create_cltv_txout(value: int, address: str, n: int, timelock: int, network=PeercoinTestnet):
+    print("Network", network, "Addr", address)
+    script = DonationTimeLockScript(raw_locktime=timelock, dest_address_string=address, network=network)
+    return TxOut(value=value, n=n, script_pubkey=script, network=network)
 
-def create_p2th_txout(deck, tx_type, fee=DEFAULT_P2TH_FEE, network="tppc"):
+def create_p2th_txout(deck, tx_type, fee, network="tppc"):
     # Warning: always creates the p2th out at n=0.
     p2th_addr = deck.derived_p2th_address(tx_type)
     return create_p2pkh_txout(value=fee, address=p2th_addr, n=0, network=network)
@@ -152,39 +230,55 @@ def create_opreturn_txout(tx_type: str, data: bytes, network="tppc"):
     return TxOut(value=0, n=1, script_pubkey=script, network=network)
 
 
-def create_unsigned_tx(deck, address, amount, provider, tx_type, data, network="tppc", version=1, change_address=None, tx_fee=None, input_txid=None, input_vout=None, input_address=None, locktime=0, cltv_timelock=0):
+def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, amount: int=None, proposal_txid: str=None, data: bytes=None, address: str=None, network: str="tppc", version: int=1, change_address: str=None, tx_fee: int=None, p2th_fee: int=None, input_txid: str=None, input_vout: int=None, input_address: str=None, locktime: int=0, cltv_timelock: int=0):
+
+    # TODO: re-check types: some use Decimal, some int. TxOut.value seems to be Decimal!
+
+    if data and (not proposal_txid): # TODO: Proposal creation does not have proposal_txid included!
+        proposal_txid = str(data[2:34].hex())
 
     try:
-        if not tx_fee:
-            network_params = net_query(network)
-            tx_fee = int(network_params.min_tx_fee * COIN) # this is rough, as it is min_tx_fee per kB, but a TrackedTransaction should only seldom have more than 1 kB.
-        p2th_output = create_p2th_txout(deck, tx_type)
-        data_output = create_opreturn_txout(tx_type, data)
-        if tx_type == "locking":
-            value_output = create_cltv_txout(amount, address, 2, cltv_timelock)
-        else:
-            value_output = create_p2pkh_txout(amount, address, 2)
+        network_params = net_query(network)
+        coin = int(Decimal(1) / network_params.from_unit)
+        if not tx_fee:            
+            tx_fee = int(network_params.min_tx_fee) * coin # this is rough, as it is min_tx_fee per kB, but a TrackedTransaction should only seldom have more than 1 kB.
+        if not p2th_fee:
+            p2th_fee = int(coin * DEFAULT_P2TH_FEE)
 
-        outputs = [p2th_output, data_output, value_output]
+        p2th_output = create_p2th_txout(deck, tx_type, fee=p2th_fee)
+        data_output = create_opreturn_txout(tx_type, data)
+        if (address == None) and (tx_type == "donation"):
+            ptx = ProposalTransaction.from_txid(proposal_txid, provider)
+            address = ptx.donation_address
+
+        outputs = [p2th_output, data_output]
+        if tx_type == "locking":
+            outputs.append(create_cltv_txout(value=amount, address=address, n=2, timelock=cltv_timelock))
+        elif tx_type in ("signalling", "donation"):
+            outputs.append(create_p2pkh_txout(amount, address, 2))
+        else:
+            amount = 0 # proposal and vote types do not have amount.
+
         complete_amount = p2th_output.value + amount + tx_fee
+        print("p2v", p2th_output.value, amount, tx_fee, type(p2th_output.value))
         #if (input_txid is not None) and (input_vout is not None):
         if None not in (input_txid, input_vout):
             input_tx = provider.getrawtransaction(input_txid, 1)
             inp_output = input_tx["vout"][input_vout]
             inp = MutableTxIn(txid=input_txid, txout=input_vout, script_sig=ScriptSig.empty(), sequence=Sequence.max())
             inputs = [inp]
-            input_value = int(input_tx["vout"][input_vout]["value"] * COIN)
+            input_value = int(input_tx["vout"][input_vout]["value"] * coin)
         elif input_address:
-            dec_complete_amount = Decimal(complete_amount / COIN)
+            dec_complete_amount = Decimal(complete_amount / coin)
             input_query = provider.select_inputs(input_address, dec_complete_amount)
             inputs = input_query["utxos"]
-            input_value = int(input_query["total"] * COIN)
+            input_value = int(input_query["total"] * coin)
             inp = inputs[0] # check!
         else:
             return None
         
         change_value = input_value - complete_amount
-        print(complete_amount, change_value, input_value)
+        print("Change value and complete amount:", change_value, complete_amount)
         #change_value = complete_amount - sum([i.value for i in inputs])
 
         # Look if there is change, if yes, create fourth output.
@@ -198,7 +292,7 @@ def create_unsigned_tx(deck, address, amount, provider, tx_type, data, network="
                     change_address = inp_output['scriptPubKey']['addresses'][0]
                 else:
                     change_address = input_address
-            change_output = create_p2pkh_txout(change_value, change_address, 3)
+            change_output = create_p2pkh_txout(change_value, change_address, len(outputs)) # this just gives the correct one
             outputs.append(change_output)
         elif change_value < 0:
             raise Exception("Not enough funds in the input transaction.")
@@ -213,3 +307,6 @@ def create_unsigned_tx(deck, address, amount, provider, tx_type, data, network="
 
     except IndexError: # (IndexError, AttributeError, ValueError):
         raise InvalidTrackedTransactionError("Invalid Transaction creation.")
+   
+
+

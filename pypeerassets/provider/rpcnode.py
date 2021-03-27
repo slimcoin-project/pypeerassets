@@ -106,6 +106,9 @@ class RpcNode(Client, Provider):
     def getblockchaininfo(self): ### NEW FEATURE ###
         return self.req("getblockchaininfo")
 
+    def rescanblockchain(self): ### NEW FEATURES ###
+        return self.req("rescanblockchain")
+
     def importaddress(self, address, label=None, rescan=False, p2sh=False): ### NEW FEATURE ###
         return self.req("importaddress", [address, label, rescan, p2sh])
 

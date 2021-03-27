@@ -139,12 +139,47 @@ DECK_SPAWN_DT_FORMAT_LEGACY = { "id" : (0, ID_LEN), # identifier of DT decks
 P2TH_MODIFIER = { "proposal" : 1, "voting" : 2, "donation" : 3, "signalling" : 4, "locking" : 5 } # modified 11/30, ordered by importance
 # original P2TH_MODIFIER = { "signalling" : 1, "donation" : 2, "proposal" : 3 }
 
-def getfmt(strvar, fmt, key):
-  # this function returns the part of a string or bytes variable defined in these formats.
-  begin = fmt[key][0]
-  if fmt[key][1] == 0: # variable length 
-      return strvar[begin:]
-  else:
-      end = fmt[key][0] + fmt[key][1]
-      return strvar[begin:end]
+TX_FORMATS = { "proposal" : PROPOSAL_FORMAT, "signalling": SIGNALLING_FORMAT, "locking" : LOCKING_FORMAT, "donation" : DONATION_FORMAT, "voting" : VOTING_FORMAT }
 
+TX_IDENTIFIERS = { "proposal" : "DP", "signalling": "DS", "locking" : "DL", "donation" : "DD", "voting" : "DV" }
+
+def getfmt(strvar, fmt, key):
+    # this function returns the part of a string or bytes variable defined in these formats.
+    begin = fmt[key][0]
+    if fmt[key][1] == 0: # variable length 
+        return strvar[begin:]
+    else:
+        end = fmt[key][0] + fmt[key][1]
+        return strvar[begin:end]
+
+def setfmt(params: dict, fmt: dict=None, tx_type: str=None):
+    # returns the complete bytestring given a set of parameters
+    if tx_type is not None:
+        fmt = TX_FORMATS[tx_type]
+    elif fmt is None:
+        raise Exception("No format provided.")
+
+    bytestr = b''
+    for var in fmt:
+        try:
+            current_param = params[var]
+            par_len = fmt[var][1]
+        except KeyError:
+            raise ValueError("Incomplete parameters.")
+
+        if type(current_param) == str:
+            #if len([c for c in current_param if c not in "0123456789abcdef"]) > 0:
+            try:
+                assert len(current_param) == 64 # length of TXIDs which are the only hex values
+                par = bytes.fromhex(current_param)
+            except (AssertionError, ValueError): # all other strings: e.g. votes, addresses and identifiers
+                par = current_param.encode("utf-8")
+
+        elif type(current_param) == int:
+            par = current_param.to_bytes(par_len, "big")
+        bytestr += par
+
+    return bytestr
+                
+            
+ 

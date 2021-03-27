@@ -8,12 +8,14 @@ Minor functions are in dt_parser_utils. """
 from decimal import Decimal
 
 from pypeerassets.at.dt_entities import ProposalTransaction, SignallingTransaction, DonationTransaction, LockingTransaction
-from pypeerassets.at.dt_entities import InvalidTrackedTransactionError, COIN_MULTIPLIER
+from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
 from pypeerassets.at.dt_states import ProposalState, DonationState
 from pypeerassets.at.transaction_formats import *
 from pypeerassets.at.dt_parser_utils import *
 from pypeerassets.at.dt_parser_state import ParserState
 from pypeerassets.__main__ import find_all_valid_cards
+
+COIN_MULTIPLIER = 100000000 # only used for cards.
 
 def validate_proposer_issuance(pst, dtx_id, decimal_card_amount, card_sender, card_blocknum):
     # MODIFIED: A large part has been moved to the ProposalState and DonationState classes.
@@ -73,12 +75,12 @@ def validate_donation_issuance(pst, dtx_id, dtx_vout, card_satoshis, card_sender
         if pst.debug: print("Proposal state does not exist.")
         return False
 
-    # We only associate donation/signalling txes to a Proposal which really correspond to a card (token unit[s]) issued.
+    # We only associate donation/signalling txes to Proposals which really correspond to a card (token unit[s]) issued.
     # This way, fake/no participation proposals and donations with no associated card issue attempts are ignored,
     # which could be a way to attack the system with spam.
 
     if len(proposal_state.donation_states) == 0:
-        proposal_state.set_donation_states()
+        proposal_state.set_donation_states(debug=pst.debug)
 
     if pst.debug: print("Total number of donation txes:", len([tx for r in proposal_state.donation_txes for tx in r ]))
 
@@ -189,7 +191,7 @@ def dt_parser(cards, provider, current_blockheight, deck, debug=False, initial_p
 
     if debug: print("Starting parser.")
 
-    # The initial_parser_state enables to continue parsing from a certain blockheight or use the parser from "outside".
+    # initial_parser_state enables to continue parsing from a certain blockheight or use the parser from "outside".
     # Use with caution.
     if initial_parser_state:
         if debug: print("Using initial parser state provided.")
@@ -199,7 +201,7 @@ def dt_parser(cards, provider, current_blockheight, deck, debug=False, initial_p
     else:
         pst = ParserState(deck, cards, provider, current_blockheight=current_blockheight, start_epoch=start_epoch, end_epoch=end_epoch, debug=debug)
 
-    pst.init_parser(force_dstates=force_dstates)
+    pst.init_parser()
 
     if pst.debug: print("Starting epoch count at deck spawn block", pst.startblock)
 
@@ -287,5 +289,8 @@ def dt_parser(cards, provider, current_blockheight, deck, debug=False, initial_p
 
         if (pos == cards_len) and not force_continue: # normally we don't need to continue if there are no cards left
             break
+
+    if force_dstates:
+        pst.force_dstates()
 
     return pst.valid_cards

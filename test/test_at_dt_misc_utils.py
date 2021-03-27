@@ -33,11 +33,26 @@ def test_create_unsigned_tx_signalling_manual():
     deck = deck_from_tx(DECK_ID2, PROVIDER)
     dstr = b"DS" + bytes.fromhex(PROPOSAL_TXID)
     unsigned = mu.create_unsigned_tx(deck, input_txid=INPUT_TXID, input_vout=2, address="mmiUdqJTBtUc5hCGVYLPnqtNivsWSEZuoq", amount=444444, provider=PROVIDER, tx_type="signalling", data=dstr)
-    print(unsigned)
+    assert unsigned.outs[3].script_pubkey.__str__() == 'OP_DUP OP_HASH160 d72e5400710bf2c852eed36c64fe5c0f393e61ac OP_EQUALVERIFY OP_CHECKSIG'
 
 def test_create_unsigned_tx_signalling_auto():
-    # Using peerassets feature to select a suitable input. TODO: Not working properly, doesn't find the output.
+    # Using peerassets feature to select a suitable input.
     deck = deck_from_tx(DECK_ID2, PROVIDER)
     dstr = b"DS" + bytes.fromhex(PROPOSAL_TXID)
-    unsigned = mu.create_unsigned_tx(deck, input_address="n18j5ESg1Lz7Z1N4ZwTttjGVjBDNXbgbch", address="mmiUdqJTBtUc5hCGVYLPnqtNivsWSEZuoq", amount=444444, provider=PROVIDER, tx_type="signalling", data=dstr)
+    unsigned = mu.create_unsigned_tx(deck, input_address="n18j5ESg1Lz7Z1N4ZwTttjGVjBDNXbgbch", address="mmiUdqJTBtUc5hCGVYLPnqtNivsWSEZuoq", amount=444444, provider=PROVIDER, tx_type="signalling", data=dstr, proposal_txid=PROPOSAL_TXID)
+    assert unsigned.outs[3].script_pubkey.__str__() == 'OP_DUP OP_HASH160 d72e5400710bf2c852eed36c64fe5c0f393e61ac OP_EQUALVERIFY OP_CHECKSIG'
+
+def test_create_unsigned_tx_donation_auto():
+    # Using peerassets feature to select a suitable input.
+    deck = deck_from_tx(DECK_ID2, PROVIDER)
+    dstr = b"DD" + bytes.fromhex(PROPOSAL_TXID)
+    unsigned = mu.create_unsigned_tx(deck, input_address="n18j5ESg1Lz7Z1N4ZwTttjGVjBDNXbgbch", amount=444444, proposal_txid=PROPOSAL_TXID, provider=PROVIDER, tx_type="donation", data=dstr)
+    assert unsigned.outs[3].script_pubkey.__str__() == 'OP_DUP OP_HASH160 d72e5400710bf2c852eed36c64fe5c0f393e61ac OP_EQUALVERIFY OP_CHECKSIG'
+
+def test_create_unsigned_tx_locking_auto():
+    # Using peerassets feature to select a suitable input.
+    deck = deck_from_tx(DECK_ID2, PROVIDER)
+    dstr = b"DL" + bytes.fromhex(PROPOSAL_TXID)
+    unsigned = mu.create_unsigned_tx(deck, input_address="n18j5ESg1Lz7Z1N4ZwTttjGVjBDNXbgbch", amount=444444, address="mmiUdqJTBtUc5hCGVYLPnqtNivsWSEZuoq", proposal_txid=PROPOSAL_TXID, provider=PROVIDER, tx_type="locking", data=dstr, cltv_timelock=2754000)
     print(unsigned)
+    # assert unsigned.outs[3].script_pubkey.__str__() == 'OP_DUP OP_HASH160 d72e5400710bf2c852eed36c64fe5c0f393e61ac OP_EQUALVERIFY OP_CHECKSIG'

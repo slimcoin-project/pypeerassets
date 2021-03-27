@@ -298,9 +298,15 @@ def get_votes(pst, proposal, epoch, formatted_result=False):
 
     if pst.debug: print("Enabled Voters:", pst.enabled_voters)
     try:
-        voting_txes = pst.voting_txes[proposal.first_ptx.txid]["positive"] + pst.voting_txes[proposal.first_ptx.txid]["negative"]
+        vtxes_proposal = pst.voting_txes[proposal.first_ptx.txid]
     except KeyError: # gets thrown if the proposal was not added to pst.voting_txes, i.e. when no votes were found.
         return {"positive" : 0, "negative" : 0}
+
+    voting_txes = []
+    for outcome in ("positive", "negative"):
+        if outcome in vtxes_proposal:
+            voting_txes += vtxes_proposal.get(outcome)
+
     sorted_vtxes = sorted(voting_txes, key=lambda tx: tx.blockheight, reverse=True)
     
     votes = { "negative" : 0, "positive" : 0 }
@@ -338,5 +344,5 @@ def deck_from_tx(txid: str, provider: Provider, deck_version: int=1, prod: bool=
     params = param_query(provider.network)
     p2th = params.P2TH_addr
     raw_tx = provider.getrawtransaction(txid, 1)
-    vout = raw_tx["vout"][0]["scriptPubKey"].get("addresses")[0]
+    # vout = raw_tx["vout"][0]["scriptPubKey"].get("addresses")[0] ???
     return deck_parser((provider, raw_tx, deck_version, p2th), prod)

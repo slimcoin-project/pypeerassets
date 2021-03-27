@@ -25,7 +25,7 @@ DONATION_OUTPUT=2 # output with donation/signalling amount
 RESERVED_OUTPUT=3 # output for a reservation for other rounds.
 DEFAULT_P2TH_FEE=Decimal("0.01")
 
-COIN_MULTIPLIER=100000000 # base unit of PeerAssets is the Bitcoin satoshi with 8 decimals, not the Peercoin/Slimcoin satoshi.
+# COIN_MULTIPLIER=100000000 # base unit of PeerAssets is the Bitcoin satoshi with 8 decimals, not the Peercoin/Slimcoin satoshi. # TODO: seems wrong, this is only for cards. Otherwise we must use the decimals of currency.
 
 # TODO: TrackedTransactions use the repr function of Transaction, which is incomplete.
 
@@ -167,7 +167,7 @@ class TrackedTransaction(Transaction):
                 provider=provider,
                 version=tx_json['version'],
                 ins=[TxIn.from_json(txin_json) for txin_json in tx_json['vin']],
-                outs=[TxOut.from_json(txout_json) for txout_json in tx_json['vout']],
+                outs=[TxOut.from_json(txout_json, network=network) for txout_json in tx_json['vout']],
                 locktime=Locktime(tx_json['locktime']),
                 txid=tx_json['txid'],
                 network=network,
@@ -186,6 +186,10 @@ class TrackedTransaction(Transaction):
     def from_txid(cls, txid, provider, network=PeercoinTestnet, deck=None):
         d = cls.get_basicdata(txid, provider)
         return cls.from_json(d["json"], provider=provider, network=network, deck=deck)
+
+    def coin_multiplier(self):
+        network_params = net_query(self.network.shortname)
+        return int(1 / network_params.from_unit) # perhaps to_unit can be used without the division, but it's not sure.
 
 
     def get_input_tx(self, tx_list):
@@ -323,8 +327,6 @@ class SignallingTransaction(TrackedTransaction):
         object.__setattr__(self, 'address', s_address)
 
 
-
-
 class ProposalTransaction(TrackedTransaction):
     """A ProposalTransaction is the transaction where a DT Proposer specifies required amount and donation address."""
     # Modified: instead of previous_proposal, we use first_ptx_txid. We always reference the first tx.
@@ -341,7 +343,7 @@ class ProposalTransaction(TrackedTransaction):
 
         epoch_number = int.from_bytes(getfmt(self.datastr, fmt, "eps"), "big")
         round_length = int.from_bytes(getfmt(self.datastr, fmt, "sla"), "big")
-        req_amount = int.from_bytes(getfmt(self.datastr, fmt, "amt"), "big") * COIN_MULTIPLIER
+        req_amount = int.from_bytes(getfmt(self.datastr, fmt, "amt"), "big") * self.coin_multiplier()
 
         if len(self.datastr) > fmt["ptx"][0] and not first_ptx_txid:
             first_ptx_txid = getfmt(self.datastr, fmt, "ptx").hex()
@@ -415,51 +417,12 @@ class DonationTimeLockScript(AbsoluteTimelockScript):
         they are interpreted as `locktime` and `locked_script` respectively, the script is
         then generated from these params
         """
+        print("D", dest_address_string, network)
         dest_address = Address.from_string(dest_address_string, network=network)
         locktime = Locktime(raw_locktime)
+        print(locktime.is_blocks())
         locked_script = P2pkhScript(dest_address)
         super().__init__(locktime, locked_script)
-
-
-class DonationHashLockScript(Hashlock256Script): # currently not used, because of the problem of a proof for moving transactions.
-    def __init__(self, locking_hash, dest_address, network=PeercoinTestnet):
-        """first arg: hash, second arg: locked script. """
-        dest_address = Address.from_string(dest_address_string, network=network)
-        locked_script = P2pkhScript(dest_address)
-        super().__init__(locking_hash, locked_script)
-
-
-
-class DonationHTLC(IfElseScript): # currently not used, we use DonationTimeLockScript alone.
-    """The Donation HTLC is an If-Else-script with the following structure:
-       - IF a secret is provided, the Proposer can spend the money. 
-       - ELSE if the timelock expires, the Donor can spend the money. """
-
-    def __init__(timelock_address, hashlock_address, raw_locktime, locking_hash, network=PeercoinTestnet):
-        hashlockscript = DonationHashLockScript(locking_hash, hashlock_address, network=PeercoinTestnet)
-        timelockscript = DonationTimeLockScript(raw_locktime, timelock_address, network=network)
-        super().__init__(hashlockscript, timelockscript)
-
-    @staticmethod
-    def from_txdata(txjson, vout):
-        return ScriptBuilder.identify(txjson["vout"][vout]["scriptPubKey"]["hex"])
-
-    @classmethod
-    def from_scriptpubkey(scriptpubkey):
-        return cls(scriptpubkey)
-
-    def extract_locktime(self):
-        return self.else_script.locktime
-
-    def extract_hash(self):
-        return self.if_script.hash
-
-    def extract_proposer_address(self):
-        return self.if_script.locked_script.address(network=network)
-
-    def extract_donor_address(self):
-        return self.else_script.locked_script.address(network=network)
-
 
 
 class InvalidTrackedTransactionError(ValueError):
