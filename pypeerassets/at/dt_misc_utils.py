@@ -9,6 +9,8 @@ from pypeerassets.kutil import Kutil
 from pypeerassets.transactions import make_raw_transaction, p2pkh_script, nulldata_script, MutableTxIn, TxIn, TxOut, Transaction, MutableTransaction, MutableTxIn, ScriptSig, Locktime
 from pypeerassets.networks import PeercoinMainnet, PeercoinTestnet, net_query
 from pypeerassets.provider.rpcnode import Sequence
+from btcpy.structs.address import P2shAddress
+from btcpy.structs.script import P2shScript
 from decimal import Decimal
 from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
 from binascii import unhexlify
@@ -203,42 +205,56 @@ def deck_p2th_from_id(network: str, deck_id: str) -> str:
                          privkey=bytearray.fromhex(deck_id)).address
 
 
-### Unsigned transactions
+### Unsigned transactions and P2SH
 
-# could also use p2pkh_script(network: str, address: str) from pypeerassets.transactions
-
-def create_p2pkh_txout(value: int, address: str, n: int, network="tppc"):
+def create_p2pkh_txout(value: int, address: str, n: int, network=PeercoinTestnet):
     #address = Address.from_string(addr_string)
     #script = P2pkhScript(address)
-    script = p2pkh_script(network, address)
+    #print("network", network)
+    script = p2pkh_script(network.shortname, address) # we need the shortname here
     return TxOut(value=value, n=n, script_pubkey=script, network=network)
 
-def create_cltv_txout(value: int, address: str, n: int, timelock: int, network=PeercoinTestnet):
-    print("Network", network, "Addr", address)
+# not working properly, creates nonstandard tx, p2sh is needed!
+#def create_cltv_txout(value: int, address: str, n: int, timelock: int, network=PeercoinTestnet):
+#    print("Network", network, "Addr", address)
+#    script = DonationTimeLockScript(raw_locktime=timelock, dest_address_string=address, network=network)
+#    return TxOut(value=value, n=n, script_pubkey=script, network=network)
+
+def create_p2sh_txout(value: int, redeem_script: DonationTimeLockScript, n: int, network=PeercoinTestnet):
+    p2sh_script = P2shScript(redeem_script)
+    return TxOut(value=value, n=n, script_pubkey=p2sh_script, network=network)
+
+def create_redeem_script(address: str, timelock: int, network=PeercoinTestnet):
     script = DonationTimeLockScript(raw_locktime=timelock, dest_address_string=address, network=network)
-    return TxOut(value=value, n=n, script_pubkey=script, network=network)
+    return script
 
-def create_p2th_txout(deck, tx_type, fee, network="tppc"):
+def create_p2sh_address(redeem_script: DonationTimeLockScript, network=PeercoinTestnet):
+    p2sh_script = P2shScript(redeem_script)
+    print(p2sh_script)
+    print(redeem_script)
+    addr = P2shAddress.from_script(redeem_script, network=network)
+    return addr
+
+def create_p2th_txout(deck, tx_type, fee, network=PeercoinTestnet):
     # Warning: always creates the p2th out at n=0.
     p2th_addr = deck.derived_p2th_address(tx_type)
     return create_p2pkh_txout(value=fee, address=p2th_addr, n=0, network=network)
 
-def create_opreturn_txout(tx_type: str, data: bytes, network="tppc"):
+def create_opreturn_txout(tx_type: str, data: bytes, network=PeercoinTestnet):
     # Warning: always creates the opreturn out at n=1.
     #data = datastr.encode("utf-8")
     script = nulldata_script(data)
     return TxOut(value=0, n=1, script_pubkey=script, network=network)
 
 
-def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, amount: int=None, proposal_txid: str=None, data: bytes=None, address: str=None, network: str="tppc", version: int=1, change_address: str=None, tx_fee: int=None, p2th_fee: int=None, input_txid: str=None, input_vout: int=None, input_address: str=None, locktime: int=0, cltv_timelock: int=0):
+def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, amount: int=None, proposal_txid: str=None, data: bytes=None, address: str=None, network=PeercoinTestnet, version: int=1, change_address: str=None, tx_fee: int=None, p2th_fee: int=None, input_txid: str=None, input_vout: int=None, input_address: str=None, locktime: int=0, cltv_timelock: int=0):
 
-    # TODO: re-check types: some use Decimal, some int. TxOut.value seems to be Decimal!
-
-    if data and (not proposal_txid): # TODO: Proposal creation does not have proposal_txid included!
-        proposal_txid = str(data[2:34].hex())
+    if tx_type != "proposal":
+        if data and (not proposal_txid):
+            proposal_txid = str(data[2:34].hex())
 
     try:
-        network_params = net_query(network)
+        network_params = net_query(network.shortname) # Could be unnecessary.
         coin = int(Decimal(1) / network_params.from_unit)
         if not tx_fee:            
             tx_fee = int(network_params.min_tx_fee) * coin # this is rough, as it is min_tx_fee per kB, but a TrackedTransaction should only seldom have more than 1 kB.
@@ -253,7 +269,16 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, amount: int
 
         outputs = [p2th_output, data_output]
         if tx_type == "locking":
-            outputs.append(create_cltv_txout(value=amount, address=address, n=2, timelock=cltv_timelock))
+            # First create redeem script, then P2SH address, then the output spending to that script.
+            redeem_script = create_redeem_script(address=address, timelock=cltv_timelock, network=network)
+            p2sh_script = P2shScript(redeem_script)
+            p2sh_addr = create_p2sh_address(redeem_script, network=network)
+            print("P2SH address for this Locking Transaction:", p2sh_addr)
+            print("You will need the keys for address", address, "to spend funds.")
+            p2sh_output = create_p2sh_txout(amount, p2sh_script, n=2, network=network)
+            # p2pkh_output = create_p2pkh_txout(amount, p2sh_addr.__str__(), 2)
+            outputs.append(p2sh_output)
+            # outputs.append(create_cltv_txout(value=amount, address=address, n=2, timelock=cltv_timelock))
         elif tx_type in ("signalling", "donation"):
             outputs.append(create_p2pkh_txout(amount, address, 2))
         else:
@@ -297,7 +322,7 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, amount: int
         elif change_value < 0:
             raise Exception("Not enough funds in the input transaction.")
 
-        unsigned_tx = make_raw_transaction(network=network,
+        unsigned_tx = make_raw_transaction(network=network.shortname,
                                        inputs=inputs,
                                        outputs=outputs,
                                        locktime=Locktime(locktime)
