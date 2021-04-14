@@ -1,17 +1,21 @@
 from pypeerassets.at.dt_slots import get_slot
 from pypeerassets.at.dt_entities import SignallingTransaction, DonationTransaction, LockingTransaction
 from decimal import Decimal
+from copy import deepcopy
 
+# TODO: optimize the initialization to make deepcopy innecessary.
+# TODO: Locked amounts does not work.
 
-LINIT = [[],[],[],[],[],[],[],[]]
-LINITZ = [0, 0, 0, 0, 0, 0, 0, 0]
-LINITD = [] # [{},{},{},{},{},{},{},{}]
+def linit():
+    return deepcopy([[],[],[],[],[],[],[],[]])
+def linitz():
+    return deepcopy([0, 0, 0, 0, 0, 0, 0, 0])
 
 class ProposalState(object):
    # A ProposalState unifies all functions from proposals which are mutable.
    # i.e. which can change after the first proposal transaction was sent.
 
-    def __init__(self, valid_ptx, first_ptx, round_starts=[], round_halfway=[], signalling_txes=LINIT[:], locking_txes=LINIT[:], donation_txes=LINIT[:], signalled_amounts=LINITZ[:], locked_amounts=LINITZ[:], donated_amounts=LINITZ[:], reserve_txes=LINIT[:], reserved_amounts=LINITZ[:], effective_slots=LINITZ[:], effective_locking_slots=LINITZ[:], donation_states=LINITD[:], total_donated_amount=None, provider=None, current_blockheight=None, all_signalling_txes=[], all_donation_txes=[], all_locking_txes=[], initial_votes=None, final_votes=None, dist_factor=None):
+    def __init__(self, valid_ptx, first_ptx, round_starts=[], round_halfway=[], signalling_txes=linit(), locking_txes=linit(), donation_txes=linit(), signalled_amounts=linitz(), locked_amounts=linitz(), donated_amounts=linitz(), reserve_txes=linit(), reserved_amounts=linitz(), effective_slots=linitz(), effective_locking_slots=linitz(), donation_states=[], total_donated_amount=None, provider=None, current_blockheight=None, all_signalling_txes=[], all_donation_txes=[], all_locking_txes=[], donor_addresses=[], initial_votes=None, final_votes=None, dist_factor=None):
 
         self.valid_ptx = valid_ptx # the last proposal transaction which is valid.
         self.first_ptx = first_ptx # first ptx, in the case there was a Proposal Modification.
@@ -28,6 +32,7 @@ class ProposalState(object):
 
         self.donation_address = self.first_ptx.donation_address
         self.deck = self.first_ptx.deck
+        self.donor_addresses = donor_addresses
 
         # Slot Allocation Round Attributes are lists with values for each of the 8 distribution rounds
         # Phase 2 can vary if there is a ProposalModification, so this can be set various times.
@@ -130,15 +135,42 @@ class ProposalState(object):
                 self.round_starts[i + 4] = phase_start + self.round_lengths[1] * i
                 self.round_halfway[i + 4] = self.round_starts[i + 4] + halfway
 
-            # print(self.round_starts)
+        self.set_rounds(phase)
+
+    def set_rounds(self, phase=0):
+        rounds = []
+        # complements round_starts, should replace them in many functions. Above all useful because of round 4.
+        # first element is the signalling period, second one the locking/donation period.
+        # TODO: shouldn't this be extended to all phases of the proposal lifecycle?
+        # TODO: there is ambiguity in round 4 (first second-round round). It should be in theory
+        # possible to donate based on reserve txes from round 0-3 there, which would mean to have
+        # a special donation period AFTER the donation release phase. Currently the signalling
+        # period is rd 0-3 and the donation release phase the donation phase, which seems wrong.
+        if phase == 2:
+            round_length = self.round_lengths[1] # if phase 2 reorganisation, we take valid_ptx, otherwise first_ptx.
+        else:
+            round_length = self.round_lengths[0]
+
+        for rd in range(8):
+            rds = [None,None]
+            if rd == 4:
+                rds[0] = [self.round_starts[0], self.round_starts[3] + round_length - 1] # signalling phase lasts whole phase (rd 0 to rd 3)
+                rds[1] = [self.round_starts[4] - self.release_period, self.round_starts[4] - 1] 
+            else:
+                rds[0] = [self.round_starts[rd], self.round_halfway[rd] - 1]
+                rds[1] = [self.round_halfway[rd], self.round_starts[rd] + round_length - 1]     
+            rounds.append(rds)
+        self.rounds = rounds        
+
 
     def set_donation_states(self, phase=0, debug=False):
         # Version3. Uses the new DonationState class and the generate_donation_states method. 
         # Phase 0 means both phases are calculated.
-
+        # debug = True ## TEST
+        if debug: print("DONATION STATES: Setting for PROPOSAL:", self.id)
         # If round starts are not set, or phase is 2 (re-defining of the second phase), then we set it.
         if len(self.round_starts) == 0 or (phase == 2):
-            if debug: print("Setting round starts for proposal ...")
+            if debug: print("Setting round starts for PROPOSAL:", self.id)
             self.set_round_starts(phase)
             
         self.donation_states = dstates = [{} for i in range(8)] # dstates is a list containing a dict with the txid of the signalling or reserve transaction as key
@@ -147,7 +179,7 @@ class ProposalState(object):
         if debug: print("All signalling txes:", self.all_signalling_txes)
         for rd in rounds[phase]:
             dstates[rd] = self._process_donation_states(rd, debug=debug)
-            if debug: print("Donation states of round", rd, ":", dstates[rd])
+            # if debug: print("Donation states of round", rd, ":", dstates[rd])
 
         if phase in (0, 1):
             self.donation_states = dstates
@@ -173,7 +205,7 @@ class ProposalState(object):
             if self.get_stx_dist_round(stx) == rd:
                 all_stxes.append(stx)
 
-        if debug: print("All signalling txes for round", rd, ":", all_stxes)
+        # if debug: print("All signalling txes for round", rd, ":", all_stxes)
         if rd in (0, 3, 6, 7):
              # first round, round 6 and first-come-first-serve rds: all signalling txes inside the blockheight limit.
              valid_stxes = all_stxes
@@ -182,16 +214,17 @@ class ProposalState(object):
              # TODO: Could be made more efficient, if necessary.
              if rd in (1, 2):
                  all_rtxes = [ltx for ltx in self.locking_txes[rd - 1] if ltx.reserved_amount > 0]
+                 # print("RD", rd, "ALL RTXES", all_rtxes, "SELF", self.locking_txes[rd-1])
              elif rd == 4:
                  all_rtxes = [dtx for r in self.donation_txes[:4] for dtx in r if dtx.reserved_amount > 0]
              else:
                  all_rtxes = [dtx for dtx in self.donation_txes[rd - 1] if dtx.reserved_amount > 0]
-             #stxes = [ stx for stx in all_stxes if self.validate_priority(stx, rd) == True ]
-             #rtxes = [ rtx for rtx in all_rtxes if self.validate_priority(rtx, rd) == True ]
+
              valid_stxes = self.validate_priority(all_stxes, rd, debug=debug) if len(all_stxes) > 0 else []
              valid_rtxes = self.validate_priority(all_rtxes, rd, debug=debug) if len(all_rtxes) > 0 else []
-        if debug: print("Valid STXes in round:", rd, ":", valid_stxes)
-        if debug: print("Valid RTXes in round:", rd, ":", valid_rtxes)
+
+        # if debug: print("Valid STXes in round:", rd, ":", valid_stxes)
+        # if debug: print("Valid RTXes in round:", rd, ":", valid_rtxes)
 
         # 2. Calculate total signalled amount and set other variables.
 
@@ -199,6 +232,10 @@ class ProposalState(object):
         self.signalled_amounts[rd] = sum([tx.amount for tx in valid_stxes])
         self.reserve_txes[rd] = valid_rtxes
         self.reserved_amounts[rd] = sum([tx.reserved_amount for tx in valid_rtxes])
+        self.locked_amounts[rd] = 0
+        self.effective_locking_slots[rd] = 0
+        self.effective_slots[rd] = 0
+        self.donated_amounts[rd] = 0
         # self.total_signalled_amount[rd] = self.signalled_amount + self.reserved_amount # Probably not needed.
 
         # 3. Generate DonationState and add locking/donation txes:
@@ -218,17 +255,30 @@ class ProposalState(object):
                             effective_slots=self.effective_slots,
                             effective_locking_slots=self.effective_locking_slots)
             if rd < 4:
-                locking_tx = tx.get_output_tx(self.all_locking_txes)
+                locking_tx = tx.get_output_tx(self.all_locking_txes, self, rd, self.rounds)
                 # If the timelock is not correct, locking_tx is not added, and no donation tx is taken into account.
                 # The DonationState will be incomplete in this case. Only the SignallingTx is being added.
                 if (locking_tx is not None) and self.validate_timelock(locking_tx):
-                    self.locking_txes[rd].append(locking_tx)
-                    self.locked_amounts[rd] + locking_tx.amount
+                    #print("locking txes before", [t.txid for rd in self.locking_txes for t in rd])
+                    ltxes = deepcopy(self.locking_txes)
+                    ltxes[rd].append(locking_tx)
+                    self.locking_txes = ltxes
+                    #print("adding locking tx", locking_tx.txid, "in round", rd)
+                    #print("locking_txes after", [t.txid for rd in self.locking_txes for t in rd])
+                    # TODO: There are amounts at round 4 which should not be there.
+                    self.locked_amounts[rd] += locking_tx.amount
                     effective_locking_slot = min(slot, locking_tx.amount)
-                    donation_tx = locking_tx.get_output_tx(self.all_donation_txes)
+                    # print("EFFECTIVE LOCKING SLOT RD", rd, effective_locking_slot, slot, locking_tx.amount, locking_tx.txid, self.locked_amounts)
+                    # print("Searching child txes of locking tx", locking_tx.txid)
+                    donation_tx = locking_tx.get_output_tx(self.all_donation_txes, self, rd, self.rounds, mode="locking")
+                    if debug and donation_tx: print("Donation tx added in locking mode", donation_tx.txid, rd)
+                    
             else:
-                donation_tx = tx.get_output_tx(self.all_donation_txes)
+                # print("Searching child txes of tx", tx.txid, "of type", type(tx))
+                donation_tx = tx.get_output_tx(self.all_donation_txes, self, rd, self.rounds)
+                if debug and donation_tx: print("Donation tx added in donation mode", donation_tx.txid, rd)
 
+            
             if donation_tx:
                 effective_slot = min(slot, donation_tx.amount)
                 self.donation_txes[rd].append(donation_tx)
@@ -252,7 +302,7 @@ class ProposalState(object):
 
             dstate = DonationState(signalling_tx=signalling_tx, reserve_tx=reserve_tx, locking_tx=locking_tx, donation_tx=donation_tx, slot=slot, effective_slot=effective_slot, effective_locking_slot=effective_locking_slot, dist_round=rd)
     
-            dstates.update({dstate.signalling_tx.txid : dstate})
+            dstates.update({dstate.id : dstate})
 
         return dstates
                
@@ -298,30 +348,42 @@ class ProposalState(object):
 
         elif dist_round == 4: # rd 5 is special because all donors of previous rounds are admitted.
 
-            valid_dstates = [dstate for rd in (0, 1, 2, 3) for dstate in self.donation_states[rd]]
+            valid_dstates = [dstate for rd in (0, 1, 2, 3) for dstate in self.donation_states[rd].values()]
             if type(tx_list[0]) == DonationTransaction:
-                valid_rtx_txids = [dstate.donation_tx.txid for dstate in valid_dstates]
+                valid_rtx_txids = [dstate.donation_tx.txid for dstate in valid_dstates if dstate.donation_tx is not None]
+            else:
+                return []
 
         elif dist_round == 5:
 
-            valid_dstates = [dstate for dstate in self.donation_states[4]]
+            valid_dstates = [dstate for dstate in self.donation_states[4].values()]
             if type(tx_list[0]) == DonationTransaction:
-                valid_rtx_txids = [dstate.donation_tx.txid for dstate in valid_dstates]        
+                valid_rtx_txids = [dstate.donation_tx.txid for dstate in valid_dstates]
+            else:
+                return []      
 
         elif dist_round in (1, 2):
 
-            valid_dstates = [dstate for dstate in self.donation_states[dist_round - 1]]
+            valid_dstates = [dstate for dstate in self.donation_states[dist_round - 1].values()]
+            # print("DSTATES", valid_dstates)
             if type(tx_list[0]) == LockingTransaction:
-                valid_rtx_txids = [dstate.locking_tx.txid for dstate in valid_dstates]
+                try:
+                    valid_rtx_txids = [dstate.locking_tx.txid for dstate in valid_dstates]
+                    # print("VALID TXIDS", valid_rtx_txids) 
+                except AttributeError:
+                    return []
+            else:
+                return []
 
         # Locking or DonationTransactions: we simply look for the DonationState including it
         # If it's not in any of the valid states, it can't be valid.
 
+        # print("round here", dist_round)
         for tx in tx_list:
             if type(tx) in (LockingTransaction, DonationTransaction):
                 try:
                     tx_dstate = valid_dstates[valid_rtx_txids.index(tx.txid)]
-                except IndexError:
+                except (IndexError, ValueError):
                     if debug: print("Transaction rejected by priority check:", tx.txid)
                     continue
             # In the case of signalling transactions, we must look for donation/locking TXes
@@ -335,10 +397,20 @@ class ProposalState(object):
                     if debug: print("Transaction rejected by priority check:", tx.txid)
                     continue
 
-            if (dist_round < 4) and (tx_dstate.locking_tx.amount >= tx_dstate.slot): # we could use the "complete" attribute? or only in the case of DonationTXes?
-                valid_txes.append(tx)
-            elif (dist_round >= 4) and (tx_dstate.donation_tx.amount >= tx_dstate.slot):
-                valid_txes.append(tx)
+            try:
+                if (dist_round < 4) and (tx_dstate.locking_tx.amount >= tx_dstate.slot): # we could use the "complete" attribute? or only in the case of DonationTXes?
+                    valid_txes.append(tx)
+                elif (dist_round >= 4) and (tx_dstate.donation_tx.amount >= tx_dstate.slot):
+                    # TODO: should this not be the Locking Slot?
+                    valid_txes.append(tx)
+
+                else:
+                    if debug: print("Reserve transaction rejected due to incomplete slot:", tx.txid, "\nSlot:", tx_dstate.slot, "Amount / Locked Amount:", tx_dstate.effective_slot, tx_dstate.effective_locking_slot)
+                    continue
+            except AttributeError:
+                if debug: print("Required transaction (donation or locking) missing.")
+                continue
+
         return valid_txes
                
     def validate_timelock(self, ltx):

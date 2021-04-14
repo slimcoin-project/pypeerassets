@@ -14,6 +14,7 @@ from btcpy.structs.script import P2shScript
 from decimal import Decimal
 from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
 from binascii import unhexlify
+import hashlib as hl
 
 DEFAULT_P2TH_FEE = Decimal('0.01')
 
@@ -29,19 +30,18 @@ def get_startendvalues(provider, proposal_txid, period):
     proposal_tx = ProposalTransaction.from_txid(proposal_txid, provider)
     # TODO: This still doesn't deal with Proposal Modifications. Will probably need a function get_last_proposal.
     p = ProposalState(first_ptx=proposal_tx, valid_ptx=proposal_tx, provider=provider)
-    print("period", period)
 
     # TODO 2: Look if we can already implement the "voting only once and change vote" system (maybe we can simply go with the following rule for round 2: round 1 votes are added to round 2 votes, and only the last vote counts)
     if (period == ("voting", 0)) or (period[0] in ("signalling", "locking", "donation") and period[1] < 5):
         phase_start = p.dist_start # (p.start_epoch + 1) * p.deck.epoch_length
     else:
         phase_start = p.end_epoch * p.deck.epoch_length
-    print("Dist start:", p.dist_start, phase_start)
 
     phase_end = phase_start + p.deck.epoch_length - 1
 
-    print("phase_start:", phase_start, "phase_end:", phase_end, "epoch_length", p.deck.epoch_length)
+    print("Start of this distribution period:", phase_start, "End:", phase_end, "Period length:", p.deck.epoch_length)
 
+    # TODO reorganize this with "ps.rounds", much easier and less error prone.
     if period[0] == "voting":
         startblock = phase_start + p.security_periods[period[1]]
         endblock = startblock + p.voting_periods[period[1]] - 1
@@ -50,7 +50,12 @@ def get_startendvalues(provider, proposal_txid, period):
         endblock = p.round_halfway[period[1]] - 1
     elif period[0] in ("locking", "donation"):
         startblock = p.round_halfway[period[1]]
-        endblock = min(p.round_starts[period[1] + 1], phase_end) - 1
+        # endblock = min(p.round_starts[period[1] + 1], phase_end) - 1 # TODO: wrong number in round 4
+        endblock = p.round_starts[period[1]] + p.round_lengths[1] - 1
+
+    elif period[0] == "release":
+        startblock = phase_start + p.security_periods[period[1]] + p.voting_periods[period[1]]
+        endblock = startblock + p.release_period - 1
 
     return {"start" : startblock, "end" : endblock}
 
@@ -80,7 +85,7 @@ def get_dstates_from_address(address: str, proposal_state: ProposalState, dist_r
     # Uses the destination address, which is the address from which the donor will do locking/donation.
 
     states = []
-    print("Donation states:", proposal_state.donation_states)
+    # print("Donation states:", proposal_state.donation_states)
     for rd in proposal_state.donation_states:
         for ds in rd.values():
             for tx in [ ds.signalling_tx, ds.locking_tx, ds.reserve_tx ]:
@@ -90,7 +95,7 @@ def get_dstates_from_address(address: str, proposal_state: ProposalState, dist_r
                    tx_addr = tx.reserve_address.__str__()
                except AttributeError: # SignallingTX
                    tx_addr = tx.address.__str__()
-                   print(tx_addr, address)
+                   # print(tx_addr, address)
                if tx_addr == address:
                    states.append(ds)
 
@@ -99,20 +104,6 @@ def get_dstates_from_address(address: str, proposal_state: ProposalState, dist_r
 def get_donation_state(provider, proposal_id=None, proposal_tx=None, tx_txid=None, address=None, phase=0, debug=False, dist_round=0, pos=None):
 
     proposal_state = get_proposal_state(provider, proposal_id=proposal_id, proposal_tx=proposal_tx, phase=phase, debug=debug)
-
-    ## following section probably not necessary.
-    #if tx_type == "signalling":
-    #     txes = proposal.all_signalling_transactions
-    #elif tx_type == "locking":
-    #     txes = proposal.all_locking_transactions
-    #elif tx_type == "donation":
-    #     txes = proposal.all_donation_transactions
-
-    #for tx in txes:
-    #    if tx.txid == tx_txid:
-    #        break
-    #else:
-    #    raise Exception("Transaction not found.")
 
     if tx_txid is not None:
         result = get_dstate_from_txid(txid, proposal_state)
@@ -128,7 +119,7 @@ def get_donation_state(provider, proposal_id=None, proposal_tx=None, tx_txid=Non
             result = states
          
     else:
-        result = [ s for rd in proposal_state.donation_states for s in rd ]
+        result = [ s for rddict in proposal_state.donation_states for s in rddict.values() ]
  
     return result
 
@@ -148,7 +139,7 @@ def get_proposal_state(provider, proposal_id=None, proposal_tx=None, phase=0, de
     unfiltered_cards = list((card for batch in get_card_bundles(provider, ptx.deck) for card in batch))
 
     if phase == 0:
-        lastblock = min(current_blockheight, pstate.dist_start)
+        lastblock = min(current_blockheight, pstate.dist_start + pstate.deck.epoch_length)
     elif phase == 1:
         lastblock = min(current_blockheight, pstate.end_epoch * pstate.deck.epoch_length)
     else:
@@ -222,16 +213,22 @@ def create_p2pkh_txout(value: int, address: str, n: int, network=PeercoinTestnet
 
 def create_p2sh_txout(value: int, redeem_script: DonationTimeLockScript, n: int, network=PeercoinTestnet):
     p2sh_script = P2shScript(redeem_script)
-    return TxOut(value=value, n=n, script_pubkey=p2sh_script, network=network)
+    out = TxOut(value=value, n=n, script_pubkey=p2sh_script, network=network)
+    #print("=========== P2SH TEST ============")
+    #print("P2SH output:", out)
+    #print("P2SH output pubkey:", out.script_pubkey)
+    #print("P2SH script:", p2sh_script)
+    #print("Redeem script:", redeem_script)
+    return out
 
 def create_redeem_script(address: str, timelock: int, network=PeercoinTestnet):
     script = DonationTimeLockScript(raw_locktime=timelock, dest_address_string=address, network=network)
     return script
 
 def create_p2sh_address(redeem_script: DonationTimeLockScript, network=PeercoinTestnet):
-    p2sh_script = P2shScript(redeem_script)
-    print(p2sh_script)
-    print(redeem_script)
+    #p2sh_script = P2shScript(redeem_script)
+    #print(p2sh_script)
+    #print(redeem_script)
     addr = P2shAddress.from_script(redeem_script, network=network)
     return addr
 
@@ -247,7 +244,7 @@ def create_opreturn_txout(tx_type: str, data: bytes, network=PeercoinTestnet):
     return TxOut(value=0, n=1, script_pubkey=script, network=network)
 
 
-def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, amount: int=None, proposal_txid: str=None, data: bytes=None, address: str=None, network=PeercoinTestnet, version: int=1, change_address: str=None, tx_fee: int=None, p2th_fee: int=None, input_txid: str=None, input_vout: int=None, input_address: str=None, locktime: int=0, cltv_timelock: int=0):
+def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, amount: int=None, proposal_txid: str=None, data: bytes=None, address: str=None, network=PeercoinTestnet, version: int=1, change_address: str=None, tx_fee: int=None, p2th_fee: int=None, input_txid: str=None, input_vout: int=None, input_address: str=None, locktime: int=0, cltv_timelock: int=0, reserved_amount: int=None, reserve_address: str=None, debug: bool=False):
 
     if tx_type != "proposal":
         if data and (not proposal_txid):
@@ -273,9 +270,12 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, amount: int
             redeem_script = create_redeem_script(address=address, timelock=cltv_timelock, network=network)
             p2sh_script = P2shScript(redeem_script)
             p2sh_addr = create_p2sh_address(redeem_script, network=network)
-            print("P2SH address for this Locking Transaction:", p2sh_addr)
+            if debug: print("Timelock", cltv_timelock)
+            if debug: print("Redeem script", redeem_script)
+            if debug: print("P2SH script", p2sh_script)
+            print("P2SH address generated by this Locking Transaction:", p2sh_addr)
             print("You will need the keys for address", address, "to spend funds.")
-            p2sh_output = create_p2sh_txout(amount, p2sh_script, n=2, network=network)
+            p2sh_output = create_p2sh_txout(amount, redeem_script, n=2, network=network)
             # p2pkh_output = create_p2pkh_txout(amount, p2sh_addr.__str__(), 2)
             outputs.append(p2sh_output)
             # outputs.append(create_cltv_txout(value=amount, address=address, n=2, timelock=cltv_timelock))
@@ -284,11 +284,15 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, amount: int
         else:
             amount = 0 # proposal and vote types do not have amount.
 
-        complete_amount = p2th_output.value + amount + tx_fee
-        print("p2v", p2th_output.value, amount, tx_fee, type(p2th_output.value))
+        if reserved_amount is not None:
+            outputs.append(create_p2pkh_txout(reserved_amount, reserve_address, 3))
+        else:
+            reserved_amount = 0
+
+        complete_amount = amount + reserved_amount + p2th_output.value + tx_fee
         #if (input_txid is not None) and (input_vout is not None):
         if None not in (input_txid, input_vout):
-            input_tx = provider.getrawtransaction(input_txid, 1)
+            input_tx = provider.getrawtransaction(input_txid, 1) # TODO: re-check if this is really needed.
             inp_output = input_tx["vout"][input_vout]
             inp = MutableTxIn(txid=input_txid, txout=input_vout, script_sig=ScriptSig.empty(), sequence=Sequence.max())
             inputs = [inp]
@@ -303,7 +307,7 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, amount: int
             return None
         
         change_value = input_value - complete_amount
-        print("Change value and complete amount:", change_value, complete_amount)
+        if debug: print("Change value and complete amount:", change_value, complete_amount)
         #change_value = complete_amount - sum([i.value for i in inputs])
 
         # Look if there is change, if yes, create fourth output.
@@ -311,7 +315,6 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, amount: int
 
         if change_value > 0:
             # If no change address is delivered we use the address from the input.
-            print(inp, inp.script_sig)
             if change_address is None:
                 if input_address is None:
                     change_address = inp_output['scriptPubKey']['addresses'][0]
@@ -332,6 +335,16 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, amount: int
 
     except IndexError: # (IndexError, AttributeError, ValueError):
         raise InvalidTrackedTransactionError("Invalid Transaction creation.")
+
+
+def pubkey_to_hashed_data(pubkey_hex):
+    # TODO: this seems to be much fast than Kutil, but re-check!
+    pubkey = bytearray.fromhex(pubkey_hex)
+    round1 = hl.sha256(pubkey).digest()
+    h = hl.new('ripemd160')
+    h.update(round1)
+    pubkey_hash = h.digest()
+    return pubkey_hash
    
 
 

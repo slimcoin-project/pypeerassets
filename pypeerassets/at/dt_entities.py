@@ -4,8 +4,8 @@
 Note: All coin amounts are expressed in Bitcoin satoshi, not in "coins" (using the "from_unit" in networks)
 This means that the satoshi amounts do not correspond to the minimum unit in currencies like SLM or PPC with less decimal places."""
 
-from btcpy.structs.script import AbsoluteTimelockScript, Hashlock256Script, IfElseScript, P2pkhScript, ScriptBuilder
-from btcpy.structs.address import Address
+from btcpy.structs.script import AbsoluteTimelockScript, Hashlock256Script, IfElseScript, P2pkhScript, P2shScript, ScriptBuilder
+from btcpy.structs.address import Address, P2shAddress, P2pkhAddress
 #from btcpy.lib.parsing import ScriptParser
 
 from pypeerassets.transactions import Transaction, TxIn, TxOut, Locktime, nulldata_script, tx_output, find_parent_outputs, p2pkh_script
@@ -15,6 +15,7 @@ from pypeerassets.kutil import Kutil
 from pypeerassets.provider import RpcNode
 from pypeerassets.networks import PeercoinMainnet, PeercoinTestnet, SlimcoinMainnet, SlimcoinTestnet, net_query
 from pypeerassets.at.transaction_formats import getfmt, PROPOSAL_FORMAT, DONATION_FORMAT, SIGNALLING_FORMAT, LOCKING_FORMAT, VOTING_FORMAT
+import hashlib as hl
 
 
 # constants
@@ -25,9 +26,7 @@ DONATION_OUTPUT=2 # output with donation/signalling amount
 RESERVED_OUTPUT=3 # output for a reservation for other rounds.
 DEFAULT_P2TH_FEE=Decimal("0.01")
 
-# COIN_MULTIPLIER=100000000 # base unit of PeerAssets is the Bitcoin satoshi with 8 decimals, not the Peercoin/Slimcoin satoshi. # TODO: seems wrong, this is only for cards. Otherwise we must use the decimals of currency.
-
-# TODO: TrackedTransactions use the repr function of Transaction, which is incomplete.
+# TODO: TrackedTransactions use the repr function of Transaction, which is incomplete (not displaying specific TrackedTransaction arguments).
 
 class TrackedTransaction(Transaction):
     """A TrackedTransaction is a transaction tracked by the AT or DT mechanisms.
@@ -55,6 +54,8 @@ class TrackedTransaction(Transaction):
             tx_type = "donation"
         elif type(self) == SignallingTransaction:
             tx_type = "signalling"
+
+        object.__setattr__(self, 'input_addresses', self.set_input_addresses())
 
         if not blockheight:
 
@@ -145,6 +146,7 @@ class TrackedTransaction(Transaction):
         object.__setattr__(self, 'p2th_address', p2th_address)
         object.__setattr__(self, 'p2th_wif', p2th_wif) 
         object.__setattr__(self, 'epoch', self.blockheight // self.deck.epoch_length) # Epoch in which the transaction was sent. Epochs begin with 0.
+ 
 
     @property
     def txid(self):
@@ -153,7 +155,10 @@ class TrackedTransaction(Transaction):
     @classmethod
     def get_basicdata(cls, txid, provider):
         json = provider.getrawtransaction(txid, True)
-        data = read_tx_opreturn(json["vout"][1])
+        try:
+            data = read_tx_opreturn(json["vout"][1])
+        except KeyError:
+            raise InvalidTrackedTransactionError("JSON output:", json)
         return { "data" : data, "json" : json }
 
     @classmethod
@@ -196,6 +201,7 @@ class TrackedTransaction(Transaction):
         # searches a transaction which is one of the inputs of the current one in a tx list.
         # MODIFIED: validate does not make sense here. We must allow smaller or bigger donations than signalled amounts,
         # but they would not influence the slot.
+        # TODO: probably also obsolete!
 
         for inp in self.ins:
             txids = [tx.txid for tx in tx_list]
@@ -210,8 +216,9 @@ class TrackedTransaction(Transaction):
             return None
 
 
-    def get_output_tx(self, tx_list):
+    def get_output_tx_old(self, tx_list):
         # searches a transaction which corresponds to the donation output of a signalling or reserve tx in a tx list.
+        # TODO: probably obsolete, because this method doesn't allow Locking/DOnationTX with new inputs.
         for tx in tx_list:
             if self.txid in [ i.txid for i in tx.ins ]:
                 # TODO: Look if there is any attack vector if we don't validate the number of the output.
@@ -222,53 +229,115 @@ class TrackedTransaction(Transaction):
 
                 return tx
 
+    def get_output_tx(self, tx_list, proposal_state, dist_round: int=None, rounds: list=None, mode: str=None, debug: bool=False):
+        # searches a transaction which corresponds to the address a signalling transaction or reserve transaction 
+
+
+        try:
+            # Here we separate ReserveTXes and SignallingTXes
+            # If locking mode, then reserve address is ignored even if it exists.
+            # (Locking mode searches the DonationTransaction following to a LockingTransaction)
+            assert mode != "locking"
+            adr = self.reserve_address
+        except (AttributeError, AssertionError):
+            adr = self.address
+            if debug: print("Donor addresses:", proposal_state.donor_addresses)
+        for tx in tx_list:
+            
+            if adr in proposal_state.donor_addresses:
+                if debug: print("Rejected, donor address", adr, "already used.")
+                continue            
+
+            if adr in tx.input_addresses:
+                if dist_round:
+                    startblock = rounds[dist_round][1][0]
+                    endblock = rounds[dist_round][1][1] # here it is the last valid block!
+                    if startblock <= tx.blockheight <= endblock:
+                        proposal_state.donor_addresses.append(adr)
+                        return tx
+                else:
+                    proposal_state.donor_addresses.append(adr)
+                    return tx
+        return None
+
+    def get_input_address(self, pubkey_hexstr):
+        # calculates input address from pubkey from scriptsig.
+        pubkey = bytearray.fromhex(pubkey_hexstr)
+        round1 = hl.sha256(pubkey).digest()
+        h = hl.new('ripemd160')
+        h.update(round1)
+        pubkey_hash = h.digest()
+        return P2pkhAddress(pubkey_hash, network=self.network).__str__()
+
+    def set_input_addresses(self):
+        input_addresses = []
+        for inp in self.ins:
+            pubkey = inp.script_sig.__str__().split()[1]
+            input_addresses.append(self.get_input_address(pubkey))
+        return input_addresses
 
 
 class LockingTransaction(TrackedTransaction):
     """A LockingTransaction is a transaction which locks the donation amount until the end of the
        working period of the Proposer. They are only necessary in the first phase (round 1-4)."""
 
-    def __init__(self, txid=None, proposal_txid=None, proposal=None, timelock=None, secret_hash=None, d_address=None, d_amount=None, reserved_amount=None, reserve_address=None, signalling_tx=None, previous_dtx=None, json=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, provider=None, blockheight=None, blockhash=None, datastr=None, p2th_address=None, p2th_wif=None, deck=None, epoch=None):
+    def __init__(self, txid=None, proposal_txid=None, proposal=None, timelock=None, secret_hash=None, d_address=None, d_amount=None, reserved_amount=None, reserve_address=None, signalling_tx=None, previous_dtx=None, json=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, provider=None, blockheight=None, blockhash=None, datastr=None, p2th_address=None, p2th_wif=None, p2sh_address=None, deck=None, epoch=None):
         
         TrackedTransaction.__init__(self, txid=txid, proposal_txid=proposal_txid, txjson=json, datastr=datastr, p2th_address=p2th_address, p2th_wif=p2th_wif, version=version, ins=ins, outs=outs, locktime=locktime, network=network, timestamp=timestamp, provider=provider, deck=deck, epoch=epoch, blockheight=blockheight, blockhash=blockhash)
 
         if len(outs) > 0:
             # CONVENTION: Donation is in output 2 (0: P2TH, 1: OP_RETURN). 
             # Reserved amount, if existing, is in output 3.
-            # TODO: how to handle multiple outputs to donation address? Do we need that?
             locked_out = outs[DONATION_OUTPUT]
 
             if not d_amount:
                 d_amount = locked_out.value # amount in satoshi            
 
             try:
+                p2sh_script = locked_out.script_pubkey
+                #print("TX P2SH script", p2sh_script)
+                fmt = LOCKING_FORMAT
+                public_timelock = int.from_bytes(getfmt(self.datastr, fmt, "lck"), "big")
+                #print("Timelock", public_timelock)
+                # public_dest_address_raw = getfmt(self.datastr, fmt, "adr") # this is the address of the pubkey needed to unlock
+                # public_dest_address = public_dest_address_raw.decode("utf-8")
+                public_dest_address = getfmt(self.datastr, fmt, "adr").decode("utf-8") # this is the address of the pubkey needed to unlock
+                redeem_script = DonationTimeLockScript(raw_locktime=public_timelock, dest_address_string=public_dest_address, network=network)
+                redeem_script_p2sh = P2shScript(redeem_script)
 
-                if not timelock:
-                    timelock = locked_out.script_pubkey.else_script.locktime
-                if not d_address:
-                     d_address = locked_out.script_pubkey.if_script.address(network=network)
+                #print("Destination address:", public_dest_address)
+                #print("Redeem script:", redeem_script)
+                #print("Redeem script P2SH:", redeem_script_p2sh)
+                p2sh_address = P2shAddress.from_script(redeem_script, network=network) 
+                #print("P2SH address:", p2sh_address)
+
+
+                if not redeem_script_p2sh == p2sh_script:
+                    raise InvalidTrackedTransactionError("Incorrect Locktime and address data.")
+
+                else:
+                    timelock = public_timelock
+                    # print("locktime", timelock)
+                    d_address = public_dest_address
+
+                if not p2sh_address:
+                    p2sh_address = P2shAddress.from_script(p2sh_script, network=network)
 
             except AttributeError:
                 raise InvalidTrackedTransactionError("Incorrectly formatted LockingTransaction.")
-
-            # elif donation_type == 'DDT':
-            #     if not d_address:
-            #         d_address = donation_out.script_pubkey.address(network=network)
-
-
                     
             if len(outs) > 3 and not reserved_amount:
 
                 reserved_out = outs[RESERVED_OUTPUT]
                 reserved_amount = reserved_out.value
-                reserve_address = reserved_out.script_pubkey.address(network=network)                
+                reserve_address = reserved_out.script_pubkey.address(network=network).__str__()
 
         object.__setattr__(self, 'timelock', timelock)
-        # object.__setattr__(self, 'secret_hash', secret_hash) # secret hash # hashlock is disabled!
+        # object.__setattr__(self, 'secret_hash', secret_hash) # secret hash # currently not used
 
-        # MODIFIED to address and amount (before it was signalled_amount/signalling_address)
-        object.__setattr__(self, 'address', d_address) # donation address: the address defined in the referenced Proposal
+        object.__setattr__(self, 'address', d_address) # address to unlock the redeem script
         object.__setattr__(self, 'amount', d_amount) # donation amount
+        object.__setattr__(self, 'p2sh_address', p2sh_address) # P2SH address generated by CLTV script
 
         object.__setattr__(self, 'reserved_amount', reserved_amount) # Output reserved for following rounds.
         object.__setattr__(self, 'reserve_address', reserve_address) # Output reserved for following rounds.
@@ -287,13 +356,13 @@ class DonationTransaction(TrackedTransaction):
                 if not d_amount:
                     d_amount = donation_out.value # amount in satoshi    
                 if not d_address:
-                    d_address = donation_out.script_pubkey.address(network=network)
+                    d_address = donation_out.script_pubkey.address(network=network).__str__()
 
             if len(outs) > 3 and not reserved_amount: # we need this for round 5.
 
                 reserved_out = outs[RESERVED_OUTPUT]
                 reserved_amount = reserved_out.value
-                reserve_address = reserved_out.script_pubkey.address(network=network)
+                reserve_address = reserved_out.script_pubkey.address(network=network).__str__()
 
 
         except AttributeError:
@@ -317,7 +386,7 @@ class SignallingTransaction(TrackedTransaction):
             # CONVENTION: Signalling is in output 2 (0: P2TH, 1: OP_RETURN).
             signalling_out = outs[2]
             if not s_address:
-                s_address = signalling_out.script_pubkey.address(network=network)
+                s_address = signalling_out.script_pubkey.address(network=network).__str__()
             if not s_amount:
                 s_amount = signalling_out.value # note: amount is in satoshi
 
@@ -417,10 +486,8 @@ class DonationTimeLockScript(AbsoluteTimelockScript):
         they are interpreted as `locktime` and `locked_script` respectively, the script is
         then generated from these params
         """
-        print("D", dest_address_string, network)
         dest_address = Address.from_string(dest_address_string, network=network)
         locktime = Locktime(raw_locktime)
-        print(locktime.is_blocks())
         locked_script = P2pkhScript(dest_address)
         super().__init__(locktime, locked_script)
 

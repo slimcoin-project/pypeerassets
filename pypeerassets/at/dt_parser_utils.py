@@ -10,6 +10,7 @@ from pypeerassets.provider import Provider
 from pypeerassets.kutil import Kutil
 from pypeerassets.pa_constants import param_query
 from pypeerassets.pautils import deck_parser
+from copy import deepcopy
 
 ### Transaction retrieval
 ### These functions retrieve all transactions of a certain type and store them in a dictionary with their basic attributes.
@@ -43,47 +44,81 @@ def get_marked_txes(provider, p2th_account, min_blockheight=None, max_blockheigh
 
 def get_donation_txes(provider, deck, pst, min_blockheight=None, max_blockheight=None):
     # gets ALL donation txes of a deck. Needs P2TH.
-    txlist = []
+    #txlist = []
+    q = 0
+    proposal_list = []
     for rawtx in get_marked_txes(provider, deck.derived_p2th_address("donation"), min_blockheight=min_blockheight, max_blockheight=max_blockheight):
         try:
             tx = DonationTransaction.from_json(tx_json=rawtx, provider=provider, deck=deck)
             # We add the tx directly to the corresponding ProposalState.
             # If the ProposalState does not exist, KeyError is thrown and the tx is ignored.
-            pst.proposal_states[tx.proposal_txid].all_donation_txes.append(tx)
+            # When we create the first instance of the state we make a deepcopy.
+            if tx.proposal_txid not in proposal_list:
+                current_state = deepcopy(pst.proposal_states[tx.proposal_txid])
+                current_state.all_donation_txes.append(tx)
+                pst.proposal_states.update({ tx.proposal_txid : current_state })
+                proposal_list.append(tx.proposal_txid)
+            else:
+                pst.proposal_states[tx.proposal_txid].all_donation_txes.append(tx)
+            q += 1
+            # pst.proposal_states[tx.proposal_txid].all_donation_txes.append(tx)
         except (InvalidTrackedTransactionError, KeyError):
             continue
-        txlist.append(tx)
-    return txlist
-
+        #txlist.append(tx)
+    #return txlist
+    return q
 
 def get_locking_txes(provider, deck, pst, min_blockheight=None, max_blockheight=None):
     # gets all locking txes of a deck. Needs P2TH.
-    txlist = []
+    # txlist = []
+    q = 0
+    proposal_list = []
     for rawtx in get_marked_txes(provider, deck.derived_p2th_address("locking"), min_blockheight=min_blockheight, max_blockheight=max_blockheight):
         try:
             tx = LockingTransaction.from_json(tx_json=rawtx, provider=provider, deck=deck)
             # We add the tx directly to the corresponding ProposalState.
             # If the ProposalState does not exist, KeyError is thrown and the tx is ignored.
-            pst.proposal_states[tx.proposal_txid].all_locking_txes.append(tx)
+            # When we create the first instance of the state we make a deepcopy.
+            if tx.proposal_txid not in proposal_list:
+                current_state = deepcopy(pst.proposal_states[tx.proposal_txid])
+                current_state.all_locking_txes.append(tx)
+                pst.proposal_states.update({ tx.proposal_txid : current_state })
+                proposal_list.append(tx.proposal_txid)
+            else:
+                pst.proposal_states[tx.proposal_txid].all_locking_txes.append(tx)
+            q += 1
 
         except (InvalidTrackedTransactionError, KeyError):
             continue
-        txlist.append(tx) # check if this is really needed if it already is added to the ProposalState.
-    return txlist
+        # txlist.append(tx) # check if this is really needed if it already is added to the ProposalState.
+    #return txlist
+    return q
 
 def get_signalling_txes(provider, deck, pst, min_blockheight=None, max_blockheight=None):
     # gets all signalling txes of a deck. Needs P2TH.
-    txlist = []
+    # txlist = []
+    q = 0
+    proposal_list = []
     for rawtx in get_marked_txes(provider, deck.derived_p2th_address("signalling"), min_blockheight=min_blockheight, max_blockheight=max_blockheight):
         try:
             tx = SignallingTransaction.from_json(tx_json=rawtx, provider=provider, deck=deck)
             # We add the tx directly to the corresponding ProposalState.
             # If the ProposalState does not exist, KeyError is thrown and the tx is ignored.
-            pst.proposal_states[tx.proposal_txid].all_signalling_txes.append(tx)
+            # When we create the first instance of the state we make a deepcopy.
+            if tx.proposal_txid not in proposal_list:
+                current_state = deepcopy(pst.proposal_states[tx.proposal_txid])
+                current_state.all_signalling_txes.append(tx)
+                pst.proposal_states.update({ tx.proposal_txid : current_state })
+                proposal_list.append(tx.proposal_txid)
+            else:
+                pst.proposal_states[tx.proposal_txid].all_signalling_txes.append(tx)
+            q += 1
+            # pst.proposal_states[tx.proposal_txid].all_signalling_txes.append(tx)
         except (InvalidTrackedTransactionError, KeyError):
             continue
-        txlist.append(tx) # check if this is really needed if it already is added to the ProposalState.
-    return txlist
+        #txlist.append(tx) # check if this is really needed if it already is added to the ProposalState.
+    #return txlist
+    return q
 
 
 def get_voting_txes(provider, deck, min_blockheight=None, max_blockheight=None):
@@ -105,7 +140,7 @@ def get_voting_txes(provider, deck, min_blockheight=None, max_blockheight=None):
         elif tx.vote == b'-':
             outcome = "negative"
         else:
-            continue # invalid
+            continue # all other characters are invalid
         proposal_txid = tx.proposal.txid
 
         try:
@@ -126,6 +161,7 @@ def get_proposal_states(provider, deck, current_blockheight=None, all_signalling
     # Modified: force_dstates option (for pacli commands) calculates all phases/rounds and DonationStates, even if no card was issued.
     statedict = {}
     used_firsttxids = []
+    # print("PSTATE ALL LOCKING TX", all_locking_txes)
 
     for rawtx in get_marked_txes(provider, deck.derived_p2th_address("proposal")):
         try:
@@ -241,7 +277,7 @@ def update_voters(voters={}, new_cards=[], weight=1, debug=False):
     # value: combined value of card_transfers (can be negative).
     # MODIFIED: added weight, this is for SDP voters. Added CardBurn.
 
-    if debug: print("Voters", voters, "\nWeight:", weight)
+    #if debug: print("Voters", voters, "\nWeight:", weight)
     if weight != 1:
         for voter in voters:
            old_amount = voters[voter]
@@ -249,7 +285,7 @@ def update_voters(voters={}, new_cards=[], weight=1, debug=False):
            if debug: print("Updating SDP balance:", old_amount, "to:", voters[voter])
 
     for card in new_cards:
-        if debug: print("Card data:", card.sender, card.receiver, card.amount, card.type)
+        #if debug: print("Card data:", card.sender, card.receiver, card.amount, card.type)
 
         if card.type != "CardBurn":
 
@@ -258,11 +294,11 @@ def update_voters(voters={}, new_cards=[], weight=1, debug=False):
                 rec_amount = int(card.amount[rec_position] * weight)
 
                 if receiver not in voters:
-                    if debug: print("New voter:", receiver, "with amount:", rec_amount)
+                    #if debug: print("New voter:", receiver, "with amount:", rec_amount)
                     voters.update({receiver : rec_amount})
                 else:
                     old_amount = voters[receiver]
-                    if debug: print("Voter:", receiver, "with old_amount:", old_amount, "updated to new amount:", old_amount + rec_amount)
+                    #if debug: print("Voter:", receiver, "with old_amount:", old_amount, "updated to new amount:", old_amount + rec_amount)
                     
                     voters.update({receiver : old_amount + rec_amount})
 

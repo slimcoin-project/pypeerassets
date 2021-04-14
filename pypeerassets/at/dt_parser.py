@@ -179,7 +179,7 @@ def get_valid_epoch_cards(pst, epoch_cards):
             if card.txid != oldtxid: # TODO: this check may be obsolete.
 
                 oldtxid = card.txid
-                print("DT CardTransfer:", card.txid)
+                if pst.debug: print("DT CardTransfer:", card.txid)
                 valid_cards.append(card) # MODIFIED. So all cards are returned chronologically.
 
     return valid_cards

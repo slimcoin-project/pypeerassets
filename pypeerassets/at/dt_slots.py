@@ -9,19 +9,19 @@ def get_raw_slot(tx_amount: int, req_amount: int, slot_rest: int=None, total_amo
     if (total_amount is None) and round_txes:
         total_amount = sum([tx.amount for tx in round_txes])
 
-    print("Total amount", total_amount, "TX amount", tx_amount, "REQ amount", req_amount, "slot rest", slot_rest)
+    # print("Total amount", total_amount, "TX amount", tx_amount, "REQ amount", req_amount, "slot rest", slot_rest)
     # Decimal precision is set to 6 by peerassets. We need more precision here.
     with localcontext() as ctx:
         ctx.prec = 28
         tx_proportion = Decimal(tx_amount) / total_amount
-        print("tx proportion", tx_proportion)
+        # print("tx proportion", tx_proportion)
 
         if slot_rest is None:
             max_slot = int(req_amount * tx_proportion)
         else:
             max_slot = int(slot_rest * tx_proportion)
 
-    print("Proportion", tx_proportion, "Max slot", max_slot)
+    # print("Proportion", tx_proportion, "Max slot", max_slot)
 
     # Slot cannot be higher than the signalling transaction amount.
     # Otherwise, if donation amounts are higher than req_amount, slots would be higher than the signalled amounts.
@@ -50,12 +50,12 @@ def get_priority_slot(tx: TrackedTransaction, rtxes: list, stxes: list, av_amoun
         ramount = sum([t.reserved_amount for t in rtxes])
     if not samount:
         samount = sum([t.amount for t in stxes])
-    print(tx.txid, [r.txid for r in rtxes])
+    # print(tx.txid, [r.txid for r in rtxes])
     if tx.txid in [r.txid for r in rtxes]:
-        print("TX in rtxes", ramount, samount)
+        # print("TX in rtxes", ramount, samount)
         return get_raw_slot(tx.reserved_amount, av_amount, total_amount=ramount)
     elif tx.txid in [s.txid for s in stxes]:
-        print("TX in stxes", ramount, samount)
+        # print("TX in stxes", ramount, samount)
         slot_rest = max(0, av_amount - ramount)
         if slot_rest > 0:
             return get_raw_slot(tx.amount, slot_rest, total_amount=samount)
@@ -92,8 +92,8 @@ def get_slot(tx: TrackedTransaction, dist_round: int, signalling_txes: list=None
     #    first_req_amount = proposal_state.first_ptx.req_amount
     #    final_req_amount = proposal_state.valid_ptx.req_amount
 
-    print("All normal signalled amounts", signalled_amounts)
-    print("Dist round of current tx:", dist_round)
+    # print("All normal signalled amounts", signalled_amounts)
+    # print("Dist round of current tx:", dist_round)
     
     if dist_round in (0, 1, 2, 3):
         req_amount = first_req_amount
@@ -105,13 +105,13 @@ def get_slot(tx: TrackedTransaction, dist_round: int, signalling_txes: list=None
             return get_raw_slot(tx_amount, req_amount, total_amount=signalled_amounts[0])   
 
         slot_rest_rd0 = req_amount - effective_locking_slots[0]
-        print("slot rest rd0", slot_rest_rd0)
+        # print("slot rest rd0", slot_rest_rd0)
 
         if dist_round == 1:
             # in priority rounds, we need to check if the signalled amounts correspond to a donation in the previous round
             # These are added to the reserved amounts (second output of DonationTransactions).
             # MODIFIED: The reserve txes are now assigned to the round the Donation corresponds.
-            print("checking round 1", locking_txes[0], signalling_txes[1], reserved_amounts[0], signalled_amounts[1])
+            # print("checking round 1", locking_txes[0], signalling_txes[1], reserved_amounts[0], signalled_amounts[1])
             return get_priority_slot(tx, rtxes=locking_txes[0], stxes=signalling_txes[1], av_amount=slot_rest_rd0, ramount=reserved_amounts[0], samount=signalled_amounts[1])
 
         slot_rest_rd1 = slot_rest_rd0 - effective_locking_slots[1]
@@ -130,7 +130,7 @@ def get_slot(tx: TrackedTransaction, dist_round: int, signalling_txes: list=None
         req_amount = final_req_amount
 
         not_donated_amount = req_amount - sum(effective_slots[:4])
-        print("Not donated amount", not_donated_amount)
+        # print("Not donated amount", not_donated_amount)
 
 
         if dist_round == 4:
@@ -139,7 +139,7 @@ def get_slot(tx: TrackedTransaction, dist_round: int, signalling_txes: list=None
             # 1. Donors of rounds1-3 who have finished the donation of their slot.
             rtxes_phase1 = [dtx for rd in donation_txes[:4] for dtx in rd if dtx.reserved_amount > 0]
             reserved_amount_phase1 = sum(reserved_amounts[:4])
-            print(reserved_amount_phase1)
+            # print(reserved_amount_phase1)
             return get_priority_slot(tx, rtxes=rtxes_phase1, stxes=signalling_txes[4], av_amount=not_donated_amount, ramount=reserved_amount_phase1, samount=signalled_amounts[4])
             
         slot_rest_rd4 = not_donated_amount - effective_slots[4]
@@ -153,7 +153,7 @@ def get_slot(tx: TrackedTransaction, dist_round: int, signalling_txes: list=None
         slot_rest_rd5 = slot_rest_rd4 - effective_slots[5]
 
         if dist_round == 6:        
-            return get_raw_slot(tx, req_amount, slot_rest=slot_rest_rd5, total_amount=signalled_amounts[6])
+            return get_raw_slot(tx.amount, req_amount, slot_rest=slot_rest_rd5, total_amount=signalled_amounts[6])
 
         # slot_rest_rd6 = not_donated_amount - sum(proposal_state.effective_slots[4:7]) # why?
         slot_rest_rd6 = slot_rest_rd5 - effective_slots[6]

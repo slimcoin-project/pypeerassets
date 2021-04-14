@@ -20,6 +20,7 @@ DP_LEN = 3 # distribution length of up to ~16 million blocks
 MNV_LEN = 1 # minimum vote (0/256 to 256/256)
 TQ_LEN = 2 # token quantity per round, up to 65535
 SDP_LEN = 1 # sdp periods, up to 256
+LOCK_LEN = 4 # up to ~4 billion blocks (3 bytes - 16 million - is probably too few for the long term in SLM (~32 years), although it could be replaced by CSV.)
 
 # some general constants (originally in parser file, but we need them elsewhere.)
 
@@ -60,9 +61,15 @@ DONATION_FORMAT = { "id" : (0, ID_LEN), # identification of donation txes
                     "prp" : (ID_LEN, TX_LEN) # proposal txid
                   }
 
-# Lockling transaction: for now, same format as Donation.
+# Locking transaction: new format with address and locktime (to reconstruct redeem script, needed for validity test)
 
 LOCKING_FORMAT = { "id" : (0, ID_LEN), # identification of locking txes
+                   "prp" : (ID_LEN, TX_LEN), # proposal txid
+                   "lck" : (ID_LEN + TX_LEN, LOCK_LEN), # locktime, needed for redeem script
+                   "adr" : (ID_LEN + TX_LEN + LOCK_LEN, 0) # destination address, needed for redeem script
+                  }
+
+LOCKING_FORMAT_LEGACY = { "id" : (0, ID_LEN), # identification of locking txes
                     "prp" : (ID_LEN, TX_LEN) # proposal txid
                   }
 
@@ -172,13 +179,16 @@ def setfmt(params: dict, fmt: dict=None, tx_type: str=None):
             try:
                 assert len(current_param) == 64 # length of TXIDs which are the only hex values
                 par = bytes.fromhex(current_param)
+                # print("Current param is hex:", current_param, "to", par)
             except (AssertionError, ValueError): # all other strings: e.g. votes, addresses and identifiers
                 par = current_param.encode("utf-8")
+                # print("Current param is other str:", current_param, "to", par)
 
         elif type(current_param) == int:
             par = current_param.to_bytes(par_len, "big")
         bytestr += par
 
+    # print(len(bytestr))
     return bytestr
                 
             
