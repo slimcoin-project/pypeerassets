@@ -79,9 +79,10 @@ class RpcNode(Client, Provider):
 
         return self.req("listunspent", [minconf, maxconf])
 
-    def getbalance(self, address): ### NEW FEATURE, because getbalance doesn't work with addresses in rpcnode. ###
+    def getbalance_old(self, address): ### NEW FEATURE, because getbalance doesn't work with addresses in rpcnode. ###
         '''wrapper, because there is no address balance feature for rpcnode.
            Seems to work, but it's possible that not all addresses can be shown.'''
+        # OBSOLETE. Does not show all adresses but only those that have been used!
         # better base it on listunspent?
         groups = self.req("listaddressgroupings")
         for g in groups:
@@ -91,11 +92,11 @@ class RpcNode(Client, Provider):
         else:
             raise Exception("Address not found in wallet managed by the RPC node. Import it there or use another provider.")
 
-    def getbalance2(self, address): ### ALTERNATIVE with listunspent, seems to work, too (TODO: test if other version does not work in certain circumstances.)
+    def getbalance(self, address): ### version 2. Uses listunspent (faster) and does not reject empty addresses ###
         unspent = self.listunspent(address=address)
-        print(unspent)
-        values = [ v["amount"] for v in unspent ]
-        print(values)
+        #print(unspent)
+        values = [ Decimal(v["amount"]) for v in unspent ]
+        #print(values)
         return sum(values)
         
 
