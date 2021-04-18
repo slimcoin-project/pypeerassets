@@ -1,7 +1,7 @@
 from pypeerassets.at.dt_entities import ProposalTransaction, DonationTimeLockScript
 from pypeerassets.at.dt_states import ProposalState
 from pypeerassets.at.dt_parser import ParserState, dt_parser
-from pypeerassets.at.dt_parser_utils import get_votes
+from pypeerassets.at.dt_parser_utils import get_votes, deck_from_tx
 from pypeerassets.__main__ import get_card_bundles
 from pypeerassets.provider import Provider
 from pypeerassets.protocol import Deck
@@ -69,7 +69,10 @@ def get_votestate(provider, proposal_txid, phase=0, debug=False):
     elif phase == 1:
         votes = proposal.final_votes
 
-    return format_votes(proposal.deck.number_of_decimals, votes)
+    sdp_deck = deck_from_tx(proposal.deck.sdp_deck, provider)
+    decimals = sdp_deck.number_of_decimals
+
+    return format_votes(decimals, votes)
 
 def get_dstate_from_txid(txid: str, proposal_state: ProposalState):
     # returns donation state from a signalling, locking or donation transaction.
@@ -149,15 +152,6 @@ def get_proposal_state(provider, proposal_id=None, proposal_tx=None, phase=0, de
 
     valid_cards = dt_parser(unfiltered_cards, provider, lastblock, ptx.deck, debug=debug, initial_parser_state=pst, force_continue=True, force_dstates=True) # later add: force_dstates=True
 
-    #if phase == 0:
-    #    epoch = proposal.dist_start // proposal.deck.epoch_length # start_epoch cannot be used as the voting phase is often in start_epoch + 1
-    #elif phase == 1:
-    #    epoch = proposal.end_epoch
-    # print("Checked epoch:", epoch, "dist_start", proposal.dist_start, "startep", proposal.start_epoch, "endep", proposal.end_epoch)
-    #votes = get_votes(pst, proposal, epoch, formatted_result=True)
-
-    # return votes
-
     for p in pst.proposal_states.values():
         if debug: print("Checking proposal:", p.first_ptx.txid)
         if p.first_ptx.txid == proposal_id:
@@ -174,6 +168,7 @@ def format_votes(decimals, votes):
     for outcome in ["positive", "negative"]:
         balance = Decimal(votes[outcome]) / 10**decimals
         fvotes.update({outcome : balance})
+
     return fvotes
 
 
