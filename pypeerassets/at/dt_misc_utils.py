@@ -6,11 +6,12 @@ from pypeerassets.__main__ import get_card_bundles
 from pypeerassets.provider import Provider
 from pypeerassets.protocol import Deck
 from pypeerassets.kutil import Kutil
-from pypeerassets.transactions import make_raw_transaction, p2pkh_script, nulldata_script, MutableTxIn, TxIn, TxOut, Transaction, MutableTransaction, MutableTxIn, ScriptSig, Locktime
+from pypeerassets.transactions import make_raw_transaction, p2pkh_script, find_parent_outputs, nulldata_script, MutableTxIn, TxIn, TxOut, Transaction, MutableTransaction, MutableTxIn, ScriptSig, Locktime
 from pypeerassets.networks import PeercoinMainnet, PeercoinTestnet, net_query
 from pypeerassets.provider.rpcnode import Sequence
 from btcpy.structs.address import P2shAddress
-from btcpy.structs.script import P2shScript
+from btcpy.structs.script import P2shScript, AbsoluteTimelockScript
+from btcpy.structs.sig import P2shSolver, AbsoluteTimelockSolver, P2pkhSolver
 from decimal import Decimal
 from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
 from binascii import unhexlify
@@ -308,7 +309,7 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, amount: int
         # Look if there is change, if yes, create fourth output.
         # TODO: Could be improved if an option creates a higher tx fee when the rest is dust.
 
-        if change_value > 0:
+        if change_value >= 10000: # MODIFIED, it must be higher then the minimum amount. Otherwise it will be discarded as fee. TODO this is hardcoded, so it must be replaced by some network value!
             # If no change address is delivered we use the address from the input.
             if change_address is None:
                 if input_address is None:
@@ -333,13 +334,39 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, amount: int
 
 
 def pubkey_to_hashed_data(pubkey_hex):
-    # TODO: this seems to be much fast than Kutil, but re-check!
+    # TODO: this seems to be much faster than Kutil, but re-check! Normally we should be able to do the same with kutil
     pubkey = bytearray.fromhex(pubkey_hex)
     round1 = hl.sha256(pubkey).digest()
     h = hl.new('ripemd160')
     h.update(round1)
     pubkey_hash = h.digest()
     return pubkey_hash
-   
+
+
+def sign_p2sh_transaction(provider: Provider, unsigned: MutableTransaction, redeem_script: AbsoluteTimelockScript, key: Kutil):
+    # TODO: name 'locktime' is not defined
+
+    # Original for P2PKH uses Kutil.
+
+    # from pypeerassets kutil:
+    # "due to design of the btcpy library, TxIn object must be converted to TxOut object before signing"
+    locktime = redeem_script.locktime
+    txins = [find_parent_outputs(provider, i) for i in unsigned.ins]
+    inner_solver = P2pkhSolver(key._private_key)
+    redeem_script_solver = AbsoluteTimelockSolver(locktime, inner_solver)
+    solver = P2shSolver(redeem_script, redeem_script_solver) # is P2ShSolver really needed? Possibly it's only AbsoluteTimelockSolver
+
+    #print(txins)
+    #print(inner_solver)
+    #print(solver)
+
+    return unsigned.spend(txins, [solver for i in txins])
+
+"""    def sign_transaction(self, txins: Union[TxOut],
+                         tx: MutableTransaction) -> MutableTransaction:
+        '''sign the parent txn outputs P2PKH'''
+
+        solver = P2pkhSolver(self._private_key)
+        """
 
 

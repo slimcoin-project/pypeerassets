@@ -154,8 +154,12 @@ class ProposalState(object):
         for rd in range(8):
             rds = [None,None]
             if rd == 4:
-                rds[0] = [self.round_starts[0], self.round_starts[3] + round_length - 1] # signalling phase lasts whole phase (rd 0 to rd 3)
-                rds[1] = [self.round_starts[4] - self.release_period, self.round_starts[4] - 1] 
+                # replacing by rest of rounds!
+                rds[0] = [self.round_starts[rd], self.round_halfway[rd] - 1]
+                rds[1] = [self.round_halfway[rd], self.round_starts[rd] + round_length - 1] 
+                # OLD:
+                # rds[0] = [self.round_starts[0], self.round_starts[3] + round_length - 1] # signalling phase lasts whole phase (rd 0 to rd 3)
+                # rds[1] = [self.round_starts[4] - self.release_period, self.round_starts[4] - 1] 
             else:
                 rds[0] = [self.round_starts[rd], self.round_halfway[rd] - 1]
                 rds[1] = [self.round_halfway[rd], self.round_starts[rd] + round_length - 1]     
@@ -214,12 +218,21 @@ class ProposalState(object):
         else:
              # TODO: Could be made more efficient, if necessary.
              if rd in (1, 2):
-                 all_rtxes = [ltx for ltx in self.locking_txes[rd - 1] if ltx.reserved_amount > 0]
-                 # print("RD", rd, "ALL RTXES", all_rtxes, "SELF", self.locking_txes[rd-1])
+                 base_txes = self.locking_txes[rd - 1]
              elif rd == 4:
-                 all_rtxes = [dtx for r in self.donation_txes[:4] for dtx in r if dtx.reserved_amount > 0]
+                 base_txes = [t for rd in self.donation_txes[:4] for t in rd]
              else:
-                 all_rtxes = [dtx for dtx in self.donation_txes[rd - 1] if dtx.reserved_amount > 0]
+                 base_txes = self.donation_txes[rd - 1]
+
+             all_rtxes = [tx for tx in base_txes if (tx.reserved_amount is not None) and (tx.reserved_amount > 0)]
+
+
+             #if rd in (1, 2):
+             #    all_rtxes = [ltx for ltx in self.locking_txes[rd - 1] if (ltx.reserved_amount is not None) and (ltx.reserved_amount > 0)]
+             #elif rd == 4:
+             #    all_rtxes = [dtx for r in self.donation_txes[:4] for dtx in r if (dtx.reserved_amount is not None) and (dtx.reserved_amount > 0)]
+             #else:
+             #    all_rtxes = [dtx for dtx in self.donation_txes[rd - 1] if dtx.reserved_amount > 0]
 
              valid_stxes = self.validate_priority(all_stxes, rd, debug=debug) if len(all_stxes) > 0 else []
              valid_rtxes = self.validate_priority(all_rtxes, rd, debug=debug) if len(all_rtxes) > 0 else []
@@ -264,7 +277,7 @@ class ProposalState(object):
                     ltxes = deepcopy(self.locking_txes)
                     ltxes[rd].append(locking_tx)
                     self.locking_txes = ltxes
-                    #print("adding locking tx", locking_tx.txid, "in round", rd)
+                    # print("adding locking tx", locking_tx.txid, "in round", rd)
                     #print("locking_txes after", [t.txid for rd in self.locking_txes for t in rd])
                     # TODO: There are amounts at round 4 which should not be there.
                     self.locked_amounts[rd] += locking_tx.amount
@@ -273,6 +286,7 @@ class ProposalState(object):
                     # print("Searching child txes of locking tx", locking_tx.txid)
                     donation_tx = locking_tx.get_output_tx(self.all_donation_txes, self, rd, self.rounds, mode="locking")
                     if debug and donation_tx: print("Donation tx added in locking mode", donation_tx.txid, rd)
+                    # if donation_tx: print("Donation tx added in locking mode", donation_tx.txid, rd)
                     
             else:
                 # print("Searching child txes of tx", tx.txid, "of type", type(tx))
