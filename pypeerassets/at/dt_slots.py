@@ -137,7 +137,7 @@ def get_slot(tx: TrackedTransaction, dist_round: int, signalling_txes: list=None
             # TODO: re-check this and the following rounds.
             # this is a complex round. Priority is as follows:
             # 1. Donors of rounds1-3 who have finished the donation of their slot.
-            rtxes_phase1 = [dtx for rd in donation_txes[:4] for dtx in rd if dtx.reserved_amount > 0]
+            rtxes_phase1 = [dtx for rd in donation_txes[:4] for dtx in rd if (dtx.reserved_amount is not None) and (dtx.reserved_amount > 0)]
             reserved_amount_phase1 = sum(reserved_amounts[:4])
             # print(reserved_amount_phase1)
             return get_priority_slot(tx, rtxes=rtxes_phase1, stxes=signalling_txes[4], av_amount=not_donated_amount, ramount=reserved_amount_phase1, samount=signalled_amounts[4])
