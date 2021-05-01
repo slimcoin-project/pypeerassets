@@ -300,7 +300,7 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, amount: int
             input_value = int(input_query["total"] * coin)
             inp = inputs[0] # check!
         else:
-            return None
+            raise ValueError("No input information provided.") # we need input address or input txid/vout
         
         change_value = input_value - complete_amount
         if debug: print("Change value and complete amount:", change_value, complete_amount)

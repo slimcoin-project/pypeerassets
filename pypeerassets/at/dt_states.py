@@ -255,6 +255,8 @@ class ProposalState(object):
         # 3. Generate DonationState and add locking/donation txes:
         # TODO: Do we need to validate the correct round of locking/donation, and even reserve txes?
         for tx in (valid_stxes + valid_rtxes):
+            donation_tx, locking_tx, effective_locking_slot, effective_slot = None, None, None, None
+            # Initial slot: based on signalled amount.
             slot = get_slot(tx,
                             rd, 
                             signalling_txes=self.signalling_txes, 
@@ -295,7 +297,10 @@ class ProposalState(object):
 
             
             if donation_tx:
-                effective_slot = min(slot, donation_tx.amount)
+                if rd < 4:
+                    effective_slot = min(effective_locking_slot, donation_tx.amount)
+                else:
+                    effective_slot = min(slot, donation_tx.amount)
                 self.donation_txes[rd].append(donation_tx)
                 self.donated_amounts[rd] += donation_tx.amount
 
