@@ -14,6 +14,7 @@ from btcpy.structs.script import P2shScript, AbsoluteTimelockScript
 from btcpy.structs.sig import P2shSolver, AbsoluteTimelockSolver, P2pkhSolver
 from decimal import Decimal
 from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
+from pypeerassets.at.transaction_formats import getfmt, PROPOSAL_FORMAT
 from binascii import unhexlify
 import hashlib as hl
 
@@ -90,8 +91,13 @@ def get_dstates_from_address(address: str, proposal_state: ProposalState, dist_r
 
     states = []
     # print("Donation states:", proposal_state.donation_states)
-    for rd in proposal_state.donation_states:
-        for ds in rd.values():
+    for rd, rd_states in enumerate(proposal_state.donation_states):
+
+
+        if dist_round and (rd != dist_round):
+            continue
+        
+        for ds in rd_states.values():
             for tx in [ ds.signalling_tx, ds.locking_tx, ds.reserve_tx ]:
                if tx is None:
                    continue
@@ -105,11 +111,13 @@ def get_dstates_from_address(address: str, proposal_state: ProposalState, dist_r
 
     return states
 
-def get_donation_state(provider, proposal_id=None, proposal_tx=None, tx_txid=None, address=None, phase=0, debug=False, dist_round=0, pos=None):
+def get_donation_state(provider, proposal_id=None, proposal_tx=None, tx_txid=None, address=None, phase=None, debug=False, dist_round=None, pos=None):
 
+    # TODO: check this for redundancy (proposal_id/tx).
     proposal_state = get_proposal_state(provider, proposal_id=proposal_id, proposal_tx=proposal_tx, phase=phase, debug=debug)
 
     if tx_txid is not None:
+        # TODO: re-check: this should give a list!
         result = get_dstate_from_txid(txid, proposal_state)
     elif address is not None:
         states = get_dstates_from_address(address, proposal_state, dist_round=dist_round)
@@ -123,15 +131,23 @@ def get_donation_state(provider, proposal_id=None, proposal_tx=None, tx_txid=Non
             result = states
          
     else:
-        result = [ s for rddict in proposal_state.donation_states for s in rddict.values() ]
+        result = [s for rddict in proposal_state.donation_states for s in rddict.values()]
  
     return result
 
-def get_proposal_state(provider, proposal_id=None, proposal_tx=None, phase=0, debug=False):
+def proposal_from_tx(proposal_id, provider):
+    basicdata = ProposalTransaction.get_basicdata(proposal_id, provider)
+    deckid = getfmt(basicdata["data"], PROPOSAL_FORMAT, "dck").hex()
+    deck = deck_from_tx(deckid, provider)
+    return ProposalTransaction.from_txid(proposal_id, provider, deck=deck, basicdata=basicdata)
+    
+
+def get_proposal_state(provider, proposal_id=None, proposal_tx=None, phase=None, debug=False, deck=None):
 
     current_blockheight = provider.getblockcount()
     if not proposal_tx:
-        ptx = ProposalTransaction.from_txid(proposal_id, provider)
+        ptx = proposal_from_tx(proposal_id, provider)
+        # ptx = ProposalTransaction.from_txid(proposal_id, provider, deck=deck)
     else:
         ptx = proposal_tx
         proposal_id = ptx.txid
@@ -151,7 +167,7 @@ def get_proposal_state(provider, proposal_id=None, proposal_tx=None, phase=0, de
 
     pst = ParserState(ptx.deck, unfiltered_cards, provider, current_blockheight=lastblock, debug=debug)
 
-    valid_cards = dt_parser(unfiltered_cards, provider, lastblock, ptx.deck, debug=debug, initial_parser_state=pst, force_continue=True, force_dstates=True) # later add: force_dstates=True
+    valid_cards = dt_parser(unfiltered_cards, provider, ptx.deck, current_blockheight=lastblock, debug=debug, initial_parser_state=pst, force_continue=True, force_dstates=True) # later add: force_dstates=True
 
     for p in pst.proposal_states.values():
         if debug: print("Checking proposal:", p.first_ptx.txid)

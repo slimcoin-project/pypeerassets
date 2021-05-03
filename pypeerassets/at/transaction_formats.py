@@ -146,7 +146,7 @@ DECK_SPAWN_DT_FORMAT_LEGACY = { "id" : (0, ID_LEN), # identifier of DT decks
 P2TH_MODIFIER = { "proposal" : 1, "voting" : 2, "donation" : 3, "signalling" : 4, "locking" : 5 } # modified 11/30, ordered by importance
 # original P2TH_MODIFIER = { "signalling" : 1, "donation" : 2, "proposal" : 3 }
 
-TX_FORMATS = { "proposal" : PROPOSAL_FORMAT, "signalling": SIGNALLING_FORMAT, "locking" : LOCKING_FORMAT, "donation" : DONATION_FORMAT, "voting" : VOTING_FORMAT }
+TX_FORMATS = { "proposal" : PROPOSAL_FORMAT, "signalling": SIGNALLING_FORMAT, "locking" : LOCKING_FORMAT, "donation" : DONATION_FORMAT, "voting" : VOTING_FORMAT, "cardissue_at" : CARD_ISSUE_AT_FORMAT, "cardissue_dt" : CARD_ISSUE_DT_FORMAT, "deckspawn_at" : DECK_SPAWN_AT_FORMAT, "deckspawn_dt" : DECK_SPAWN_DT_FORMAT }
 
 TX_IDENTIFIERS = { "proposal" : "DP", "signalling": "DS", "locking" : "DL", "donation" : "DD", "voting" : "DV" }
 
@@ -161,6 +161,7 @@ def getfmt(strvar, fmt, key):
 
 def setfmt(params: dict, fmt: dict=None, tx_type: str=None):
     # returns the complete bytestring given a set of parameters
+    # Parameters must be strings or int, not bytes!
     if tx_type is not None:
         fmt = TX_FORMATS[tx_type]
     elif fmt is None:

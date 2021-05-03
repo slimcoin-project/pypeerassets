@@ -216,8 +216,8 @@ def find_all_valid_cards(provider: Provider, deck: Deck) -> Generator:
     # validate_card_issue_modes must recieve a full list of cards, not batches
     unfiltered = (card for batch in get_card_bundles(provider, deck) for card in batch)
 
-    ### ADDRESSTRACK modification: includes provider ###
-    for card in validate_card_issue_modes(deck.issue_mode, list(unfiltered), provider):
+    ### ADDRESSTRACK modification: includes provider and deck ###
+    for card in validate_card_issue_modes(deck.issue_mode, list(unfiltered), provider, deck):
         yield card
 
 

@@ -21,6 +21,7 @@ from pypeerassets.networks import net_query
 from pypeerassets.provider import Provider
 from pypeerassets.at.transaction_formats import getfmt, DECK_SPAWN_AT_FORMAT, DECK_SPAWN_DT_FORMAT, CARD_ISSUE_DT_FORMAT, P2TH_MODIFIER
 from pypeerassets.at.identify import is_at_deck, is_at_cardissue
+from pypeerassets.at.dt_parser import dt_parser
 
 
 class IssueMode(Enum):
@@ -426,12 +427,13 @@ class CardTransfer:
                         self.donation_txid = donation_txid
                   
                     # TODO: for now ID is hardcoded, should be changed
-                    if deck.asset_specific_data[:2] == b'DT' and not move_txid:
+                    # MODIFIED: move_txid was removed.
+                    #if deck.asset_specific_data[:2] == b'DT' and not move_txid:
 
-                        if len(self.asset_specific_data) > 35:
-                            self.move_txid = getfmt(self.asset_specific_data, dt_fmt, "mtx").hex()
-                        else:
-                            self.move_txid = None
+                    #    if len(self.asset_specific_data) > 35:
+                    #        self.move_txid = getfmt(self.asset_specific_data, dt_fmt, "mtx").hex()
+                    #    else:
+                    #        self.move_txid = None
                 else:
 
                     self.type = "CardTransfer" # includes, for now, issuance attempts with completely invalid data
@@ -520,9 +522,9 @@ class CardTransfer:
         return deck.asset_specific_data
 
 
-def validate_card_issue_modes(issue_mode: int, cards: list, provider: Provider=None) -> list:
+def validate_card_issue_modes(issue_mode: int, cards: list, provider: Provider=None, deck: Deck=None) -> list:
     """validate cards against deck_issue modes"""
-    ### ADDRESSTRACK modification: including provider variable for custom parser ###
+    ### ADDRESSTRACK modification: including provider variable for custom parser and including deck ###
 
     if len(cards) == 0: ### MODIF: if there are no cards, cards[0] cannot work ###
         return []
@@ -544,7 +546,7 @@ def validate_card_issue_modes(issue_mode: int, cards: list, provider: Provider=N
                 continue
 
             if is_at_deck(cards[0].deck_data): ### ADDRESSTRACK modification ###
-                parsed_cards = parser_fn(cards, at_parser, provider)
+                parsed_cards = parser_fn(cards, dt_parser, provider, deck) # was at_parser before
             else:
                 parsed_cards = parser_fn(cards)
  

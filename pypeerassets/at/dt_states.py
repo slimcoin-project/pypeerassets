@@ -4,7 +4,7 @@ from decimal import Decimal
 from copy import deepcopy
 
 # TODO: optimize the initialization to make deepcopy innecessary.
-# TODO: Locked amounts does not work.
+# TODO: Locked amounts does not work. (solved at 1/05?)
 
 def linit():
     return deepcopy([[],[],[],[],[],[],[],[]])
@@ -15,7 +15,7 @@ class ProposalState(object):
    # A ProposalState unifies all functions from proposals which are mutable.
    # i.e. which can change after the first proposal transaction was sent.
 
-    def __init__(self, valid_ptx, first_ptx, round_starts=[], round_halfway=[], signalling_txes=linit(), locking_txes=linit(), donation_txes=linit(), signalled_amounts=linitz(), locked_amounts=linitz(), donated_amounts=linitz(), reserve_txes=linit(), reserved_amounts=linitz(), effective_slots=linitz(), effective_locking_slots=linitz(), donation_states=[], total_donated_amount=None, provider=None, current_blockheight=None, all_signalling_txes=[], all_donation_txes=[], all_locking_txes=[], donor_addresses=[], initial_votes=None, final_votes=None, dist_factor=None):
+    def __init__(self, valid_ptx, first_ptx, round_starts=[], round_halfway=[], signalling_txes=linit(), locking_txes=linit(), donation_txes=linit(), signalled_amounts=linitz(), locked_amounts=linitz(), donated_amounts=linitz(), reserve_txes=linit(), reserved_amounts=linitz(), effective_slots=linitz(), effective_locking_slots=linitz(), donation_states=[], total_donated_amount=None, provider=None, current_blockheight=None, all_signalling_txes=[], all_donation_txes=[], all_locking_txes=[], donor_addresses=[], initial_votes=None, final_votes=None, dist_factor=None, proposer_reward=None):
 
         self.valid_ptx = valid_ptx # the last proposal transaction which is valid.
         self.first_ptx = first_ptx # first ptx, in the case there was a Proposal Modification.
@@ -79,6 +79,9 @@ class ProposalState(object):
         # and the number of coins required by the proposals in their ending period.
         # The higher the amount of proposals and their required amounts, the lower this factor is.
         self.dist_factor = dist_factor
+
+        # If there are slots missing at the end, the proposer can claim the proportion.
+        self.proposer_reward = proposer_reward
 
 
     def set_round_starts(self, phase=0):
@@ -180,9 +183,12 @@ class ProposalState(object):
         self.donation_states = dstates = [{} for i in range(8)] # dstates is a list containing a dict with the txid of the signalling or reserve transaction as key
         rounds = (range(8), range(4), range(4,8))
 
+        # Once the proposal has ended and the number of proposals is known, the reward of each donor can be set
+        set_reward = True if self.dist_factor is not None else False
+
         if debug: print("All signalling txes:", self.all_signalling_txes)
         for rd in rounds[phase]:
-            dstates[rd] = self._process_donation_states(rd, debug=debug)
+            dstates[rd] = self._process_donation_states(rd, debug=debug, set_reward=set_reward)
             # if debug: print("Donation states of round", rd, ":", dstates[rd])
 
         if phase in (0, 1):
@@ -191,9 +197,11 @@ class ProposalState(object):
             self.donation_states[4:] = dstates[4:]
 
         self.total_donated_amount = sum(self.donated_amounts)
+        if (phase in (0, 2)) and (self.dist_factor is not None):
+            self.set_proposer_reward()
 
 
-    def _process_donation_states(self, rd, debug=False):
+    def _process_donation_states(self, rd, set_reward=False, debug=False):
         # This function always must run chronologically, with previous rounds already completed.
         # It can, however, be run to redefine phase 2 (rd 4-7).
         # It sets also the attributes that are necessary for the next round and its slot calculation.
@@ -321,6 +329,8 @@ class ProposalState(object):
                 continue
 
             dstate = DonationState(signalling_tx=signalling_tx, reserve_tx=reserve_tx, locking_tx=locking_tx, donation_tx=donation_tx, slot=slot, effective_slot=effective_slot, effective_locking_slot=effective_locking_slot, dist_round=rd)
+            if set_reward:
+                dstate.set_reward(self)
     
             dstates.update({dstate.id : dstate})
 
@@ -340,6 +350,7 @@ class ProposalState(object):
            return None
 
     def set_dist_factor(self, ending_proposals):
+        # TODO: It could make sense to calculate the rewards here directly, i.e. multiply this with deck.epoch_quantity
         # Proposal factor: if there is more than one proposal ending in the same epoch,
         # the resulting slot is divided by the req_amounts of them.
         # This is set in the function dt_parser_utils.get_valid_ending_proposals.
@@ -356,6 +367,13 @@ class ProposalState(object):
 
         # print("Dist factor", self.dist_factor)
 
+    def set_proposer_reward(self):
+        proposer_proportion = Decimal(self.req_amount - sum(self.effective_slots)) / self.req_amount
+        if proposer_proportion > 0:
+            reward_units = self.deck.epoch_quantity * (10 ** self.deck.number_of_decimals)
+            self.proposer_reward = int(proposer_proportion * self.dist_factor * reward_units)
+        else:
+            self.proposer_reward = 0
 
     def validate_priority(self, tx_list, dist_round, debug=False):
         """Validates the priority of signalling and reserve transactions in round 2, 3, 5 and 6."""
@@ -446,7 +464,7 @@ class DonationState(object):
     # A DonationState contains Signalling, Locked and Donation transaction and the slot.
     # Must be created always with either SignallingTX or ReserveTX.
 
-    def __init__(self, signalling_tx=None, reserve_tx=None, locking_tx=None, donation_tx=None, slot=None, dist_round=None, effective_slot=None, effective_locking_slot=None):
+    def __init__(self, signalling_tx=None, reserve_tx=None, locking_tx=None, donation_tx=None, slot=None, dist_round=None, effective_slot=None, effective_locking_slot=None, reward=None):
         self.signalling_tx = signalling_tx
         self.reserve_tx = reserve_tx
         self.locking_tx = locking_tx
@@ -456,6 +474,7 @@ class DonationState(object):
         self.slot = slot
         self.effective_slot = effective_slot
         self.effective_locking_slot = effective_locking_slot
+        self.reward = reward
 
         if signalling_tx:
             self.donor_address = signalling_tx.address
@@ -467,6 +486,12 @@ class DonationState(object):
             self.id = self.reserve_tx.txid
         else:
             raise InvalidDonationStateError("A DonationState must be initialized with a signalling or reserve address.")
+
+    def set_reward(self, proposal_state):
+        if (self.effective_slot is not None) and (self.effective_slot > 0):
+            slot_proportion = Decimal(self.effective_slot) / proposal_state.req_amount
+            reward_units = proposal_state.deck.epoch_quantity * (10 ** proposal_state.deck.number_of_decimals)
+            self.reward = int(slot_proportion * reward_units * proposal_state.dist_factor)
 
 class InvalidDonationStateError(ValueError):
     # raised anytime when a DonationState is not following the intended format.

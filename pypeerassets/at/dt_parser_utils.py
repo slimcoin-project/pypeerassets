@@ -9,7 +9,6 @@ from pypeerassets.at.transaction_formats import *
 from pypeerassets.provider import Provider
 from pypeerassets.kutil import Kutil
 from pypeerassets.pa_constants import param_query
-from pypeerassets.pautils import deck_parser
 from copy import deepcopy
 
 ### Transaction retrieval
@@ -60,12 +59,12 @@ def get_donation_txes(provider, deck, pst, min_blockheight=None, max_blockheight
                 proposal_list.append(tx.proposal_txid)
             else:
                 pst.proposal_states[tx.proposal_txid].all_donation_txes.append(tx)
+            # PROVISORY/TODO: in the case of donation txes it could make sense to keep the list from pst
+            pst.donation_txes.update({tx.txid : tx})
             q += 1
-            # pst.proposal_states[tx.proposal_txid].all_donation_txes.append(tx)
+
         except (InvalidTrackedTransactionError, KeyError):
             continue
-        #txlist.append(tx)
-    #return txlist
     return q
 
 def get_locking_txes(provider, deck, pst, min_blockheight=None, max_blockheight=None):
@@ -215,6 +214,7 @@ def update_valid_ending_proposals(pst):
     # MODIFIED: Only checks round-2 votes.
     # TODO :Should be moved as a method to ParserState.
 
+    ending_valid_proposals = {}
     for pstate in pst.approved_proposals.values():
         if pst.debug: print("Checking end epoch for completed proposals:", pstate.end_epoch)
         if (pstate.end_epoch != pst.epoch):
@@ -225,8 +225,9 @@ def update_valid_ending_proposals(pst):
         if pstate.final_votes["positive"] <= pstate.final_votes["negative"]:
             continue
 
-        pst.valid_proposals.update({pstate.first_ptx.txid : pstate})
-    else:
+        ending_valid_proposals.update({pstate.first_ptx.txid : pstate})
+
+    if len(ending_valid_proposals) == 0:
         return
 
     pst.epochs_with_completed_proposals += 1
@@ -236,9 +237,11 @@ def update_valid_ending_proposals(pst):
     # Maybe this can still be optimized, with a special case if there is a single proposal in this epoch.
     # TODO: SHould be probably a separate method. Would also allow to do the round checks in the same method for rd1 and 2.
 
-    for pstate in pst.valid_proposals.values():
-        if not pstate.dist_factor:
-            pstate.set_dist_factor(pst.valid_proposals.values())
+    for pstate in ending_valid_proposals.values():
+        if pstate.dist_factor is None:
+            pstate.set_dist_factor(ending_valid_proposals.values())
+
+    pst.valid_proposals.update(ending_valid_proposals)
 
 ## SDP
 # TODO: What if there is no SDP token defined? Somebody must vote in the first round.
@@ -374,8 +377,11 @@ def get_votes(pst, proposal, epoch, formatted_result=False):
  
     return votes
 
+### Other utils
+
 def deck_from_tx(txid: str, provider: Provider, deck_version: int=1, prod: bool=True):
     '''Wrapper for deck_parser, gets the deck from the TXID.'''
+    from pypeerassets.pautils import deck_parser
 
     params = param_query(provider.network)
     p2th = params.P2TH_addr

@@ -10,12 +10,11 @@ from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
 from pypeerassets.at.dt_states import ProposalState, DonationState
 from pypeerassets.at.transaction_formats import *
 from pypeerassets.at.dt_parser_utils import *
-from pypeerassets.__main__ import find_all_valid_cards
 
 class ParserState(object):
     """contains the current state of basic variables"""
 
-    def __init__(self, deck, initial_cards, provider, proposal_states={}, approved_proposals={}, valid_proposals={}, signalling_txes=[], locking_txes=[], donation_txes=[], voting_txes=[], epoch=None, start_epoch=None, end_epoch=None, used_issuance_tuples=[], valid_cards=[], enabled_voters={}, sdp_cards=[], sdp_deck_obj=None, current_blockheight=None, epochs_with_completed_proposals=0, debug=False):
+    def __init__(self, deck, initial_cards, provider, proposal_states={}, approved_proposals={}, valid_proposals={}, signalling_txes=[], locking_txes=[], donation_txes={}, voting_txes=[], epoch=None, start_epoch=None, end_epoch=None, used_issuance_tuples=[], valid_cards=[], enabled_voters={}, sdp_cards=[], sdp_deck_obj=None, current_blockheight=None, epochs_with_completed_proposals=0, debug=False):
 
         self.deck = deck
         self.initial_cards = initial_cards
@@ -26,9 +25,9 @@ class ParserState(object):
         self.proposal_states = proposal_states
         self.approved_proposals = approved_proposals # approved by round 1 votes
         self.valid_proposals = valid_proposals # successfully completed: approved by round 1 + 2 votes 
-        self.signalling_txes = signalling_txes
-        self.locking_txes = locking_txes
-        self.donation_txes = donation_txes
+        self.signalling_txes = signalling_txes # PROBABLY obsolete!
+        self.locking_txes = locking_txes # probably obsolete!
+        self.donation_txes = donation_txes # MODIFIED as a dict!
         self.voting_txes = voting_txes # this is a dict, not list.
         self.epochs_with_completed_proposals = epochs_with_completed_proposals
 
@@ -66,13 +65,14 @@ class ParserState(object):
 
         # Initial balance of SDP cards
         if self.sdp_deck_obj != None:
-            self.sdp_cards = list(find_all_valid_cards(self.provider, self.sdp_deck_obj))
+            self.sdp_cards = self.get_sdp_cards()
         else:
             self.sdp_cards = None
 
 
         if self.debug: print("Get proposal states ...", )
-        self.proposal_states = get_proposal_states(self.provider, self.deck, self.current_blockheight, self.signalling_txes, self.donation_txes)
+        #self.proposal_states = get_proposal_states(self.provider, self.deck, self.current_blockheight, self.signalling_txes, self.donation_txes) # TODO: re-ckech if the last params are necessary!
+        self.proposal_states = get_proposal_states(self.provider, self.deck, self.current_blockheight)
         if self.debug: print(len(self.proposal_states), "found.")
 
         # We don't store the txes anymore here, as they're already stored in the ProposalStates.
@@ -102,3 +102,7 @@ class ParserState(object):
         for p in self.proposal_states.values():
             if self.debug: print("Setting donation states for Proposal:", p.first_ptx.txid)
             p.set_donation_states(debug=self.debug)
+
+    def get_sdp_cards(self):
+        from pypeerassets.__main__ import find_all_valid_cards
+        return list(find_all_valid_cards(self.provider, self.sdp_deck_obj))

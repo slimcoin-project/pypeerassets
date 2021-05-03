@@ -9,7 +9,6 @@ from btcpy.structs.address import Address, P2shAddress, P2pkhAddress
 #from btcpy.lib.parsing import ScriptParser
 
 from pypeerassets.transactions import Transaction, TxIn, TxOut, Locktime, nulldata_script, tx_output, find_parent_outputs, p2pkh_script
-from pypeerassets.pautils import deck_parser, read_tx_opreturn
 from decimal import Decimal
 from pypeerassets.kutil import Kutil
 from pypeerassets.provider import RpcNode
@@ -92,24 +91,27 @@ class TrackedTransaction(Transaction):
         
         object.__setattr__(self, 'datastr', datastr) # OP_RETURN data byte string
 
+        #if type(self) == ProposalTransaction:
+        #    from pypeerassets.pautils import deck_parser
+
+        #    if not deck:
+
+        #        deck_id = getfmt(datastr, PROPOSAL_FORMAT, "dck").hex()
+        #        deckspawntx_json = provider.getrawtransaction(deck_id, True)
+
+        #        try:
+        #            # TODO: This seems to be a dirty hack. Replace by the correct way using the network constants (PAPROD/PATEST address).
+        #            deck_p2th_addr = deckspawntx_json["vout"][0]["scriptPubKey"]["addresses"][0]
+        #        except (KeyError, IndexError):
+        #            raise InvalidTrackedTransactionError(ValueError)
+
+        #        deck = deck_parser((provider, deckspawntx_json, 1, deck_p2th_addr), True)
+        #        # print("NOTE: Deck extracted from transaction:", deck.id)
+
+        #    
+
         if type(self) == ProposalTransaction:
-
-            if not deck:
-
-                deck_id = getfmt(datastr, PROPOSAL_FORMAT, "dck").hex()
-                deckspawntx_json = provider.getrawtransaction(deck_id, True)
-
-                try:
-                    # TODO: This seems to be a dirty hack. Replace by the correct way using the network constants (PAPROD/PATEST address).
-                    deck_p2th_addr = deckspawntx_json["vout"][0]["scriptPubKey"]["addresses"][0]
-                except (KeyError, IndexError):
-                    raise InvalidTrackedTransactionError(ValueError)
-
-                deck = deck_parser((provider, deckspawntx_json, 1, deck_p2th_addr), True)
-                # print("NOTE: Deck extracted from transaction:", deck.id)
-
-            object.__setattr__(self, 'deck', deck)
-
+            object.__setattr__(self, 'deck', deck) # should ALWAYS be called from parent!
         else:
 
             if not proposal_txid:
@@ -134,18 +136,20 @@ class TrackedTransaction(Transaction):
         # We have to ensure that the deck object is identic for all transactions of the deck (not a copy),
         # so P2TH address is stored.
 
-        if not p2th_address:
-            p2th_address = self.deck.derived_p2th_address(tx_type)
+        if deck:
+            if not p2th_address:
+                p2th_address = self.deck.derived_p2th_address(tx_type)
 
-        # This seems to be notably slower than P2TH_address
-        # Probably we need it only for Bitcoin-0.6 based code
-        if not p2th_wif:
-            p2th_wif = self.deck.derived_p2th_wif(tx_type)
+            # This seems to be notably slower than P2TH_address
+            # Probably we need it only for Bitcoin-0.6 based code
+            if not p2th_wif:
+                p2th_wif = self.deck.derived_p2th_wif(tx_type)
 
+            epoch = self.blockheight // self.deck.epoch_length
 
         object.__setattr__(self, 'p2th_address', p2th_address)
         object.__setattr__(self, 'p2th_wif', p2th_wif) 
-        object.__setattr__(self, 'epoch', self.blockheight // self.deck.epoch_length) # Epoch in which the transaction was sent. Epochs begin with 0.
+        object.__setattr__(self, 'epoch', epoch) # Epoch in which the transaction was sent. Epochs begin with 0.
  
 
     @property
@@ -156,7 +160,8 @@ class TrackedTransaction(Transaction):
     def get_basicdata(cls, txid, provider):
         json = provider.getrawtransaction(txid, True)
         try:
-            data = read_tx_opreturn(json["vout"][1])
+            import pypeerassets.pautils as pu
+            data = pu.read_tx_opreturn(json["vout"][1])
         except KeyError:
             raise InvalidTrackedTransactionError("JSON output:", json)
         return { "data" : data, "json" : json }
@@ -188,9 +193,10 @@ class TrackedTransaction(Transaction):
 
 
     @classmethod
-    def from_txid(cls, txid, provider, network=PeercoinTestnet, deck=None):
-        d = cls.get_basicdata(txid, provider)
-        return cls.from_json(d["json"], provider=provider, network=network, deck=deck)
+    def from_txid(cls, txid, provider, network=PeercoinTestnet, deck=None, basicdata=None):
+        if basicdata is None:
+           basicdata = cls.get_basicdata(txid, provider)
+        return cls.from_json(basicdata["json"], provider=provider, network=network, deck=deck)
 
     def coin_multiplier(self):
         network_params = net_query(self.network.shortname)
@@ -405,8 +411,9 @@ class SignallingTransaction(TrackedTransaction):
 class ProposalTransaction(TrackedTransaction):
     """A ProposalTransaction is the transaction where a DT Proposer specifies required amount and donation address."""
     # Modified: instead of previous_proposal, we use first_ptx_txid. We always reference the first tx.
+    # TODO: deck should be probably mandatory for ProposalTransactions.
 
-    def __init__(self, txid=None, deck=None, donation_address=None, epoch_number=None, round_length=None, req_amount=None, start_epoch=None, round_starts=[], round_txes=[], round_amounts=[], first_ptx_txid=None, json=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, provider=None, datastr=None, p2th_address=None, p2th_wif=None, epoch=None, blockhash=None, blockheight=None):
+    def __init__(self, deck=None, txid=None, donation_address=None, epoch_number=None, round_length=None, req_amount=None, start_epoch=None, round_starts=[], round_txes=[], round_amounts=[], first_ptx_txid=None, json=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, provider=None, datastr=None, p2th_address=None, p2th_wif=None, epoch=None, blockhash=None, blockheight=None):
 
 
         TrackedTransaction.__init__(self, txid=txid, txjson=json, datastr=datastr, p2th_address=p2th_address, p2th_wif=p2th_wif, version=version, ins=ins, outs=outs, locktime=locktime, network=network, timestamp=timestamp, provider=provider, deck=deck, epoch=epoch, blockheight=blockheight, blockhash=blockhash)

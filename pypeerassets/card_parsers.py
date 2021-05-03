@@ -12,17 +12,17 @@ def none_parser(cards: list) -> Optional[list]:
     return None
 
 
-def custom_parser(cards: list, parser: Optional[Callable[[list], Optional[list]]]=None, provider: Optional[Callable]=None) -> Optional[list]:
+def custom_parser(cards: list, parser: Optional[Callable[[list], Optional[list]]]=None, provider: Optional[Callable]=None, deck: Optional[Callable]=None) -> Optional[list]:
     '''parser for CUSTOM [1] issue mode,
     please provide your custom parser as argument'''
-    ### ADDRESSTRACK modification: includes Provider ###
+    ### ADDRESSTRACK modification: includes Provider and Deck ###
 
     if not parser:
         return cards
 
     else:
         if provider:
-            return parser(cards, provider)
+            return parser(cards, provider, deck)
         else:
             return parser(cards)
 
