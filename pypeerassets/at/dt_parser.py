@@ -253,7 +253,7 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
             if pst.debug: print("Card blocknum (block height of confirmation):", card.blocknum)
 
             # Issues before the first block of the epoch are always invalid.
-            if epoch_firstblock <= card.blocknum <= epoch_lastblock: 
+            if epoch_firstblock <= card.blocknum <= epoch_lastblock:
                 pos += 1            
             else:
                 break

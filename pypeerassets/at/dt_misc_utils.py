@@ -29,7 +29,7 @@ def get_startendvalues(provider, proposal_txid, period):
     # For example, the first voting phase is: ("voting", 0)
     # and the second dist_round for signalling is: ("signalling", 1)
 
-    proposal_tx = ProposalTransaction.from_txid(proposal_txid, provider)
+    proposal_tx = proposal_from_tx(proposal_txid, provider)
     # TODO: This still doesn't deal with Proposal Modifications. Will probably need a function get_last_proposal.
     p = ProposalState(first_ptx=proposal_tx, valid_ptx=proposal_tx, provider=provider)
 
@@ -147,7 +147,6 @@ def get_proposal_state(provider, proposal_id=None, proposal_tx=None, phase=None,
     current_blockheight = provider.getblockcount()
     if not proposal_tx:
         ptx = proposal_from_tx(proposal_id, provider)
-        # ptx = ProposalTransaction.from_txid(proposal_id, provider, deck=deck)
     else:
         ptx = proposal_tx
         proposal_id = ptx.txid
@@ -273,7 +272,7 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, amount: int
         p2th_output = create_p2th_txout(deck, tx_type, fee=p2th_fee)
         data_output = create_opreturn_txout(tx_type, data)
         if (address == None) and (tx_type == "donation"):
-            ptx = ProposalTransaction.from_txid(proposal_txid, provider)
+            ptx = proposal_from_tx(proposal_txid, provider)
             address = ptx.donation_address
 
         outputs = [p2th_output, data_output]

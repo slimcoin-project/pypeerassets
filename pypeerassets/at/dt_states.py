@@ -234,14 +234,6 @@ class ProposalState(object):
 
              all_rtxes = [tx for tx in base_txes if (tx.reserved_amount is not None) and (tx.reserved_amount > 0)]
 
-
-             #if rd in (1, 2):
-             #    all_rtxes = [ltx for ltx in self.locking_txes[rd - 1] if (ltx.reserved_amount is not None) and (ltx.reserved_amount > 0)]
-             #elif rd == 4:
-             #    all_rtxes = [dtx for r in self.donation_txes[:4] for dtx in r if (dtx.reserved_amount is not None) and (dtx.reserved_amount > 0)]
-             #else:
-             #    all_rtxes = [dtx for dtx in self.donation_txes[rd - 1] if dtx.reserved_amount > 0]
-
              valid_stxes = self.validate_priority(all_stxes, rd, debug=debug) if len(all_stxes) > 0 else []
              valid_rtxes = self.validate_priority(all_rtxes, rd, debug=debug) if len(all_rtxes) > 0 else []
 
@@ -368,7 +360,11 @@ class ProposalState(object):
         # print("Dist factor", self.dist_factor)
 
     def set_proposer_reward(self):
-        proposer_proportion = Decimal(self.req_amount - sum(self.effective_slots)) / self.req_amount
+        # proposer_proportion = Decimal(self.req_amount - sum(self.effective_slots)) / self.req_amount
+        if self.total_donated_amount > self.req_amount:
+            proposer_proportion = 0
+        else:
+            proposer_proportion = Decimal(self.req_amount - self.total_donated_amount / self.req_amount)
         if proposer_proportion > 0:
             reward_units = self.deck.epoch_quantity * (10 ** self.deck.number_of_decimals)
             self.proposer_reward = int(proposer_proportion * self.dist_factor * reward_units)

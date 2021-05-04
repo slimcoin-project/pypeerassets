@@ -6,7 +6,6 @@ This means that the satoshi amounts do not correspond to the minimum unit in cur
 
 from btcpy.structs.script import AbsoluteTimelockScript, Hashlock256Script, IfElseScript, P2pkhScript, P2shScript, ScriptBuilder
 from btcpy.structs.address import Address, P2shAddress, P2pkhAddress
-#from btcpy.lib.parsing import ScriptParser
 
 from pypeerassets.transactions import Transaction, TxIn, TxOut, Locktime, nulldata_script, tx_output, find_parent_outputs, p2pkh_script
 from decimal import Decimal
@@ -124,6 +123,7 @@ class TrackedTransaction(Transaction):
 
             if not proposal:
                 # Note: This is inefficient and should only be used for Pacli functions, not for the parser.
+                # TODO: check if this works well with respect of the deck problem!
                 proposal = ProposalTransaction.from_txid(proposal_txid, provider, deck=deck)
 
             object.__setattr__(self, 'deck', proposal.deck)
@@ -485,7 +485,7 @@ class VotingTransaction(TrackedTransaction):
 
         object.__setattr__(self, "sender", sender)
 
-# Scripts for HTLC
+# Scripts for Timelock contract
 # we can use the verify function to extract the locktime from the script.
 # Script (with opcodes) -> bytes: compile function
 # bytes -> Script: decompile
