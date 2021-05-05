@@ -238,7 +238,7 @@ class TrackedTransaction(Transaction):
     def get_output_tx(self, tx_list, proposal_state, dist_round: int=None, rounds: list=None, mode: str=None, debug: bool=False):
         # searches a transaction which corresponds to the address a signalling transaction or reserve transaction 
 
-
+        phase = dist_round // 4
         try:
             # Here we separate ReserveTXes and SignallingTXes
             # If locking mode, then reserve address is ignored even if it exists.
@@ -253,9 +253,9 @@ class TrackedTransaction(Transaction):
             # MODIFIED: added address type, otherwise the signalling->locking search blocks the locking->donation search.
             # dist_round // 4 represents the phase. You must be able to use the same donor address in phase 1 and 2,
             # due to the reserve transaction question in rd. 4/5.
-            if (adr, type(tx), dist_round // 4) in proposal_state.donor_addresses:
-                if debug: print("Rejected, donor address", adr, "already used.")
-                continue            
+            if (adr, type(tx), phase) in proposal_state.donor_addresses:
+                if debug: print("Rejected, donor address", adr, "already used in this phase for this transaction type.")
+                continue        
             if debug: print("Input addresses of tx", tx.txid, ":", tx.input_addresses)
             if adr in tx.input_addresses:
                
@@ -264,10 +264,10 @@ class TrackedTransaction(Transaction):
                     endblock = rounds[dist_round][1][1] # here it is the last valid block!
                     if startblock <= tx.blockheight <= endblock:
                         
-                        proposal_state.donor_addresses.append((adr, type(tx), dist_round // 4))
+                        proposal_state.donor_addresses.append((adr, type(tx), phase))
                         return tx
                 else:
-                    proposal_state.donor_addresses.append((adr, type(tx), dist_round // 4))
+                    proposal_state.donor_addresses.append((adr, type(tx), phase))
                     return tx
         return None
 

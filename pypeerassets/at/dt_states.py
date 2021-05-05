@@ -156,16 +156,8 @@ class ProposalState(object):
 
         for rd in range(8):
             rds = [None,None]
-            if rd == 4:
-                # replacing by rest of rounds!
-                rds[0] = [self.round_starts[rd], self.round_halfway[rd] - 1]
-                rds[1] = [self.round_halfway[rd], self.round_starts[rd] + round_length - 1] 
-                # OLD:
-                # rds[0] = [self.round_starts[0], self.round_starts[3] + round_length - 1] # signalling phase lasts whole phase (rd 0 to rd 3)
-                # rds[1] = [self.round_starts[4] - self.release_period, self.round_starts[4] - 1] 
-            else:
-                rds[0] = [self.round_starts[rd], self.round_halfway[rd] - 1]
-                rds[1] = [self.round_halfway[rd], self.round_starts[rd] + round_length - 1]     
+            rds[0] = [self.round_starts[rd], self.round_halfway[rd] - 1]
+            rds[1] = [self.round_halfway[rd], self.round_starts[rd] + round_length - 1]
             rounds.append(rds)
         self.rounds = rounds        
 
@@ -176,6 +168,8 @@ class ProposalState(object):
         # debug = True ## TEST
         #if debug: print("DONATION STATES: Setting for PROPOSAL:", self.id)
         # If round starts are not set, or phase is 2 (re-defining of the second phase), then we set it.
+        # for May tests:
+        # debug = True if self.id == "41e38b09b07147a794d79916c8128612378bfaece0231ad5efa13a08a2fb588f" else False
         if len(self.round_starts) == 0 or (phase == 2):
             if debug: print("Setting round starts for PROPOSAL:", self.id)
             self.set_round_starts(phase)
@@ -186,7 +180,7 @@ class ProposalState(object):
         # Once the proposal has ended and the number of proposals is known, the reward of each donor can be set
         set_reward = True if self.dist_factor is not None else False
 
-        if debug: print("All signalling txes:", self.all_signalling_txes)
+        #if debug: print("All signalling txes:", self.all_signalling_txes)
         for rd in rounds[phase]:
             dstates[rd] = self._process_donation_states(rd, debug=debug, set_reward=set_reward)
             # if debug: print("Donation states of round", rd, ":", dstates[rd])
@@ -216,7 +210,7 @@ class ProposalState(object):
             # if debug: print("STX round:", self.get_stx_dist_round(stx), "Current round:", rd)
             if self.get_stx_dist_round(stx) == rd:
                 all_stxes.append(stx)
-                # print("STX", stx.txid, "appended in round", rd)
+                if debug: print("STX", stx.txid, "appended in round", rd)
 
         # if debug: print("All signalling txes for round", rd, ":", all_stxes)
         if rd in (0, 3, 6, 7):
@@ -233,12 +227,13 @@ class ProposalState(object):
                  base_txes = self.donation_txes[rd - 1]
 
              all_rtxes = [tx for tx in base_txes if (tx.reserved_amount is not None) and (tx.reserved_amount > 0)]
+             if debug: print("All possible reserve TXes in round:", rd, ":", [(t.txid, t.reserved_amount) for t in all_rtxes])
 
              valid_stxes = self.validate_priority(all_stxes, rd, debug=debug) if len(all_stxes) > 0 else []
              valid_rtxes = self.validate_priority(all_rtxes, rd, debug=debug) if len(all_rtxes) > 0 else []
 
-        if debug: print("Valid Signalling TXes in round:", rd, ":", valid_stxes)
-        if debug: print("Valid Rerserve TXes in round:", rd, ":", valid_rtxes)
+        if debug: print("Valid Signalling TXes in round:", rd, ":", [(t.txid, t.amount) for t in valid_stxes])
+        if debug: print("Valid Reserve TXes in round:", rd, ":", [(t.txid, t.reserved_amount) for t in valid_rtxes])
 
         # 2. Calculate total signalled amount and set other variables.
 
@@ -270,6 +265,7 @@ class ProposalState(object):
                             final_req_amount=self.valid_ptx.req_amount,
                             effective_slots=self.effective_slots,
                             effective_locking_slots=self.effective_locking_slots)
+            if debug: print("Slot for tx", tx.txid, ":", slot)
             if rd < 4:
                 locking_tx = tx.get_output_tx(self.all_locking_txes, self, rd, self.rounds)
                 # If the timelock is not correct, locking_tx is not added, and no donation tx is taken into account.
@@ -360,11 +356,15 @@ class ProposalState(object):
         # print("Dist factor", self.dist_factor)
 
     def set_proposer_reward(self):
-        # proposer_proportion = Decimal(self.req_amount - sum(self.effective_slots)) / self.req_amount
-        if self.total_donated_amount > self.req_amount:
+        # MODIFIED. Based on effective slots.
+        filled_amount = sum(self.effective_slots)
+        # Alternative:
+        # filled_amount = self.total_donated_amount
+
+        if filled_amount >= self.req_amount:
             proposer_proportion = 0
         else:
-            proposer_proportion = Decimal(self.req_amount - self.total_donated_amount / self.req_amount)
+            proposer_proportion = Decimal((self.req_amount - filled_amount) / self.req_amount)
         if proposer_proportion > 0:
             reward_units = self.deck.epoch_quantity * (10 ** self.deck.number_of_decimals)
             self.proposer_reward = int(proposer_proportion * self.dist_factor * reward_units)
@@ -377,6 +377,12 @@ class ProposalState(object):
         # Should be optimized in the beta/release version.
         # The type test seems ugly but is necessary unfortunately. All txes given to this method have to be of the same type.
         valid_txes = []
+
+        # Slots are considered filled if 95% of them are locked or donated.
+        # This prevents small rounding errors and P2TH/tx fees to make the slot invalid for the next rounds.
+        # 95% allows a donation of 1 coin minus 0.04 fees, without having to add new outputs.
+        fill_threshold = Decimal(0.95)
+
         if dist_round in (0, 3, 6, 7):
             return tx_list # rounds without priority check
 
@@ -390,16 +396,16 @@ class ProposalState(object):
 
             valid_dstates = [dstate for dstate in self.donation_states[4].values()]
             if type(tx_list[0]) == DonationTransaction:
-                valid_rtx_txids = [dstate.donation_tx.txid for dstate in valid_dstates]    
+                valid_rtx_txids = [dstate.donation_tx.txid for dstate in valid_dstates if dstate.donation_tx is not None]    
 
         elif dist_round in (1, 2):
 
             valid_dstates = [dstate for dstate in self.donation_states[dist_round - 1].values()]
+            # print("VALID STATES", valid_dstates, "TYPE", type(tx_list[0]))
             if type(tx_list[0]) == LockingTransaction:
                 try:
-                    valid_rtx_txids = [dstate.locking_tx.txid for dstate in valid_dstates]
-                    # print("VALID TXIDS", valid_rtx_txids) 
-                except AttributeError:
+                    valid_rtx_txids = [dstate.locking_tx.txid for dstate in valid_dstates if dstate.locking_tx is not None]
+                except AttributeError as e:
                     return []
 
         # Locking or DonationTransactions: we simply look for the DonationState including it
@@ -424,12 +430,10 @@ class ProposalState(object):
                     if debug: print("Transaction rejected by priority check:", tx.txid)
                     continue
 
-            try:
-                # MODIFIED: Slots are considered filled if 99% of them are locked or donated.
-                # This prevents small rounding errors and fees to make the slot invalid for the next rounds.
-                if (dist_round < 4) and (tx_dstate.locking_tx.amount >= (Decimal(tx_dstate.slot) * Decimal(0.99))): # we could use the "complete" attribute? or only in the case of DonationTXes?
+            try:                
+                if (dist_round < 4) and (tx_dstate.locking_tx.amount >= (Decimal(tx_dstate.slot) * fill_threshold)): # we could use the "complete" attribute? or only in the case of DonationTXes?
                     valid_txes.append(tx)
-                elif (dist_round >= 4) and (tx_dstate.donation_tx.amount >= (Decimal(tx_dstate.slot) * Decimal(0.99))):
+                elif (dist_round >= 4) and (tx_dstate.donation_tx.amount >= (Decimal(tx_dstate.slot) * fill_threshold)):
                     # TODO: should this not be the Locking Slot?
                     valid_txes.append(tx)
 
