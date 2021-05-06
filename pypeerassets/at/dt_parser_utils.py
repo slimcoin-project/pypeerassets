@@ -235,11 +235,12 @@ def update_valid_ending_proposals(pst):
     # Set the Distribution Factor (number to be multiplied with the donation/slot, according to proposals and token amount)
     # Must be in a second loop as we need the complete list of valid proposals which end in this epoch.
     # Maybe this can still be optimized, with a special case if there is a single proposal in this epoch.
-    # TODO: SHould be probably a separate method. Would also allow to do the round checks in the same method for rd1 and 2.
+    # TODO: Should be probably a separate method. Would also allow to do the round checks in the same method for rd1 and 2.
 
     for pstate in ending_valid_proposals.values():
-        if pstate.dist_factor is None:
-            pstate.set_dist_factor(ending_valid_proposals.values())
+        if pst.current_blockheight is not None and pst.current_blockheight >= ((pst.epoch + 1) * pst.deck.epoch_length):
+            if pstate.dist_factor is None:
+                pstate.set_dist_factor(ending_valid_proposals.values())
 
     pst.valid_proposals.update(ending_valid_proposals)
 

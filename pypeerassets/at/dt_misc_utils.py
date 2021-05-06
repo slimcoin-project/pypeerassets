@@ -160,7 +160,7 @@ def get_proposal_state(provider, proposal_id=None, proposal_tx=None, phase=None,
     if phase == 0:
         lastblock = min(current_blockheight, pstate.dist_start + pstate.deck.epoch_length)
     elif phase == 1:
-        lastblock = min(current_blockheight, pstate.end_epoch * pstate.deck.epoch_length)
+        lastblock = min(current_blockheight, (pstate.end_epoch + 1) * pstate.deck.epoch_length)
     else:
         raise ValueError("No correct phase number entered. Please enter 0 or 1.")
 

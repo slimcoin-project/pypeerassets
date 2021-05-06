@@ -254,7 +254,7 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
 
             # Issues before the first block of the epoch are always invalid.
             if epoch_firstblock <= card.blocknum <= epoch_lastblock:
-                pos += 1            
+                pos += 1
             else:
                 break
 

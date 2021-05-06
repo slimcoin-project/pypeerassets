@@ -15,7 +15,7 @@ class ProposalState(object):
    # A ProposalState unifies all functions from proposals which are mutable.
    # i.e. which can change after the first proposal transaction was sent.
 
-    def __init__(self, valid_ptx, first_ptx, round_starts=[], round_halfway=[], signalling_txes=linit(), locking_txes=linit(), donation_txes=linit(), signalled_amounts=linitz(), locked_amounts=linitz(), donated_amounts=linitz(), reserve_txes=linit(), reserved_amounts=linitz(), effective_slots=linitz(), effective_locking_slots=linitz(), donation_states=[], total_donated_amount=None, provider=None, current_blockheight=None, all_signalling_txes=[], all_donation_txes=[], all_locking_txes=[], donor_addresses=[], initial_votes=None, final_votes=None, dist_factor=None, proposer_reward=None):
+    def __init__(self, valid_ptx, first_ptx, round_starts=[], round_halfway=[], signalling_txes=linit(), locking_txes=linit(), donation_txes=linit(), signalled_amounts=linitz(), locked_amounts=linitz(), donated_amounts=linitz(), reserve_txes=linit(), reserved_amounts=linitz(), effective_slots=linitz(), effective_locking_slots=linitz(), donation_states=[], total_donated_amount=None, provider=None, current_blockheight=None, all_signalling_txes=[], all_donation_txes=[], all_locking_txes=[], donor_addresses=[], initial_votes=None, final_votes=None, dist_factor=None, processed=None, proposer_reward=None):
 
         self.valid_ptx = valid_ptx # the last proposal transaction which is valid.
         self.first_ptx = first_ptx # first ptx, in the case there was a Proposal Modification.
@@ -79,6 +79,13 @@ class ProposalState(object):
         # and the number of coins required by the proposals in their ending period.
         # The higher the amount of proposals and their required amounts, the lower this factor is.
         self.dist_factor = dist_factor
+        # Processed is a list of 3 values and refers to the donation states processed in each of both phases and the
+        # completeness (i.e. if there were blocks missing for the last processed phase):
+        # [ phase1, phase2, complete ]
+        if not processed:
+            self.processed = [False, False, False]
+        else:
+            self.processed = processed
 
         # If there are slots missing at the end, the proposer can claim the proportion.
         self.proposer_reward = proposer_reward
@@ -162,7 +169,7 @@ class ProposalState(object):
         self.rounds = rounds        
 
 
-    def set_donation_states(self, phase=0, debug=False):
+    def set_donation_states(self, phase=0, current_blockheight=None, debug=False):
         # Version3. Uses the new DonationState class and the generate_donation_states method. 
         # Phase 0 means both phases are calculated.
         # debug = True ## TEST
@@ -173,7 +180,26 @@ class ProposalState(object):
         if len(self.round_starts) == 0 or (phase == 2):
             if debug: print("Setting round starts for PROPOSAL:", self.id)
             self.set_round_starts(phase)
-            
+
+        # Mark abandoned donation states:
+        # if called from "outside", if the block height > round end, otherwise when the dist_factor is set (ending period).
+        # abandon_until marks all incomplete states as abandoned if they're checked in a certain round.
+        # TODO: this seems to have broken something, completed states are not longer generated ??
+        if current_blockheight is not None:
+            for rev_r, r_blocks in enumerate(reversed(self.rounds)):
+                if current_blockheight > r_blocks[1][1]: # last block of each locking/donation round
+                    abandon_until = 7 - rev_r # reversed order
+                    break
+
+        elif self.dist_factor is not None:
+            abandon_until = 7 # all incomplete are marked as abandoned if the parser sets the dist factor 
+        else:
+            abandon_until = 0 # nothing is marked as abandoned
+
+        # If the first phase is re-processed or if there was a incomplete processing the donor address list is reset
+        if phase in (0, 1) or self.processed[2] == False:
+            self.donor_addresses = []
+
         self.donation_states = dstates = [{} for i in range(8)] # dstates is a list containing a dict with the txid of the signalling or reserve transaction as key
         rounds = (range(8), range(4), range(4,8))
 
@@ -182,20 +208,27 @@ class ProposalState(object):
 
         #if debug: print("All signalling txes:", self.all_signalling_txes)
         for rd in rounds[phase]:
-            dstates[rd] = self._process_donation_states(rd, debug=debug, set_reward=set_reward)
+            dstates[rd] = self._process_donation_states(rd, debug=debug, set_reward=set_reward, abandon_until=abandon_until)
             # if debug: print("Donation states of round", rd, ":", dstates[rd])
 
         if phase in (0, 1):
+
             self.donation_states = dstates
+            self.processed[0] = True
+            if phase == 0:
+                self.processed[1] = True 
         elif phase == 2:
             self.donation_states[4:] = dstates[4:]
+            self.processed[1] = True
 
         self.total_donated_amount = sum(self.donated_amounts)
         if (phase in (0, 2)) and (self.dist_factor is not None):
             self.set_proposer_reward()
+            self.processed[2] = True # complete # TODO after implementing the periods cleanly this is no longer necessary
+            
 
 
-    def _process_donation_states(self, rd, set_reward=False, debug=False):
+    def _process_donation_states(self, rd, set_reward=False, abandon_until=0, debug=False):
         # This function always must run chronologically, with previous rounds already completed.
         # It can, however, be run to redefine phase 2 (rd 4-7).
         # It sets also the attributes that are necessary for the next round and its slot calculation.
@@ -251,6 +284,7 @@ class ProposalState(object):
         # TODO: Do we need to validate the correct round of locking/donation, and even reserve txes?
         for tx in (valid_stxes + valid_rtxes):
             donation_tx, locking_tx, effective_locking_slot, effective_slot = None, None, None, None
+            state = "incomplete"
             # Initial slot: based on signalled amount.
             slot = get_slot(tx,
                             rd, 
@@ -291,14 +325,24 @@ class ProposalState(object):
                 donation_tx = tx.get_output_tx(self.all_donation_txes, self, rd, self.rounds)
                 if debug and donation_tx: print("Donation tx added in donation mode", donation_tx.txid, rd)
 
-            
             if donation_tx:
                 if rd < 4:
                     effective_slot = min(effective_locking_slot, donation_tx.amount)
+
                 else:
                     effective_slot = min(slot, donation_tx.amount)
+
                 self.donation_txes[rd].append(donation_tx)
                 self.donated_amounts[rd] += donation_tx.amount
+                state = "complete" if (effective_slot > 0) else "abandoned"
+
+            elif (abandon_until >= rd):
+                if rd <= 3:
+                    # if we're already past round 3, then also states with missing donation release tx are abandoned
+                    if (locking_tx is None) or ((donation_tx is None) and (abandon_until >= 4)):
+                        state = "abandoned"
+                else:
+                   state = "abandoned"
 
             # In round 1-4, the effectively locked slot amounts are the values which determinate the
             # slot rest for the next round. In round 5-8 it's the Donation effective slots.
@@ -316,7 +360,7 @@ class ProposalState(object):
             else:
                 continue
 
-            dstate = DonationState(signalling_tx=signalling_tx, reserve_tx=reserve_tx, locking_tx=locking_tx, donation_tx=donation_tx, slot=slot, effective_slot=effective_slot, effective_locking_slot=effective_locking_slot, dist_round=rd)
+            dstate = DonationState(signalling_tx=signalling_tx, reserve_tx=reserve_tx, locking_tx=locking_tx, donation_tx=donation_tx, slot=slot, effective_slot=effective_slot, effective_locking_slot=effective_locking_slot, dist_round=rd, state=state)
             if set_reward:
                 dstate.set_reward(self)
     
@@ -378,7 +422,7 @@ class ProposalState(object):
         # The type test seems ugly but is necessary unfortunately. All txes given to this method have to be of the same type.
         valid_txes = []
 
-        # Slots are considered filled if 95% of them are locked or donated.
+        # Slots are considered filled if 95% of the initial slot are locked or donated.
         # This prevents small rounding errors and P2TH/tx fees to make the slot invalid for the next rounds.
         # 95% allows a donation of 1 coin minus 0.04 fees, without having to add new outputs.
         fill_threshold = Decimal(0.95)
@@ -464,7 +508,7 @@ class DonationState(object):
     # A DonationState contains Signalling, Locked and Donation transaction and the slot.
     # Must be created always with either SignallingTX or ReserveTX.
 
-    def __init__(self, signalling_tx=None, reserve_tx=None, locking_tx=None, donation_tx=None, slot=None, dist_round=None, effective_slot=None, effective_locking_slot=None, reward=None):
+    def __init__(self, signalling_tx=None, reserve_tx=None, locking_tx=None, donation_tx=None, slot=None, dist_round=None, effective_slot=None, effective_locking_slot=None, reward=None, state="incomplete"):
         self.signalling_tx = signalling_tx
         self.reserve_tx = reserve_tx
         self.locking_tx = locking_tx
@@ -475,6 +519,7 @@ class DonationState(object):
         self.effective_slot = effective_slot
         self.effective_locking_slot = effective_locking_slot
         self.reward = reward
+        self.state = state
 
         if signalling_tx:
             self.donor_address = signalling_tx.address

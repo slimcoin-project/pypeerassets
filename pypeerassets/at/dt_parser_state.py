@@ -25,8 +25,8 @@ class ParserState(object):
         self.proposal_states = proposal_states
         self.approved_proposals = approved_proposals # approved by round 1 votes
         self.valid_proposals = valid_proposals # successfully completed: approved by round 1 + 2 votes 
-        self.signalling_txes = signalling_txes # PROBABLY obsolete!
-        self.locking_txes = locking_txes # probably obsolete!
+        self.signalling_txes = signalling_txes # TODO: PROBABLY obsolete!
+        self.locking_txes = locking_txes # TODO: probably obsolete!
         self.donation_txes = donation_txes # MODIFIED as a dict!
         self.voting_txes = voting_txes # this is a dict, not list.
         self.epochs_with_completed_proposals = epochs_with_completed_proposals
@@ -101,7 +101,19 @@ class ParserState(object):
         # Has to be called in the moment the state is evaluated, i.e. normally at the end of the parsing process.
         for p in self.proposal_states.values():
             if self.debug: print("Setting donation states for Proposal:", p.first_ptx.txid)
-            p.set_donation_states(debug=self.debug)
+
+            # We must ensure process_donation_states is only called once per round,
+            # otherwise Locking/Donation Transactions will not be added (because of the donor address restriction)
+            # TODO: this is still "hacky". It will prevent double processing of states, but not calling the method
+            # twice, for example if there are no donation states in rounds 4-7.
+            # phase 2 is necessary to guarantee the processing is complete, as phase 1 is in an earlier epoch.
+            # maybe it is easier to add a "processed" variable to ProposalState? (with the processed phase)
+            if self.epoch <= p.end_epoch:
+                dstates_rounds = p.donation_states
+            else:
+                dstates_rounds = p.donation_states[4:]
+            if len([s for r in dstates_rounds for s in r.keys()]) == 0:
+                p.set_donation_states(debug=self.debug, current_blockheight=self.current_blockheight)
 
     def get_sdp_cards(self):
         from pypeerassets.__main__ import find_all_valid_cards
