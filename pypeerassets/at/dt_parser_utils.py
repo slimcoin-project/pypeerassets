@@ -202,6 +202,8 @@ def update_approved_proposals(pst):
         if pst.debug: print("Votes round 1 for Proposal", pstate.first_ptx.txid, ":", pstate.initial_votes)
 
         if pstate.initial_votes["positive"] <= pstate.initial_votes["negative"]:
+            # MODIFIED: State is set to abandoned.
+            pstate.state = "abandoned"
             continue
 
         pst.approved_proposals.update({pstate.first_ptx.txid : pstate})
@@ -223,6 +225,7 @@ def update_valid_ending_proposals(pst):
         pstate.final_votes = get_votes(pst, pstate, pst.epoch)
         if pst.debug: print("Votes round 2 for Proposal", pstate.first_ptx.txid, ":", pstate.final_votes)
         if pstate.final_votes["positive"] <= pstate.final_votes["negative"]:
+            pstate.state = "abandoned"
             continue
 
         ending_valid_proposals.update({pstate.first_ptx.txid : pstate})
@@ -241,6 +244,7 @@ def update_valid_ending_proposals(pst):
         if pst.current_blockheight is not None and pst.current_blockheight >= ((pst.epoch + 1) * pst.deck.epoch_length):
             if pstate.dist_factor is None:
                 pstate.set_dist_factor(ending_valid_proposals.values())
+                pstate.state = "completed"
 
     pst.valid_proposals.update(ending_valid_proposals)
 

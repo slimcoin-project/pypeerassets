@@ -140,7 +140,23 @@ def proposal_from_tx(proposal_id, provider):
     deckid = getfmt(basicdata["data"], PROPOSAL_FORMAT, "dck").hex()
     deck = deck_from_tx(deckid, provider)
     return ProposalTransaction.from_txid(proposal_id, provider, deck=deck, basicdata=basicdata)
-    
+
+
+def get_parser_state(provider, deck=None, deckid=None, lastblock=None, debug=False, force_continue=False, force_dstates=False):
+
+    if not deck:
+        if not deckid:
+            raise ValueError("No deck id provided.")
+        deck = deck_from_tx(deckid, provider)
+
+    unfiltered_cards = list((card for batch in get_card_bundles(provider, deck) for card in batch))
+
+    pst = ParserState(deck, unfiltered_cards, provider, current_blockheight=lastblock, debug=debug)
+
+    valid_cards = dt_parser(unfiltered_cards, provider, deck, current_blockheight=lastblock, debug=debug, initial_parser_state=pst, force_continue=force_continue, force_dstates=force_dstates) # later add: force_dstates=True
+
+    # NOTE: we don't need to return valid_cards as it is saved in pst.
+    return pst
 
 def get_proposal_state(provider, proposal_id=None, proposal_tx=None, phase=None, debug=False, deck=None):
 
@@ -151,11 +167,11 @@ def get_proposal_state(provider, proposal_id=None, proposal_tx=None, phase=None,
         ptx = proposal_tx
         proposal_id = ptx.txid
     # TODO: Does probably not deal with ProposalModifications still.
-    pstate = ProposalState(first_ptx=ptx, valid_ptx=ptx, provider=provider)
 
     if debug: print("Deck:", pstate.deck.id)
 
-    unfiltered_cards = list((card for batch in get_card_bundles(provider, ptx.deck) for card in batch))
+    pstate = ProposalState(first_ptx=ptx, valid_ptx=ptx, provider=provider)
+
 
     if phase == 0:
         lastblock = min(current_blockheight, pstate.dist_start + pstate.deck.epoch_length)
@@ -163,10 +179,12 @@ def get_proposal_state(provider, proposal_id=None, proposal_tx=None, phase=None,
         lastblock = min(current_blockheight, (pstate.end_epoch + 1) * pstate.deck.epoch_length)
     else:
         raise ValueError("No correct phase number entered. Please enter 0 or 1.")
+    #unfiltered_cards = list((card for batch in get_card_bundles(provider, ptx.deck) for card in batch))
+    #pst = ParserState(ptx.deck, unfiltered_cards, provider, current_blockheight=lastblock, debug=debug)
 
-    pst = ParserState(ptx.deck, unfiltered_cards, provider, current_blockheight=lastblock, debug=debug)
-
-    valid_cards = dt_parser(unfiltered_cards, provider, ptx.deck, current_blockheight=lastblock, debug=debug, initial_parser_state=pst, force_continue=True, force_dstates=True) # later add: force_dstates=True
+    #valid_cards = dt_parser(unfiltered_cards, provider, ptx.deck, current_blockheight=lastblock, debug=debug, initial_parser_state=pst, force_continue=True, force_dstates=True) # later add: force_dstates=True
+    # MODIFIED:
+    pst = get_parser_state(provider, deck=pstate.deck, lastblock=lastblock, debug=debug, force_continue=True, force_dstates=True)
 
     for p in pst.proposal_states.values():
         if debug: print("Checking proposal:", p.first_ptx.txid)

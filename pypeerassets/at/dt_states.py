@@ -74,6 +74,9 @@ class ProposalState(object):
         self.effective_locking_slots = effective_locking_slots
         self.effective_slots = effective_slots
 
+        # State: The general state of the proposal. At the start until the first voting round it is set to active.
+        self.state = "active"
+
         # Factor to be multiplied with token amounts, between 0 and 1.
         # It depends on the Token Quantity per distribution period
         # and the number of coins required by the proposals in their ending period.
@@ -184,12 +187,13 @@ class ProposalState(object):
         # Mark abandoned donation states:
         # if called from "outside", if the block height > round end, otherwise when the dist_factor is set (ending period).
         # abandon_until marks all incomplete states as abandoned if they're checked in a certain round.
-        # TODO: this seems to have broken something, completed states are not longer generated ??
         if current_blockheight is not None:
             for rev_r, r_blocks in enumerate(reversed(self.rounds)):
                 if current_blockheight > r_blocks[1][1]: # last block of each locking/donation round
                     abandon_until = 7 - rev_r # reversed order
                     break
+                else:
+                    abandon_until = 0
 
         elif self.dist_factor is not None:
             abandon_until = 7 # all incomplete are marked as abandoned if the parser sets the dist factor 
