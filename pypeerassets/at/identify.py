@@ -61,7 +61,7 @@ def is_at_cardissue(datastring: bytes) -> bool:
         if is_valid_txid(txid) and len(getfmt(datastring, fmt, "out")) > 0:
             return True
 
-    except (IndexError, UnboundLocalError) as e:
+    except (IndexError, UnboundLocalError, TypeError) as e:
         return False
 
     return False

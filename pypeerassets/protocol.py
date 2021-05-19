@@ -417,6 +417,7 @@ class CardTransfer:
             if is_at_deck(deck.asset_specific_data) == True:
 
                 dt_fmt = CARD_ISSUE_DT_FORMAT
+                print(self.asset_specific_data)
                 if is_at_cardissue(self.asset_specific_data) == True:
 
                     self.type = "CardIssue"
