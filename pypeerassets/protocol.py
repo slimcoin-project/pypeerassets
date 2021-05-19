@@ -417,7 +417,6 @@ class CardTransfer:
             if is_at_deck(deck.asset_specific_data) == True:
 
                 dt_fmt = CARD_ISSUE_DT_FORMAT
-                print(self.asset_specific_data)
                 if is_at_cardissue(self.asset_specific_data) == True:
 
                     self.type = "CardIssue"
@@ -426,15 +425,6 @@ class CardTransfer:
                         self.donation_txid = getfmt(self.asset_specific_data, dt_fmt, "dtx").hex()
                     else:
                         self.donation_txid = donation_txid
-                  
-                    # TODO: for now ID is hardcoded, should be changed
-                    # MODIFIED: move_txid was removed.
-                    #if deck.asset_specific_data[:2] == b'DT' and not move_txid:
-
-                    #    if len(self.asset_specific_data) > 35:
-                    #        self.move_txid = getfmt(self.asset_specific_data, dt_fmt, "mtx").hex()
-                    #    else:
-                    #        self.move_txid = None
                 else:
 
                     self.type = "CardTransfer" # includes, for now, issuance attempts with completely invalid data
