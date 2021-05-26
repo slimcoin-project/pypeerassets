@@ -122,7 +122,7 @@ class Deck:
                 if not sdp_periods:
                     try:
                         self.sdp_periods = int.from_bytes(getfmt(data, dt_fmt, "sdq"), "big")
-                        self.sdp_deck = getfmt(data, dt_fmt, "sdd").hex()
+                        self.sdp_deckid = getfmt(data, dt_fmt, "sdd").hex()
                     except IndexError:
                         pass # these 2 parameters are optional.
 

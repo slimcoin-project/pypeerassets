@@ -254,21 +254,6 @@ def update_valid_ending_proposals(pst):
 # second idea: the deck issuer could vote for the first Proposal, or define the voters. However, this would make the token have a centralized element.
 # "all proposals are voted" or "voting by the donors" are not possible as they have a risk of cheating.
 
-def get_sdp_balances(pst):
-
-    upper_limit = pst.epoch * pst.deck.epoch_length # balance at the start of the epoch.
-    if pst.epoch == pst.start_epoch:
-        if pst.debug: print("Retrieving old cards ...")
-        lower_limit = 0
-    else:
-        lower_limit = (pst.epoch - 1) * pst.deck.epoch_length # balance at the start of the epoch.
-    if pst.debug: print("Blocklimit for this epoch:", upper_limit, "Epoch number:", pst.epoch)
-    if pst.debug: print("Card blocks:", [card.blocknum for card in pst.sdp_cards])
-
-    cards = [ card for card in pst.sdp_cards if (lower_limit <= card.blocknum < upper_limit) ]
-
-    return cards
-
 def get_sdp_weight(epochs_from_start: int, sdp_periods: int) -> Decimal:
     # Weight calculation for SDP token holders
     # This function rounds percentages, to avoid problems with period lengths like 3.
@@ -279,34 +264,51 @@ def get_sdp_weight(epochs_from_start: int, sdp_periods: int) -> Decimal:
 
 ### Voting
 
-def update_voters(voters={}, new_cards=[], weight=1, debug=False):
+def update_voters(voters={}, new_cards=[], weight=1, dec_diff=0, debug=False):
+
+    # It is only be applied to new_cards if they're SDP cards (as these are the SDP cards added).
     # voter dict:
     # key: sender (address)
     # value: combined value of card_transfers (can be negative).
-    # MODIFIED: added weight, this is for SDP voters. Added CardBurn.
+    # The dec_diff value is the difference between number_of_decimals of main deck/sdp deck.
+    # dec_diff isn't applied to old voters, thus it cannot be merged with "weight".
+
+    # TODO: The imprecision with the new dec_adjustment is due to a more precise rounding with more decimal places.
+    # In theory it should be ok this way. Otherwise the factor _could_ be also used in the first part of the function,
+    # where the weight is calculated.
 
     #if debug: print("Voters", voters, "\nWeight:", weight)
+    dec_adjustment = 10 ** dec_diff
+    # dec_adjustment = 1 # test
+
+    # 1. Update cards of old SDP voters by weight.
     if weight != 1:
         for voter in voters:
-           old_amount = voters[voter]
-           voters.update({ voter : int(old_amount * weight) })
-           if debug: print("Updating SDP balance:", old_amount, "to:", voters[voter])
+           # MODIFIED: Adjustment to get rounding to the precision of the voting token.
+           old_amount = Decimal(voters[voter]) / dec_adjustment
+           new_amount = int(old_amount * weight) * dec_adjustment
+           voters.update({voter : new_amount})
+           # old one:
+           #old_amount = voters[voter]
+           #voters.update({ voter : int(old_amount * weight) })
+           if debug: print("Updating SDP balance:", old_amount * 10 ** dec_diff, "to:", voters[voter], "- weight:", weight)
 
+    # 2. Add votes of new cards
     for card in new_cards:
-        #if debug: print("Card data:", card.sender, card.receiver, card.amount, card.type)
+        # if debug: print("Card data:", card.sender, card.receiver, card.amount, card.type)
 
         if card.type != "CardBurn":
 
             for receiver in card.receiver:
                 rec_position = card.receiver.index(receiver)
-                rec_amount = int(card.amount[rec_position] * weight)
+                rec_amount = int(card.amount[rec_position] * weight) * dec_adjustment
 
                 if receiver not in voters:
-                    #if debug: print("New voter:", receiver, "with amount:", rec_amount)
-                    voters.update({receiver : rec_amount})
+                    if debug: print("New voter:", receiver, "with amount:", rec_amount)
+                    voters.update({receiver : rec_amount })
                 else:
                     old_amount = voters[receiver]
-                    #if debug: print("Voter:", receiver, "with old_amount:", old_amount, "updated to new amount:", old_amount + rec_amount)
+                    if debug: print("Voter:", receiver, "with old_amount:", old_amount, "updated to new amount:", old_amount + rec_amount)
                     
                     voters.update({receiver : old_amount + rec_amount})
 
@@ -316,11 +318,11 @@ def update_voters(voters={}, new_cards=[], weight=1, debug=False):
             rest = -int(sum(card.amount)) # MODIFIED: weight here does not apply!
             if card.sender not in voters:
                 if debug: print("Card sender not in voters. Resting the rest:", rest)
-                voters.update({card.sender : rest})
+                voters.update({card.sender : rest * dec_adjustment})
             else:
                 old_amount = voters[card.sender]
-                if debug: print("Card sender updated from:", old_amount, "to:", old_amount + rest)
-                voters.update({card.sender : old_amount + rest})
+                if debug: print("Card sender updated from:", old_amount, "to:", old_amount + rest * dec_adjustment)
+                voters.update({card.sender : old_amount + rest * dec_adjustment})
 
     return voters
 
@@ -339,8 +341,9 @@ def get_votes(pst, proposal, epoch, formatted_result=False):
 
     votes = {}
     voters = [] # to filter out duplicates.
+    debug = pst.debug
 
-    if pst.debug: print("Enabled Voters:", pst.enabled_voters)
+    if debug: print("Enabled Voters:", pst.enabled_voters)
     try:
         vtxes_proposal = pst.voting_txes[proposal.first_ptx.txid]
     except KeyError: # gets thrown if the proposal was not added to pst.voting_txes, i.e. when no votes were found.
@@ -356,19 +359,19 @@ def get_votes(pst, proposal, epoch, formatted_result=False):
     votes = { "negative" : 0, "positive" : 0 }
 
     for v in sorted_vtxes: # reversed for the "last vote counts" rule.
-        if pst.debug: print("Vote: Epoch", v.epoch, "txid:", v.txid, "sender:", v.sender, "outcome:", v.vote, "height", v.blockheight)
+        if debug: print("Vote: Epoch", v.epoch, "txid:", v.txid, "sender:", v.sender, "outcome:", v.vote, "height", v.blockheight)
         if (v.epoch == epoch) and (v.sender not in voters):
             try:
-                if pst.debug: print("Vote is valid.")
+                if debug: print("Vote is valid.")
                 voter_balance = pst.enabled_voters[v.sender] # voting token balance at start of epoch
-                if pst.debug: print("Voter balance", voter_balance)
+                if debug: print("Voter balance", voter_balance)
                 vote_outcome = "positive" if v.vote == b'+' else "negative"
                 votes[vote_outcome] += voter_balance
-                if pst.debug: print("Balance of outcome", vote_outcome, "increased by", voter_balance)
+                if debug: print("Balance of outcome", vote_outcome, "increased by", voter_balance)
                 voters.append(v.sender)
 
             except KeyError: # will always be thrown if a voter is not enabled in the "current" epoch.
-                if pst.debug: print("Voter has no balance in the current epoch.")
+                if debug: print("Voter has no balance in the current epoch.")
                 continue
 
         elif v.epoch < epoch: # due to it being sorted we can cut off all txes before the relevant epoch.
@@ -376,7 +379,9 @@ def get_votes(pst, proposal, epoch, formatted_result=False):
 
     if formatted_result:
         for outcome in ("positive", "negative"):
-            balance = Decimal(votes[outcome]) / 10**pst.sdp_deck_obj.number_of_decimals
+            balance = Decimal(votes[outcome]) / 10**pst.deck.number_of_decimals
+            # modified: base is number_of_decimals of main deck. old version:
+            # balance = Decimal(votes[outcome]) / 10**pst.sdp_deck.number_of_decimals
 
             votes.update({outcome : balance})
  

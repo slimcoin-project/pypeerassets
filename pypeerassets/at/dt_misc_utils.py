@@ -66,13 +66,21 @@ def get_votestate(provider, proposal_txid, phase=0, debug=False):
 
     proposal = get_proposal_state(provider, proposal_txid, phase=phase, debug=debug)
 
+    if debug: print("Start epoch:", proposal.start_epoch, "End epoch:", proposal.end_epoch)
+
     if phase == 0:
         votes = proposal.initial_votes
     elif phase == 1:
         votes = proposal.final_votes
 
-    sdp_deck = deck_from_tx(proposal.deck.sdp_deck, provider)
-    decimals = sdp_deck.number_of_decimals
+    if debug: print("Raw votes:", votes, "Phase:", phase)
+
+    decimals = proposal.deck.number_of_decimals
+    # MODIFIED. We use now the main deck's decimals as a base, and adjust its weight in the parser according to the
+    # difference in number of decimals between main deck and SDP deck.
+    # old:
+    # sdp_deck = deck_from_tx(proposal.deck.sdp_deckid, provider)
+    # decimals = sdp_deck.number_of_decimals
 
     return format_votes(decimals, votes)
 
@@ -168,10 +176,9 @@ def get_proposal_state(provider, proposal_id=None, proposal_tx=None, phase=None,
         proposal_id = ptx.txid
     # TODO: Does probably not deal with ProposalModifications still.
 
-    if debug: print("Deck:", pstate.deck.id)
-
     pstate = ProposalState(first_ptx=ptx, valid_ptx=ptx, provider=provider)
 
+    if debug: print("Deck:", pstate.deck.id)
 
     if phase == 0:
         lastblock = min(current_blockheight, pstate.dist_start + pstate.deck.epoch_length)

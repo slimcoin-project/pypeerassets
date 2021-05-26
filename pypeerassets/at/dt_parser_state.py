@@ -14,7 +14,7 @@ from pypeerassets.at.dt_parser_utils import *
 class ParserState(object):
     """contains the current state of basic variables"""
 
-    def __init__(self, deck, initial_cards, provider, proposal_states={}, approved_proposals={}, valid_proposals={}, signalling_txes=[], locking_txes=[], donation_txes={}, voting_txes=[], epoch=None, start_epoch=None, end_epoch=None, used_issuance_tuples=[], valid_cards=[], enabled_voters={}, sdp_cards=[], sdp_deck_obj=None, current_blockheight=None, epochs_with_completed_proposals=0, debug=False):
+    def __init__(self, deck, initial_cards, provider, proposal_states={}, approved_proposals={}, valid_proposals={}, signalling_txes=[], locking_txes=[], donation_txes={}, voting_txes=[], epoch=None, start_epoch=None, end_epoch=None, used_issuance_tuples=[], valid_cards=[], enabled_voters={}, sdp_cards=[], sdp_deck=None, current_blockheight=None, epochs_with_completed_proposals=0, debug=False):
 
         self.deck = deck
         self.initial_cards = initial_cards
@@ -35,11 +35,13 @@ class ParserState(object):
         # enabled_voters are all voters with valid balances, and their balance.
         self.enabled_voters = enabled_voters
         # SDP voters/balances are stored as CardTransfers, so they can be easily retrieved with PeerAsset standard methods.
-        if self.deck.sdp_deck:
-            self.sdp_deck_obj = deck_from_tx(self.deck.sdp_deck, self.provider)
+        if self.deck.sdp_deckid:
+            self.sdp_deck = deck_from_tx(self.deck.sdp_deckid, self.provider)
         else:
-            self.sdp_deck_obj = sdp_deck_obj
+            self.sdp_deck = sdp_deck
         self.sdp_cards = sdp_cards
+        # The SDP Decimal Diff is the difference between the number of decimals of the main token and the voting token.
+        self.sdp_decimal_diff = self.deck.number_of_decimals - self.sdp_deck.number_of_decimals
 
         # used_issuance_tuples list joins all issuances of sender, txid, vout:
         self.used_issuance_tuples = used_issuance_tuples
@@ -64,7 +66,7 @@ class ParserState(object):
         """Bundles all on-chain extractions."""
 
         # Initial balance of SDP cards
-        if self.sdp_deck_obj != None:
+        if self.sdp_deck != None:
             self.sdp_cards = self.get_sdp_cards()
         else:
             self.sdp_cards = None
@@ -117,4 +119,19 @@ class ParserState(object):
 
     def get_sdp_cards(self):
         from pypeerassets.__main__ import find_all_valid_cards
-        return list(find_all_valid_cards(self.provider, self.sdp_deck_obj))
+        return list(find_all_valid_cards(self.provider, self.sdp_deck))
+
+    def get_sdp_balances(self):
+
+        upper_limit = self.epoch * self.deck.epoch_length # balance at the start of the epoch.
+        if self.epoch == self.start_epoch:
+            if self.debug: print("Retrieving old cards ...")
+            lower_limit = 0
+        else:
+            lower_limit = (self.epoch - 1) * self.deck.epoch_length # balance at the start of the epoch.
+        if self.debug: print("Blocklimit for this epoch:", upper_limit, "Epoch number:", self.epoch)
+        if self.debug: print("Card blocks:", [card.blocknum for card in self.sdp_cards])
+
+        cards = [ card for card in self.sdp_cards if (lower_limit <= card.blocknum < upper_limit) ]
+
+        return cards

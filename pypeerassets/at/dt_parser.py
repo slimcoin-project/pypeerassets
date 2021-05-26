@@ -273,27 +273,29 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
         if (deck.sdp_periods != 0) and (epochs_from_start <= deck.sdp_periods): # voters from other tokens
 
             # We set apart all CardTransfers of SDP voters before the epoch start
-            sdp_epoch_balances = get_sdp_balances(pst)
+            sdp_epoch_balances = pst.get_sdp_balances()
 
             # Weight is calculated according to the epoch
-            # EXPERIMENTAL: modified, so weight is reduced only in epochs where proposals were completely approved.
+            # Weight is reduced only in epochs where proposals were completely approved.
             sdp_weight = get_sdp_weight(pst.epochs_with_completed_proposals, deck.sdp_periods)
-            # sdp_weight = get_sdp_weight(epochs_from_start, deck.sdp_periods)
+ 
+            # Adjusted weight multiplies the token balance by the difference in decimal places
+            # between the main token and the SDP token. 
+            # adjusted_weight = sdp_weight * 10 ** pst.sdp_decimal_diff
 
             if len(sdp_epoch_balances) > 0: # MODIFIED: was originally new_sdp_voters
-                pst.enabled_voters.update(update_voters(pst.enabled_voters, sdp_epoch_balances, weight=sdp_weight, debug=pst.debug))
+                pst.enabled_voters.update(update_voters(pst.enabled_voters, sdp_epoch_balances, weight=sdp_weight, debug=pst.debug, dec_diff=pst.sdp_decimal_diff))
 
         # as card issues can occur any time after the proposal has been voted
         # we always need ALL valid proposals voted up to this epoch.
 
-        if pst.debug: print("Get ending proposals ...")
-        # pst.valid_proposals.update(get_valid_ending_proposals(pst, deck)) # modified for states
-        if pst.debug: print("Approved proposals before epoch", pst.epoch, pst.approved_proposals)
+        #if pst.debug: print("Get ending proposals ...")
+        #if pst.debug: print("Approved proposals before epoch", pst.epoch, pst.approved_proposals)
         update_approved_proposals(pst)
         if pst.debug: print("Approved proposals after epoch", pst.epoch, pst.approved_proposals)
 
         update_valid_ending_proposals(pst)
-        if pst.debug: print("Valid ending proposals:", pst.valid_proposals)
+        if pst.debug: print("Valid ending proposals after epoch:", pst.epoch, pst.valid_proposals)
 
         if (highpos == lowpos) or len(epoch_cards) > 0:
             valid_epoch_cards = get_valid_epoch_cards(pst, epoch_cards)
