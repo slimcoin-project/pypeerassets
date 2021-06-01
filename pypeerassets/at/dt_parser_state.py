@@ -119,6 +119,7 @@ class ParserState(object):
 
     def get_sdp_cards(self):
         from pypeerassets.__main__ import find_all_valid_cards
+        if self.debug: print("Searching for SDP Token Cards ...")
         return list(find_all_valid_cards(self.provider, self.sdp_deck))
 
     def get_sdp_balances(self):

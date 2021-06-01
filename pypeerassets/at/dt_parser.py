@@ -132,10 +132,11 @@ def get_valid_epoch_cards(pst, epoch_cards):
     # It loops, in each epoch, through the current issuances and checks if they're associated to a valid donation.
     # CONVENTION: voters' weight is the balance at the start block of current epoch
 
+    debug = pst.debug
     oldtxid = ""
     valid_cards = []
 
-    if pst.debug: print("Cards:", [card.txid for card in epoch_cards])
+    if debug: print("Cards:", [card.txid for card in epoch_cards])
 
     for card in epoch_cards:
 
@@ -153,7 +154,7 @@ def get_valid_epoch_cards(pst, epoch_cards):
             # check 1: filter out duplicates (less expensive, so done first)
             if (card.sender, dtx_id, dtx_vout) in pst.used_issuance_tuples:
 
-                if pst.debug: print("Ignoring CardIssue: Duplicate.")
+                if debug: print("Ignoring CardIssue: Duplicate.")
                 continue
             
             # TODO: most likely wrong! >> the units are already int so do not have to be changed!
@@ -173,15 +174,15 @@ def get_valid_epoch_cards(pst, epoch_cards):
 
             if (dtx_id in pst.valid_proposals) and validate_proposer_issuance(pst, dtx_id, card_units, card.sender, card.blocknum):
 
-                if pst.debug: print("DT CardIssue (Proposer):", card)
+                if debug: print("DT CardIssue (Proposer):", card.txid)
 
             elif validate_donation_issuance(pst, dtx_id, dtx_vout, card_units, card.sender):
 
-                if pst.debug: print("DT CardIssue (Donation):", card)
+                if debug: print("DT CardIssue (Donation):", card.txid)
 
             else:
 
-                if pst.debug: print("Ignoring CardIssue: Invalid data.")
+                if debug: print("Ignoring CardIssue: Invalid data.")
                 continue
 
             valid_cards.append(card) # MODIFIED. So cards of all types are returned chronologically.
@@ -192,16 +193,19 @@ def get_valid_epoch_cards(pst, epoch_cards):
             if card.txid != oldtxid: # TODO: this check may be obsolete.
 
                 oldtxid = card.txid
-                if pst.debug: print("DT CardTransfer:", card.txid)
+                if debug: print("DT CardTransfer:", card.txid)
                 valid_cards.append(card) # MODIFIED. So all cards are returned chronologically.
 
     return valid_cards
 
 
 def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, initial_parser_state=None, force_dstates=False, force_continue=False, start_epoch=None, end_epoch=None):
-    # old order: (cards, provider, current_blockheight, deck, debug=False, initial_parser_state=None, force_dstates=False, force_continue=False, end_epoch=None)
-
     """Basic parser loop. Loops through all cards by epoch."""
+
+    # print([(c.txid, c.sender, c.receiver, c.amount, c.blocknum) for c in cards])
+
+    # TODO: This should not be necessary normally, why is the list not chronologically ordered?
+    cards.sort(key=lambda x: x.blocknum)
 
     if debug: print("Starting parser.")
     if not current_blockheight:
@@ -210,21 +214,24 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
     # initial_parser_state enables to continue parsing from a certain blockheight or use the parser from "outside".
     # Use with caution.
     if initial_parser_state:
-        if debug: print("Using initial parser state provided.")
         pst = initial_parser_state
+        debug = pst.debug
+        if debug: print("Using initial parser state provided.")
         if not pst.start_epoch: # workaround, should be done more elegant. Better move the whole section to ParserState.__init__.
             pst.start_epoch = start_epoch # normally start when the deck was spawned.
     else:
         pst = ParserState(deck, cards, provider, current_blockheight=current_blockheight, start_epoch=start_epoch, end_epoch=end_epoch, debug=debug)
 
+    # debug = True # for testing
+
     pst.init_parser()
 
-    if pst.debug: print("Starting epoch count at deck spawn block", pst.startblock)
+    if debug: print("Starting epoch count at deck spawn block", pst.startblock)
 
     cards_len = len(pst.initial_cards)
-    if pst.debug: print("Total number of cards:", cards_len)
+    if debug: print("Total number of cards:", cards_len)
 
-    if pst.debug: print("Starting epoch loop ...")
+    if debug: print("Starting epoch loop ...")
     # oldtxid = "" # probably obsolete
     pos = 0 # card position
     highpos = 0
@@ -232,7 +239,7 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
     if not pst.end_epoch:
         pst.end_epoch = current_blockheight // deck.epoch_length + 1 # includes an incomplete epoch which just started
 
-    if pst.debug: print("Start and end epoch:", pst.start_epoch, pst.end_epoch)
+    if debug: print("Start and end epoch:", pst.start_epoch, pst.end_epoch)
     
     for epoch in range(pst.start_epoch, pst.end_epoch):
 
@@ -240,7 +247,7 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
         epoch_firstblock = deck.epoch_length * epoch
         epoch_lastblock = deck.epoch_length * (epoch + 1)
 
-        if pst.debug: print("\nChecking epoch", epoch, "from block", epoch_firstblock, "to", epoch_lastblock)
+        if debug: print("\nChecking epoch", epoch, "from block", epoch_firstblock, "to", epoch_lastblock)
 
         # grouping cards per epoch
 
@@ -250,7 +257,7 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
 
             card = pst.initial_cards[pos] # TODO: this only works with a list, not with a generator.
 
-            if pst.debug: print("Card blocknum (block height of confirmation):", card.blocknum)
+            if debug: print("Card block height:", card.blocknum, "Position", pos, "Cards len", cards_len, "TXID", card.txid)
 
             # Issues before the first block of the epoch are always invalid.
             if epoch_firstblock <= card.blocknum <= epoch_lastblock:
@@ -261,14 +268,14 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
         highpos = pos
         epoch_cards = cards[lowpos:highpos]
 
-        if pst.debug: print("Cards found in this epoch:", len(epoch_cards))
+        if debug: print("Cards found in this epoch:", len(epoch_cards))
         
 
         # Epochs which have passed since the deck spawn
         epochs_from_start = epoch - pst.start_epoch
 
 
-        if pst.debug: print("SDP periods remaining:", (deck.sdp_periods - epochs_from_start))
+        if debug: print("SDP periods remaining:", (deck.sdp_periods - epochs_from_start))
 
         if (deck.sdp_periods != 0) and (epochs_from_start <= deck.sdp_periods): # voters from other tokens
 
@@ -292,16 +299,16 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
         #if pst.debug: print("Get ending proposals ...")
         #if pst.debug: print("Approved proposals before epoch", pst.epoch, pst.approved_proposals)
         update_approved_proposals(pst)
-        if pst.debug: print("Approved proposals after epoch", pst.epoch, pst.approved_proposals)
+        # if debug: print("Approved proposals after epoch", pst.epoch, pst.approved_proposals)
 
         update_valid_ending_proposals(pst)
-        if pst.debug: print("Valid ending proposals after epoch:", pst.epoch, pst.valid_proposals)
+        # if debug: print("Valid ending proposals after epoch:", pst.epoch, pst.valid_proposals)
 
         if (highpos == lowpos) or len(epoch_cards) > 0:
             valid_epoch_cards = get_valid_epoch_cards(pst, epoch_cards)
     
         pst.enabled_voters.update(update_voters(voters=pst.enabled_voters, new_cards=valid_epoch_cards, debug=pst.debug))
-        if pst.debug: print("New voters balances:", pst.enabled_voters)
+        # if debug: print("New voters balances:", pst.enabled_voters)
 
         pst.valid_cards += valid_epoch_cards
 

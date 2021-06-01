@@ -273,9 +273,8 @@ def update_voters(voters={}, new_cards=[], weight=1, dec_diff=0, debug=False):
     # The dec_diff value is the difference between number_of_decimals of main deck/sdp deck.
     # dec_diff isn't applied to old voters, thus it cannot be merged with "weight".
 
-    # TODO: The imprecision with the new dec_adjustment is due to a more precise rounding with more decimal places.
-    # In theory it should be ok this way. Otherwise the factor _could_ be also used in the first part of the function,
-    # where the weight is calculated.
+    # TODO: The dec_adjustment calculation will throw Type problems if the SDP token has more decimals as the main token.
+    # Perhaps use it as a decimal, and then convert all values to int again (check the precision!)
 
     #if debug: print("Voters", voters, "\nWeight:", weight)
     dec_adjustment = 10 ** dec_diff
@@ -337,7 +336,7 @@ def get_votes(pst, proposal, epoch, formatted_result=False):
     # Formatted_result returns the "decimal" value of the votes, i.e. the number of "tokens"
     # which voted for the proposal, which depends on the "number_of_decimals" value.
     # TODO: Trash the epoch value, it should always be taken from pst! (if not, then there is a structural problem!)
-    # TODO: WE probably need a parameter of proposals showing always the votes got in a particular epoch.
+    # TODO: ProposalState should have attributes to show every single vote and their balances (at least optional, for the pacli commands).
 
     votes = {}
     voters = [] # to filter out duplicates.
