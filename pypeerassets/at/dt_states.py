@@ -15,7 +15,7 @@ class ProposalState(object):
    # A ProposalState unifies all functions from proposals which are mutable.
    # i.e. which can change after the first proposal transaction was sent.
 
-    def __init__(self, valid_ptx, first_ptx, round_starts=[], round_halfway=[], signalling_txes=linit(), locking_txes=linit(), donation_txes=linit(), signalled_amounts=linitz(), locked_amounts=linitz(), donated_amounts=linitz(), reserve_txes=linit(), reserved_amounts=linitz(), effective_slots=linitz(), effective_locking_slots=linitz(), donation_states=[], total_donated_amount=None, provider=None, current_blockheight=None, all_signalling_txes=[], all_donation_txes=[], all_locking_txes=[], donor_addresses=[], initial_votes=None, final_votes=None, dist_factor=None, processed=None, proposer_reward=None):
+    def __init__(self, valid_ptx, first_ptx, rounds=[], signalling_txes=linit(), locking_txes=linit(), donation_txes=linit(), signalled_amounts=linitz(), locked_amounts=linitz(), donated_amounts=linitz(), reserve_txes=linit(), reserved_amounts=linitz(), effective_slots=linitz(), effective_locking_slots=linitz(), donation_states=[], total_donated_amount=None, provider=None, current_blockheight=None, all_signalling_txes=[], all_donation_txes=[], all_locking_txes=[], donor_addresses=[], initial_votes=None, final_votes=None, dist_factor=None, processed=None, proposer_reward=None):
 
         self.valid_ptx = valid_ptx # the last proposal transaction which is valid.
         self.first_ptx = first_ptx # first ptx, in the case there was a Proposal Modification.
@@ -25,10 +25,10 @@ class ProposalState(object):
 
         # The round length of the second phase (not the first one) can be changed in ProposalModifications. 
         # Thus all values based on round_length have 2 values, for the first and the second phase.
-        self.round_lengths = [self.first_ptx.round_length, self.valid_ptx.round_length]
-        self.security_periods = [max(l // 2, 2) for l in self.round_lengths]
-        self.voting_periods = [l * 4 for l in self.round_lengths] # equal to a full slot distribution phase.
-        self.release_period = self.voting_periods[1] # equal to the second phase voting period
+        self.round_lengths = [self.first_ptx.round_length, self.valid_ptx.round_length] ## TODO: check if necessary
+        # self.security_periods = [max(l // 2, 2) for l in self.round_lengths] ## TODO: probably obsolete
+        # self.voting_periods = [l * 4 for l in self.round_lengths] # equal to a full slot distribution phase. ## TODO: probably obsolete
+        # self.release_period = self.voting_periods[1] # equal to the second phase voting period ## TODO: probably obsolete
 
         self.donation_address = self.first_ptx.donation_address
         self.deck = self.first_ptx.deck
@@ -36,11 +36,10 @@ class ProposalState(object):
 
         # Slot Allocation Round Attributes are lists with values for each of the 8 distribution rounds
         # Phase 2 can vary if there is a ProposalModification, so this can be set various times.
-        if not round_starts:
-            self.set_round_starts(phase=0)
+        if not rounds:
+            self.set_rounds(phase=0)
         else:
-            self.round_starts = round_starts
-            self.round_halfway = round_halfway
+            self.rounds = rounds
             self.dist_start = dist_start # start block of first voting/distribution round.
 
         deck = self.first_ptx.deck
@@ -94,83 +93,84 @@ class ProposalState(object):
         self.proposer_reward = proposer_reward
 
 
-    def set_round_starts(self, phase=0):
-        # all rounds of first or second phase
-        # It should be ensured that this method is only called once per phase, or when a proposal has been modified.
+    def set_rounds(self, phase=0):
+        # This method sets the start and end blocks of all rounds and periods of either the first or the second phase.
+        # Phase 0 means: both phases are calculated.
+        # Method is only called once per phase or when a proposal has been modified.
 
+        # 1. Calculate round starts
         epoch_length = self.valid_ptx.deck.epoch_length
 
-        self.round_starts = [None] * 9
-        self.round_halfway = [None] * 9
+        round_starts = [None] * 9
+        round_halfway = [None] * 9
+        self.rounds = [None] * 9
+        self.security_periods = [None] * 2
+        self.voting_periods = [None] * 2
+        security_period_lengths = [max(l // 2, 2) for l in self.round_lengths]
+        voting_period_lengths = [l * 4 for l in self.round_lengths]
+        release_period_length = voting_period_lengths[0]
 
-        halfway = self.first_ptx.round_length // 2
-        pre_allocation_period_phase1 = self.security_periods[0] + self.voting_periods[0]
-        pre_allocation_period_phase2 = self.security_periods[1] + self.voting_periods[1] + self.release_period
-        # phase 0 means: both phases are calculated.
+        halfway = self.first_ptx.round_length // 2 # TODO: potential bug in ProposalModifications? what happens with the second halfway?
+        pre_allocation_period_phase1 = security_period_lengths[0] + voting_period_lengths[0]
+        pre_allocation_period_phase2 = security_period_lengths[1] + voting_period_lengths[1] + release_period_length
+
 
         if phase in (0, 1):
             distribution_length = pre_allocation_period_phase1 + (self.round_lengths[0] * 4)
             # blocks in epoch: blocks which have passed since last epoch start.
-            # blocks_in_epoch = self.first_ptx.blockheight - (self.start_epoch * epoch_length) # MODIFIED, TODO: Re-check!
-            blocks_in_epoch = self.first_ptx.blockheight % epoch_length # modified to modulo.
+            blocks_in_epoch = self.first_ptx.blockheight % epoch_length
             blocks_remaining = epoch_length - blocks_in_epoch
-            # print("dl", distribution_length, "bie", blocks_in_epoch, "el", epoch_length)
-            
 
-            # if proposal can still be voted and slots distributed, then do it in the current epoch.
+            # if proposal can still be voted and slots distributed in the current epoch, then do it,
+            # otherwise the voting/distribution phase will start in the next epoch.
             if blocks_remaining > distribution_length:
 
-                # MODIFIED. Introduced dist_start to avoid confusion regarding the voting period.
-                # MODIFIED 2. Start epoch is now the start of the DISTRIBUTION epoch.
+                # start_epoch is the epoch number of the first voting/distribution phase.
                 self.start_epoch = self.first_ptx.epoch
+                # dist_start is the block where the first voting/distribution phase starts.
                 self.dist_start = self.first_ptx.blockheight
             else:
                 self.start_epoch = self.first_ptx.epoch + 1
-                self.dist_start = self.start_epoch * epoch_length # MODIFIED.
+                self.dist_start = self.start_epoch * epoch_length
 
-            # MODIFIED: end epoch is 1 after last working epoch.
-            self.end_epoch = self.start_epoch + self.valid_ptx.epoch_number + 1 
+
+
+            # Security, voting and release periods
+            self.security_periods[0] = [self.dist_start, self.dist_start + security_period_lengths[0]]
+            voting_p1_start = self.security_periods[0][1] + 1
+            self.voting_periods[0] = [voting_p1_start, voting_p1_start + voting_period_lengths[0]]
 
             phase_start = self.dist_start + pre_allocation_period_phase1
 
-            for i in range(4): # first phase has 4 rounds
-                self.round_starts[i] = phase_start + self.round_lengths[0] * i
-                self.round_halfway[i] = self.round_starts[i] + halfway
+            for rd in range(4): # first phase has 4 rounds
+                round_starts[rd] = phase_start + self.round_lengths[0] * rd
+                round_halfway[rd] = round_starts[rd] + halfway
+                self.rounds[rd] = [[round_starts[rd], round_halfway[rd] - 1], [round_halfway[rd], round_starts[rd] + self.round_lengths[0] - 1]]
 
         if phase in (0, 2):
+            # we use valid_ptx here, this gives the option to change the round length of 2nd round.
+            # TODO: re-check if we want to make the 2nd phase values mutable by Proposal Modifications or not ...
 
-            epoch = self.end_epoch # final vote/distribution should always begin at the start of the end epoch.
+            # epoch = self.end_epoch # final vote/distribution should always begin at the start of the end epoch.
+
+            # End epoch is 1 after last working epoch.
+            self.end_epoch = self.start_epoch + self.valid_ptx.epoch_number + 1
+            end_epoch_start = self.end_epoch * epoch_length
             phase_start = self.end_epoch * epoch_length + pre_allocation_period_phase2
 
+            self.security_periods[1] = [end_epoch_start, end_epoch_start + security_period_lengths[1]]
+            voting_p2_start = self.security_periods[1][1] + 1
+            self.voting_periods[1] = [voting_p2_start, voting_p2_start + voting_period_lengths[1]]
+
+            release_start = self.voting_periods[1][1] + 1
+            self.release_period = [release_start, release_start + release_period_length]
+
             for i in range(5): # second phase has 5 rounds, the last one being the Proposer round.
-                # we use valid_ptx here, this gives the option to change the round length of 2nd round.
-                # TODO: should we really make this value changeable? This prevents us to set an unitary round_length value.
-                self.round_starts[i + 4] = phase_start + self.round_lengths[1] * i
-                self.round_halfway[i + 4] = self.round_starts[i + 4] + halfway
-
-        self.set_rounds(phase)
-
-    def set_rounds(self, phase=0):
-        rounds = []
-        # complements round_starts, should replace them in many functions. Above all useful because of round 4.
-        # first element is the signalling period, second one the locking/donation period.
-        # TODO: shouldn't this be extended to all phases of the proposal lifecycle?
-        # TODO: there is ambiguity in round 4 (first second-round round). It should be in theory
-        # possible to donate based on reserve txes from round 0-3 there, which would mean to have
-        # a special donation period AFTER the donation release phase. Currently the signalling
-        # period is rd 0-3 and the donation release phase the donation phase, which seems wrong.
-        if phase == 2:
-            round_length = self.round_lengths[1] # if phase 2 reorganisation, we take valid_ptx, otherwise first_ptx.
-        else:
-            round_length = self.round_lengths[0]
-
-        for rd in range(8):
-            rds = [None,None]
-            rds[0] = [self.round_starts[rd], self.round_halfway[rd] - 1]
-            rds[1] = [self.round_halfway[rd], self.round_starts[rd] + round_length - 1]
-            rounds.append(rds)
-        self.rounds = rounds        
-
+                # TODO: wasn't the proposer round innecesary? Re-check!
+                rd = i + 4
+                round_starts[rd] = phase_start + self.round_lengths[1] * i
+                round_halfway[rd] = round_starts[rd] + halfway
+                self.rounds[rd] = [[round_starts[rd], round_halfway[rd] - 1], [round_halfway[rd], round_starts[rd] + self.round_lengths[1] - 1]]
 
     def set_donation_states(self, phase=0, current_blockheight=None, debug=False):
         # Version3. Uses the new DonationState class and the generate_donation_states method. 
@@ -180,9 +180,9 @@ class ProposalState(object):
         # If round starts are not set, or phase is 2 (re-defining of the second phase), then we set it.
         # for May tests:
         # debug = True if self.id == "41e38b09b07147a794d79916c8128612378bfaece0231ad5efa13a08a2fb588f" else False
-        if len(self.round_starts) == 0 or (phase == 2):
-            if debug: print("Setting round starts for PROPOSAL:", self.id)
-            self.set_round_starts(phase)
+        if len(self.rounds) == 0 or (phase == 2):
+            if debug: print("Setting rounds for PROPOSAL:", self.id)
+            self.set_rounds(phase)
 
         # Mark abandoned donation states:
         # if called from "outside", if the block height > round end, otherwise when the dist_factor is set (ending period).
@@ -375,8 +375,11 @@ class ProposalState(object):
     def get_stx_dist_round(self, stx):
         # This one only checks for the blockheight. Thus it can only be used for stxes.
        for rd in range(8):
-           start = self.round_starts[rd]
-           end = self.round_halfway[rd] - 1
+           start = self.rounds[rd][0][0]
+           end = self.rounds[rd][1][0]
+           # old version:
+           # start = self.round_starts[rd]
+           # end = self.round_halfway[rd] - 1
 
            # print("Start/bh/end:", start, stx.blockheight, end, "txid:", stx.txid)
            if start <= stx.blockheight <= end:

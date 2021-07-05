@@ -29,13 +29,13 @@ def validate_proposer_issuance(pst, dtx_id, card_units, card_sender, card_blockn
 
     # 2. Card must be issued after the last round deadline. Otherwise, a card could become valid for a couple of blocks.
     try:
-       last_round_start = proposal_state.round_starts[8]
+       last_round_start = proposal_state.rounds[8][0][0] # modified from round_starts
     except (IndexError, AttributeError):
        # if round_starts attribute is still not set , e.g. because there was not a single Donation CardIssue.
        # then we set all round starts.
 
-       proposal_state.set_round_starts()
-       last_round_start = proposal_state.round_starts[8]
+       proposal_state.set_rounds()
+       last_round_start = proposal_state.rounds[8][0][0]
 
     if card_blocknum < last_round_start:
         return False
@@ -298,10 +298,10 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
 
         #if pst.debug: print("Get ending proposals ...")
         #if pst.debug: print("Approved proposals before epoch", pst.epoch, pst.approved_proposals)
-        update_approved_proposals(pst)
+        pst.update_approved_proposals()
         # if debug: print("Approved proposals after epoch", pst.epoch, pst.approved_proposals)
 
-        update_valid_ending_proposals(pst)
+        pst.update_valid_ending_proposals()
         # if debug: print("Valid ending proposals after epoch:", pst.epoch, pst.valid_proposals)
 
         if (highpos == lowpos) or len(epoch_cards) > 0:
