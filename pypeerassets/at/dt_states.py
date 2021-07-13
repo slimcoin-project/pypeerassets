@@ -25,11 +25,7 @@ class ProposalState(object):
 
         # The round length of the second phase (not the first one) can be changed in ProposalModifications. 
         # Thus all values based on round_length have 2 values, for the first and the second phase.
-        self.round_lengths = [self.first_ptx.round_length, self.valid_ptx.round_length] ## TODO: check if necessary
-        # self.security_periods = [max(l // 2, 2) for l in self.round_lengths] ## TODO: probably obsolete
-        # self.voting_periods = [l * 4 for l in self.round_lengths] # equal to a full slot distribution phase. ## TODO: probably obsolete
-        # self.release_period = self.voting_periods[1] # equal to the second phase voting period ## TODO: probably obsolete
-
+        self.round_lengths = [self.first_ptx.round_length, self.valid_ptx.round_length]
         self.donation_address = self.first_ptx.donation_address
         self.deck = self.first_ptx.deck
         self.donor_addresses = donor_addresses
@@ -133,8 +129,6 @@ class ProposalState(object):
                 self.start_epoch = self.first_ptx.epoch + 1
                 self.dist_start = self.start_epoch * epoch_length
 
-
-
             # Security, voting and release periods
             self.security_periods[0] = [self.dist_start, self.dist_start + security_period_lengths[0]]
             voting_p1_start = self.security_periods[0][1] + 1
@@ -173,15 +167,11 @@ class ProposalState(object):
                 self.rounds[rd] = [[round_starts[rd], round_halfway[rd] - 1], [round_halfway[rd], round_starts[rd] + self.round_lengths[1] - 1]]
 
     def set_donation_states(self, phase=0, current_blockheight=None, debug=False):
-        # Version3. Uses the new DonationState class and the generate_donation_states method. 
         # Phase 0 means both phases are calculated.
-        # debug = True ## TEST
-        #if debug: print("DONATION STATES: Setting for PROPOSAL:", self.id)
-        # If round starts are not set, or phase is 2 (re-defining of the second phase), then we set it.
-        # for May tests:
-        # debug = True if self.id == "41e38b09b07147a794d79916c8128612378bfaece0231ad5efa13a08a2fb588f" else False
+
+        # If rounds are not set, or phase is 2 (re-defining of the second phase), then we set it.
         if len(self.rounds) == 0 or (phase == 2):
-            if debug: print("Setting rounds for PROPOSAL:", self.id)
+            if debug: print("Setting rounds for proposal:", self.id)
             self.set_rounds(phase)
 
         # Mark abandoned donation states:
@@ -230,7 +220,6 @@ class ProposalState(object):
             self.set_proposer_reward()
             self.processed[2] = True # complete # TODO after implementing the periods cleanly this is no longer necessary
             
-
 
     def _process_donation_states(self, rd, set_reward=False, abandon_until=0, debug=False):
         # This function always must run chronologically, with previous rounds already completed.
@@ -315,7 +304,7 @@ class ProposalState(object):
                     self.locking_txes = ltxes
                     # print("adding locking tx", locking_tx.txid, "in round", rd)
                     #print("locking_txes after", [t.txid for rd in self.locking_txes for t in rd])
-                    # TODO: There are amounts at round 4 which should not be there.
+                    # TODO: There are amounts at round 4 which should not be there. => Re-check if solved!
                     self.locked_amounts[rd] += locking_tx.amount
                     effective_locking_slot = min(slot, locking_tx.amount)
                     # print("EFFECTIVE LOCKING SLOT RD", rd, effective_locking_slot, slot, locking_tx.amount, locking_tx.txid, self.locked_amounts)

@@ -47,7 +47,6 @@ def get_proposal_states(provider, deck, current_blockheight=None, all_signalling
     # Modified: force_dstates option (for pacli commands) calculates all phases/rounds and DonationStates, even if no card was issued.
     statedict = {}
     used_firsttxids = []
-    # print("PSTATE ALL LOCKING TX", all_locking_txes)
 
     for rawtx in get_marked_txes(provider, deck.derived_p2th_address("proposal")):
         try:

@@ -4,6 +4,7 @@
 It loops through the cards by epoch, instead by card. This allows to update the enabled voters in each epoch,
 and so calculate the valid proposals which were selected from the next epoch.
 Minor functions are in dt_parser_utils. """
+# TODO: All functions with the exception of dt_parser should go into ParserState, as they use the pst variable centrally.
 
 from decimal import Decimal
 
@@ -15,10 +16,7 @@ from pypeerassets.at.dt_parser_utils import *
 from pypeerassets.at.dt_parser_state import ParserState
 
 
-# COIN_MULTIPLIER = 100000000 # only used for cards. # PROBABLY not needed.
-
 def validate_proposer_issuance(pst, dtx_id, card_units, card_sender, card_blocknum):
-    # MODIFIED: A large part has been moved to the ProposalState and DonationState classes.
 
     proposal_state = pst.valid_proposals[dtx_id] # this is checked just before the call, so no "try/except" necessary.
 
@@ -27,31 +25,21 @@ def validate_proposer_issuance(pst, dtx_id, card_units, card_sender, card_blockn
         if pst.debug: print("Proposer issuance failed: Incorrect card issuer.")
         return False
 
-    # 2. Card must be issued after the last round deadline. Otherwise, a card could become valid for a couple of blocks.
+    # 2. Card must be issued after the last round deadline. Otherwise, a card could become valid for a couple of blocks,
+    # and then become invalid.
     try:
        last_round_start = proposal_state.rounds[8][0][0] # modified from round_starts
     except (IndexError, AttributeError):
-       # if round_starts attribute is still not set , e.g. because there was not a single Donation CardIssue.
-       # then we set all round starts.
-
+       # if rounds attribute is still not set , e.g. because there was not a single Donation CardIssue.
+       # then we set all rounds.
        proposal_state.set_rounds()
        last_round_start = proposal_state.rounds[8][0][0]
 
     if card_blocknum < last_round_start:
         return False
 
-    req_amount = proposal_state.valid_ptx.req_amount
-
-    #if len(proposal_state.donation_txes) == 0:
-    #    proposal_state.set_phase_txes_and_amounts(pst.donation_txes, "donation")
     if len(proposal_state.donation_states) == 0:
         proposal_state.set_donation_states()
-    
-    # TODO: the missing donation approach is probably better, anyway here we will use the proposer reward
-    # DISCUSS: In this case it may be an alternative to use the total amount of effective slots (min(donation, slot)).
-    # This would lead to more coins issued when the donations exceed the combined effective slots.
-    #missing_donations = req_amount - proposal_state.total_donated_amount
-    #proposer_slot = (Decimal(missing_donations) / req_amount) * pst.deck.epoch_quantity
 
     if card_units != proposal_state.proposer_reward:
         return False
@@ -133,7 +121,7 @@ def get_valid_epoch_cards(pst, epoch_cards):
     # CONVENTION: voters' weight is the balance at the start block of current epoch
 
     debug = pst.debug
-    oldtxid = ""
+    # oldtxid = ""
     valid_cards = []
 
     if debug: print("Cards:", [card.txid for card in epoch_cards])
@@ -156,16 +144,8 @@ def get_valid_epoch_cards(pst, epoch_cards):
 
                 if debug: print("Ignoring CardIssue: Duplicate.")
                 continue
-            
-            # TODO: most likely wrong! >> the units are already int so do not have to be changed!
-            # The sum of all amounts (list of ints) is calculated and transformed to Decimal type
-            # Then number of decimals is applied
-            # The coin multiplier transforms the amount into Bitcoin Satoshis (0.00000001 coins),
-            # even if the base unit is different (e.g. SLM, PPC). 
-            # This is the base unit from PeerAssets, for cross-blockchain compatibility.
 
             card_units = sum(card.amount) # MODIFIED: this is already an int value based on the card base units!
-
 
             # Is it a proposer or a donation issuance?
             # Proposers provide ref_txid of their proposal transaction.
@@ -173,15 +153,10 @@ def get_valid_epoch_cards(pst, epoch_cards):
             # then they get the token to the proposal address.
 
             if (dtx_id in pst.valid_proposals) and validate_proposer_issuance(pst, dtx_id, card_units, card.sender, card.blocknum):
-
                 if debug: print("DT CardIssue (Proposer):", card.txid)
-
             elif validate_donation_issuance(pst, dtx_id, dtx_vout, card_units, card.sender):
-
                 if debug: print("DT CardIssue (Donation):", card.txid)
-
             else:
-
                 if debug: print("Ignoring CardIssue: Invalid data.")
                 continue
 
@@ -190,11 +165,10 @@ def get_valid_epoch_cards(pst, epoch_cards):
 
         else:
 
-            if card.txid != oldtxid: # TODO: this check may be obsolete.
-
-                oldtxid = card.txid
-                if debug: print("DT CardTransfer:", card.txid)
-                valid_cards.append(card) # MODIFIED. So all cards are returned chronologically.
+            # if card.txid != oldtxid: # The rest was after this IF condition. But is probably obsolete.
+            #   oldtxid = card.txid
+            if debug: print("DT CardTransfer:", card.txid)
+            valid_cards.append(card) # MODIFIED. So all cards are returned chronologically.
 
     return valid_cards
 
@@ -252,17 +226,11 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
         # grouping cards per epoch
 
         lowpos = pos
-
-        while pos < cards_len:
-
-            card = pst.initial_cards[pos] # TODO: this only works with a list, not with a generator.
+        for pos, card in enumerate(pst.initial_cards, start=lowpos):
 
             if debug: print("Card block height:", card.blocknum, "Position", pos, "Cards len", cards_len, "TXID", card.txid)
-
-            # Issues before the first block of the epoch are always invalid.
-            if epoch_firstblock <= card.blocknum <= epoch_lastblock:
-                pos += 1
-            else:
+            # CardIssues before the first block of the epoch are always invalid.
+            if not (epoch_firstblock <= card.blocknum <= epoch_lastblock):
                 break
 
         highpos = pos

@@ -12,7 +12,7 @@ from pypeerassets.at.transaction_formats import *
 from pypeerassets.at.dt_parser_utils import *
 
 class ParserState(object):
-    """contains the current state of basic variables"""
+    """A ParserState contains the current state of all important variables for a single deck."""
 
     def __init__(self, deck, initial_cards, provider, proposal_states={}, approved_proposals={}, valid_proposals={}, signalling_txes=[], locking_txes=[], donation_txes={}, voting_txes=[], epoch=None, start_epoch=None, end_epoch=None, used_issuance_tuples=[], valid_cards=[], enabled_voters={}, sdp_cards=[], sdp_deck=None, current_blockheight=None, epochs_with_completed_proposals=0, debug=False):
 
@@ -25,8 +25,6 @@ class ParserState(object):
         self.proposal_states = proposal_states
         self.approved_proposals = approved_proposals # approved by round 1 votes
         self.valid_proposals = valid_proposals # successfully completed: approved by round 1 + 2 votes 
-        # self.signalling_txes = signalling_txes # TODO: PROBABLY obsolete!
-        # self.locking_txes = locking_txes # TODO: probably obsolete!
         self.donation_txes = donation_txes # MODIFIED as a dict!
         self.voting_txes = voting_txes # this is a dict, not list.
         self.epochs_with_completed_proposals = epochs_with_completed_proposals
@@ -61,7 +59,6 @@ class ParserState(object):
         self.startblock = self.start_epoch * self.deck.epoch_length # first block of the epoch the deck was spawned. Probably not needed.
         self.debug = debug # print statements for debugging
 
-
     def init_parser(self):
         """Bundles all on-chain extractions."""
 
@@ -71,53 +68,55 @@ class ParserState(object):
         else:
             self.sdp_cards = None
 
-
         if self.debug: print("Get proposal states ...", )
-        #self.proposal_states = get_proposal_states(self.provider, self.deck, self.current_blockheight, self.signalling_txes, self.donation_txes) # TODO: re-ckech if the last params are necessary!
         self.proposal_states = get_proposal_states(self.provider, self.deck, self.current_blockheight)
         if self.debug: print(len(self.proposal_states), "found.")
 
-        # We don't store the txes anymore here, as they're already stored in the ProposalStates.
+        # We don't store the txes anymore in the ParserState, as they're already stored in the ProposalStates.
         # q is the number of txes for each category.
         if self.debug: print("Get donation txes ...", )
-
-        # q = get_donation_txes(self.provider, self.deck, self)
         q = self.get_tracked_txes("donation")
         if self.debug: print(q, "found.")
 
         if self.debug: print("Get locking txes ...", )
         q = self.get_tracked_txes("locking")
-        # q = get_locking_txes(self.provider, self.deck, self)
         if self.debug: print(q, "found.")
 
         if self.debug: print("Get signalling txes ...", )
         q = self.get_tracked_txes("signalling")
-
-        # q = get_signalling_txes(self.provider, self.deck, self)
         if self.debug: print(q, "found.")
 
         if self.debug: print("Get voting txes ...", )
-        self.voting_txes = self.get_voting_txes()
-        if self.debug: print(len(self.voting_txes), "proposal with voting transactions found.")
+        self.get_voting_txes()
+        if self.debug: print(len(self.voting_txes), "proposals with voting transactions found.")
 
     def force_dstates(self):
-        # Allows to set all states even if no card has been issued. # TODO: Check epochs.
+        # Allows to set all states even if no card has been issued.
         # Has to be called in the moment the state is evaluated, i.e. normally at the end of the parsing process.
         for p in self.proposal_states.values():
-            if self.debug: print("Setting donation states for Proposal:", p.first_ptx.txid)
+            if self.debug: print("Setting donation states for Proposal:", p.id)
 
-            # We must ensure process_donation_states is only called once per round,
-            # otherwise Locking/Donation Transactions will not be added (because of the donor address restriction)
-            # TODO: this is still "hacky". It will prevent double processing of states, but not calling the method
+            # We must ensure process_donation_states is only called once per round, otherwise
+            # Locking/DonationTransactions will not be added (because of the 1 state per donor address restriction)
+            # Explanation: In the case the method is called after the end_epoch, it sets the donation states only
+            # if there was no single donation state set for the last 4 rounds.
+            # This is still "hacky". It will prevent double processing of states, but not prevent to call the method
             # twice, for example if there are no donation states in rounds 4-7.
             # phase 2 is necessary to guarantee the processing is complete, as phase 1 is in an earlier epoch.
             # maybe it is easier to add a "processed" variable to ProposalState? (with the processed phase)
-            if self.epoch <= p.end_epoch:
-                dstates_rounds = p.donation_states
-            else:
-                dstates_rounds = p.donation_states[4:]
-            if len([s for r in dstates_rounds for s in r.keys()]) == 0:
+            # MODIFIED. "processed" variable is now implemented, so double processing should be prevented with a simpler check.
+            phase = 1 if self.epoch <= p.end_epoch else 0
+            if not p.processed[phase]:
                 p.set_donation_states(debug=self.debug, current_blockheight=self.current_blockheight)
+
+            #if self.epoch <= p.end_epoch:
+            #    dstates_rounds = p.donation_states
+            #else:
+            #    dstates_rounds = p.donation_states[4:]
+            #processed_dstates = [s for r in dstates_rounds for s in r.keys()]
+            # print("Processed dstates for proposal", p.id, processed_dstates, "rds:", len(dstates_rounds))
+            #if len(processed_dstates) == 0:
+            #    p.set_donation_states(debug=self.debug, current_blockheight=self.current_blockheight)
 
     def get_sdp_cards(self):
         from pypeerassets.__main__ import find_all_valid_cards
@@ -154,7 +153,6 @@ class ParserState(object):
             if self.debug: print("Votes round 1 for Proposal", pstate.first_ptx.txid, ":", pstate.initial_votes)
 
             if pstate.initial_votes["positive"] <= pstate.initial_votes["negative"]:
-                # MODIFIED: State is set to abandoned.
                 pstate.state = "abandoned"
                 continue
 
@@ -261,13 +259,11 @@ class ParserState(object):
         return votes
 
     def get_tracked_txes(self, tx_type, min_blockheight=None, max_blockheight=None):
-        # MODIFIED: simplification of get_donation_txes etc.
-        # gets ALL donation txes of a deck. Needs P2TH.
-        #txlist = []
-        q = 0
+        """Retrieves TrackedTransactions (except votes and proposals) for a deck from the blockchain 
+           and adds them to the corresponding ProposalState."""
         proposal_list = []
         tx_attr = "all_{}_txes".format(tx_type)
-        for rawtx in get_marked_txes(self.provider, self.deck.derived_p2th_address(tx_type), min_blockheight=min_blockheight, max_blockheight=max_blockheight):
+        for q, rawtx in enumerate(get_marked_txes(self.provider, self.deck.derived_p2th_address(tx_type), min_blockheight=min_blockheight, max_blockheight=max_blockheight)):
             try:
                 if tx_type == "donation":
                     tx = DonationTransaction.from_json(tx_json=rawtx, provider=self.provider, deck=self.deck)
@@ -289,9 +285,9 @@ class ParserState(object):
                     getattr(current_state, tx_attr).append(tx)
                     # current_state.all_donation_txes.append(tx)
 
-                # PROVISORY/TODO: in the case of donation txes it could make sense to keep the list from pst
-                self.donation_txes.update({tx.txid : tx})
-                q += 1
+                # We keep a dictionary of DonationTransactions for better lookup from the Parser.
+                if tx_type == "donation":
+                    self.donation_txes.update({tx.txid : tx})
 
             except (InvalidTrackedTransactionError, KeyError):
                 continue
@@ -299,26 +295,20 @@ class ParserState(object):
 
     def get_voting_txes(self, min_blockheight=None, max_blockheight=None):
         # gets ALL voting txes of a deck. Needs P2TH.
-        # TODO: change this to the same model than get_tracked_txes, should be added to the Proposal State.
-        # TODO: Is used in dt_utils in pacli, refactoring required.
+        # TODO: change this to the same model than get_tracked_txes, should be added to the Proposal State (now it's on the ParserState!).
         # uses a dict to group votes by proposal and by outcome ("positive" and "negative")
         # b'+' is the value for a positive vote, b'-' is negative, others are invalid.
         txdict = {}
+        outcome_options = { b'+' : "positive", b'-' : "negative" }
+
         for rawtx in get_marked_txes(self.provider, self.deck.derived_p2th_address("voting"), min_blockheight=min_blockheight, max_blockheight=max_blockheight):
 
             try:
-                #print("raw_tx", rawtx["txid"])
                 tx = VotingTransaction.from_json(tx_json=rawtx, provider=self.provider, deck=self.deck)
-                #print("correct voting tx", tx.txid)
+                outcome = outcome_options[tx.vote]
             except (KeyError, InvalidTrackedTransactionError):
                 continue
-
-            if tx.vote == b'+':
-                outcome = "positive"
-            elif tx.vote == b'-':
-                outcome = "negative"
-            else:
-                continue # all other characters are invalid
+            
             proposal_txid = tx.proposal.txid
 
             try:
@@ -330,5 +320,5 @@ class ParserState(object):
                 else: # if proposal_txid not present
                     txdict.update({ proposal_txid : { outcome : [tx] }})
 
-        return txdict
+        self.voting_txes = txdict
 

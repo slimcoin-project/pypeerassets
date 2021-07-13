@@ -33,7 +33,7 @@ def period_query(period_dict: dict, block: int) -> tuple:
         if end is None:
             end = block # this will make the check fail if it's not in E 0, because E 0 is the last period of all
         if start <= block <= end:
-            # for now returns a tuple, otherwise lookup is more complicated (tuple: period[0], dict: period.keys()[0])
+            # returns a tuple, otherwise lookup is more complicated (tuple: period[0], dict: period.keys()[0])
             return (key, value)
 
 def get_startendvalues(period: tuple, ps: ProposalState) -> list:
@@ -45,7 +45,7 @@ def humanreadable_to_periodcode(period_str: str, period_index: int) -> tuple:
     epoch_codes = ("B", "D") # B is "phase 1", D is "phase 2"
     pre_dist_periods = ("security", "voting", "release")
     dist_periods = ("signalling", "donation")
-    dist_epoch = period_index // 4 # only needed for signalling/donation
+    dist_phase = period_index // 4 # gives 0 or 1, only needed for signalling/donation
 
     if period_index > 4:
         period_index -= 4 # round 4-8 become round 1-5 of phase 2
@@ -53,6 +53,6 @@ def humanreadable_to_periodcode(period_str: str, period_index: int) -> tuple:
         # TODO: this does not rule out "release", 0 which would be invalid, do we need to catch this?
         return (epoch_codes[period_index], pre_dist_periods.index(period_str))
     else:
-        return (epoch_codes[dist_epoch], period_index * 10 + dist_periods.index(period_str))
+        return (epoch_codes[dist_phase], period_index * 10 + dist_periods.index(period_str))
 
     

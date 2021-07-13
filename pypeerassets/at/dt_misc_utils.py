@@ -87,28 +87,19 @@ def get_startendvalues(provider, proposal_txid, period):
 
     return {"start" : startblock, "end" : endblock}
 
-def get_votestate(provider, proposal_txid, phase=0, debug=False):
+def get_votestate(provider, proposal_txid, debug=False):
     """Get the state of the votes of a Proposal without calling the parser completely."""
 
-    proposal = get_proposal_state(provider, proposal_txid, phase=phase, debug=debug)
-
-    if debug: print("Start epoch:", proposal.start_epoch, "End epoch:", proposal.end_epoch)
-
-    if phase == 0:
-        votes = proposal.initial_votes
-    elif phase == 1:
-        votes = proposal.final_votes
-
-    if debug: print("Raw votes:", votes, "Phase:", phase)
-
+    proposal = get_proposal_state(provider, proposal_txid, phase=1, debug=debug)
     decimals = proposal.deck.number_of_decimals
-    # MODIFIED. We use now the main deck's decimals as a base, and adjust its weight in the parser according to the
+    # We use the main deck's decimals as a base, and adjust its weight in the parser according to the
     # difference in number of decimals between main deck and SDP deck.
-    # old:
-    # sdp_deck = deck_from_tx(proposal.deck.sdp_deckid, provider)
-    # decimals = sdp_deck.number_of_decimals
 
-    return format_votes(decimals, votes)
+    result = []
+    for phase in (proposal.initial_votes, proposal.final_votes):
+        result.append(format_votes(decimals, phase))
+
+    return result
 
 def get_dstate_from_txid(txid: str, proposal_state: ProposalState):
     # returns donation state from a signalling, locking or donation transaction.
@@ -216,8 +207,8 @@ def get_proposal_state(provider, proposal_id=None, proposal_tx=None, phase=None,
     pst = get_parser_state(provider, deck=pstate.deck, lastblock=lastblock, debug=debug, force_continue=True, force_dstates=True)
 
     for p in pst.proposal_states.values():
-        if debug: print("Checking proposal:", p.first_ptx.txid)
-        if p.first_ptx.txid == proposal_id:
+        if debug: print("Checking proposal:", p.id)
+        if p.id == proposal_id:
             proposal = p
             break
     else:
