@@ -15,164 +15,6 @@ from pypeerassets.at.transaction_formats import *
 from pypeerassets.at.dt_parser_utils import *
 from pypeerassets.at.dt_parser_state import ParserState
 
-
-def validate_proposer_issuance(pst, dtx_id, card_units, card_sender, card_blocknum):
-
-    proposal_state = pst.valid_proposals[dtx_id] # this is checked just before the call, so no "try/except" necessary.
-
-    # 1. Check if the card issuer is identical to the Proposer.
-    if card_sender not in proposal_state.valid_ptx.input_addresses:
-        if pst.debug: print("Proposer issuance failed: Incorrect card issuer.")
-        return False
-
-    # 2. Card must be issued after the last round deadline. Otherwise, a card could become valid for a couple of blocks,
-    # and then become invalid.
-    try:
-       last_round_start = proposal_state.rounds[8][0][0] # modified from round_starts
-    except (IndexError, AttributeError):
-       # if rounds attribute is still not set , e.g. because there was not a single Donation CardIssue.
-       # then we set all rounds.
-       proposal_state.set_rounds()
-       last_round_start = proposal_state.rounds[8][0][0]
-
-    if card_blocknum < last_round_start:
-        return False
-
-    if len(proposal_state.donation_states) == 0:
-        proposal_state.set_donation_states()
-
-    if card_units != proposal_state.proposer_reward:
-        return False
-
-    return True
-
-def validate_donation_issuance(pst, dtx_id, dtx_vout, card_units, card_sender):
-
-    """Main validation function for donations. Checks for each issuance if the donation was correct.
-    The donation transaction ID is provided (by the issue transaction)
-    and it is checked if it corresponds to a real donation."""
-
-    # Possible improvement: raise exceptions instead of simply returning False?
-
-    if pst.debug: print("Checking donation tx:", dtx_id)
-
-    # check A: does proposal exist?
-    if pst.debug: print("Valid proposals:", pst.valid_proposals)
-
-    # TODO: we have here no DonationTransaction object
-    # We will probably need to create the ProposalState searching in it for the donation txid.
-    # Or alternatively for the donation txid in pst.donation_txes
-    # Find a more efficient way! For now we will use the search ...
-    # MODIFIED: for now we use a dict.
-    try:
-        dtx = pst.donation_txes[dtx_id]
-    except KeyError:
-        if pst.debug: print("Donation transaction not found or not valid.")
-        return False
-
-    try:
-        proposal_state = pst.valid_proposals[str(dtx.proposal_txid)]
-    except KeyError:
-        if pst.debug: print("Proposal state does not exist or was not approved.")
-        return False
-
-    # We only associate donation/signalling txes to Proposals which really correspond to a card (token unit[s]) issued.
-    # This way, fake/no participation proposals and donations with no associated card issue attempts are ignored,
-    # which could be a way to attack the system with spam.
-
-    if len(proposal_state.donation_states) == 0:
-        proposal_state.set_donation_states(debug=pst.debug)
-
-    if pst.debug: print("Total number of donation txes:", len([tx for r in proposal_state.donation_txes for tx in r ]))
-
-    # check B: Does txid correspond to a real donation?
-    # We go through the DonationStates per round and search for the dtx_id.
-    # When we find it, we get the DonationState for the card issuance. 
-    for rd_states in proposal_state.donation_states:
-        for ds in rd_states.values():
-            if ds.donation_tx.txid == dtx_id:
-                break
-            else:
-                continue
-        break
-
-    # Check C: The card issuance transaction was signed really by the donor?
-    if card_sender != ds.donor_address:
-        return False
-
-    if pst.debug: print("Initial slot:", ds.slot, "Effective slot:", ds.effective_slot)
-    if pst.debug: print("Real donation", ds.donated_amount)
-    if pst.debug: print("Card amount:", card_units)
-    if pst.debug: print("Calculated reward:", ds.reward)
-    if pst.debug: print("Distribution Factor", proposal_state.dist_factor)
-
-
-    # Check D: Was the issued amount correct? 
-    if card_units != ds.reward:
-        if pst.debug: print("Incorrect issued token amount, different from the assigned slot.")
-        return False
-    else:
-        return True
-
-def get_valid_epoch_cards(pst, epoch_cards):
-
-    # This is the loop which checks all cards in an epoch for validity.
-    # It loops, in each epoch, through the current issuances and checks if they're associated to a valid donation.
-    # CONVENTION: voters' weight is the balance at the start block of current epoch
-
-    debug = pst.debug
-    # oldtxid = ""
-    valid_cards = []
-
-    if debug: print("Cards:", [card.txid for card in epoch_cards])
-
-    for card in epoch_cards:
-
-        card_data = card.asset_specific_data
-
-        if card.type == "CardIssue":
-
-            # First step: Look for a matching DonationTransaction.
-            dtx_id = card.donation_txid
-
-            # dtx_vout should currently always be 2. However, the variable is kept for future modifications.
-            dtx_vout_bytes = getfmt(card_data, CARD_ISSUE_DT_FORMAT, "out")
-            dtx_vout = int.from_bytes(dtx_vout_bytes, "big")            
-
-            # check 1: filter out duplicates (less expensive, so done first)
-            if (card.sender, dtx_id, dtx_vout) in pst.used_issuance_tuples:
-
-                if debug: print("Ignoring CardIssue: Duplicate.")
-                continue
-
-            card_units = sum(card.amount) # MODIFIED: this is already an int value based on the card base units!
-
-            # Is it a proposer or a donation issuance?
-            # Proposers provide ref_txid of their proposal transaction.
-            # If this TX is in proposal_txes, AND they are the sender of the card and fulfill all requirements,
-            # then they get the token to the proposal address.
-
-            if (dtx_id in pst.valid_proposals) and validate_proposer_issuance(pst, dtx_id, card_units, card.sender, card.blocknum):
-                if debug: print("DT CardIssue (Proposer):", card.txid)
-            elif validate_donation_issuance(pst, dtx_id, dtx_vout, card_units, card.sender):
-                if debug: print("DT CardIssue (Donation):", card.txid)
-            else:
-                if debug: print("Ignoring CardIssue: Invalid data.")
-                continue
-
-            valid_cards.append(card) # MODIFIED. So cards of all types are returned chronologically.
-            pst.used_issuance_tuples.append((card.sender, dtx_id, dtx_vout))
-
-        else:
-
-            # if card.txid != oldtxid: # The rest was after this IF condition. But is probably obsolete.
-            #   oldtxid = card.txid
-            if debug: print("DT CardTransfer:", card.txid)
-            valid_cards.append(card) # MODIFIED. So all cards are returned chronologically.
-
-    return valid_cards
-
-
 def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, initial_parser_state=None, force_dstates=False, force_continue=False, start_epoch=None, end_epoch=None):
     """Basic parser loop. Loops through all cards by epoch."""
 
@@ -214,7 +56,7 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
         pst.end_epoch = current_blockheight // deck.epoch_length + 1 # includes an incomplete epoch which just started
 
     if debug: print("Start and end epoch:", pst.start_epoch, pst.end_epoch)
-    
+
     for epoch in range(pst.start_epoch, pst.end_epoch):
 
         pst.epoch = epoch
@@ -237,7 +79,7 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
         epoch_cards = cards[lowpos:highpos]
 
         if debug: print("Cards found in this epoch:", len(epoch_cards))
-        
+
 
         # Epochs which have passed since the deck spawn
         epochs_from_start = epoch - pst.start_epoch
@@ -253,9 +95,9 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
             # Weight is calculated according to the epoch
             # Weight is reduced only in epochs where proposals were completely approved.
             sdp_weight = get_sdp_weight(pst.epochs_with_completed_proposals, deck.sdp_periods)
- 
+
             # Adjusted weight multiplies the token balance by the difference in decimal places
-            # between the main token and the SDP token. 
+            # between the main token and the SDP token.
             # adjusted_weight = sdp_weight * 10 ** pst.sdp_decimal_diff
 
             if len(sdp_epoch_balances) > 0: # MODIFIED: was originally new_sdp_voters
@@ -273,8 +115,8 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
         # if debug: print("Valid ending proposals after epoch:", pst.epoch, pst.valid_proposals)
 
         if (highpos == lowpos) or len(epoch_cards) > 0:
-            valid_epoch_cards = get_valid_epoch_cards(pst, epoch_cards)
-    
+            valid_epoch_cards = pst.get_valid_epoch_cards(epoch_cards)
+
         pst.enabled_voters.update(update_voters(voters=pst.enabled_voters, new_cards=valid_epoch_cards, debug=pst.debug))
         # if debug: print("New voters balances:", pst.enabled_voters)
 
