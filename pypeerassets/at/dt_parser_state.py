@@ -141,8 +141,9 @@ class ParserState(object):
     def update_approved_proposals(self):
         # Filters proposals which were approved in the first-round-voting.
         # TODO: To boost efficiency and avoid redundant checks, one could delete all
-        # already approved proposals from the original list (which should be re-branded to "unchecked proposals")
+        # already approved proposals from the original list (which should be renamed to "unchecked proposals")
         # Would also allow differentiate between unchecked and unapproved proposals.
+        # TODO: In this instance we need to call set_rounds again, or better a function "modify".
 
         for pstate in self.proposal_states.values():
 
@@ -150,11 +151,16 @@ class ParserState(object):
                 continue
 
             pstate.initial_votes = self.get_votes(pstate)
-            if self.debug: print("Votes round 1 for Proposal", pstate.first_ptx.txid, ":", pstate.initial_votes)
+            if self.debug: print("Votes round 1 for Proposal", pstate.id, ":", pstate.initial_votes)
 
             if pstate.initial_votes["positive"] <= pstate.initial_votes["negative"]:
                 pstate.state = "abandoned"
                 continue
+
+            # Set rounds, req_amount etc. again if a Proposal Modification was recorded.
+            # When this method is called, we already know the last (and thus valid) Proposal Modification.
+            if pstate.first_ptx.txid != pstate.valid_ptx.txid:
+                pstate.modify()
 
             self.approved_proposals.update({pstate.first_ptx.txid : pstate})
 
@@ -187,7 +193,6 @@ class ParserState(object):
         # Set the Distribution Factor (number to be multiplied with the donation/slot, according to proposals and token amount)
         # Must be in a second loop as we need the complete list of valid proposals which end in this epoch.
         # Maybe this can still be optimized, with a special case if there is a single proposal in this epoch.
-        # TODO: Should be probably a separate method. Would also allow to do the round checks in the same method for rd1 and 2.
 
         for pstate in ending_valid_proposals.values():
             if self.current_blockheight is not None and self.current_blockheight >= ((self.epoch + 1) * self.deck.epoch_length):
@@ -196,67 +201,6 @@ class ParserState(object):
                     pstate.state = "completed"
 
         self.valid_proposals.update(ending_valid_proposals)
-
-
-    def get_votes(self, proposal, formatted_result=False):
-        # returns a dictionary with two keys: "positive" and "negative",
-        # containing the amounts of the tokens with whom an address was voted.
-        # NOTE: The balances are valid for the epoch of the ParserState. So this cannot be called
-        #       for votes in other epochs.
-        # NOTE 2: In this protocol the last vote counts (this is why the vtxs list is reversed).
-        #       You can always change you vote.
-        # TODO: This is still without the "first vote can also be valid for second round" system.
-        # Formatted_result returns the "decimal" value of the votes, i.e. the number of "tokens"
-        # which voted for the proposal, which depends on the "number_of_decimals" value.
-        # TODO: ProposalState should have attributes to show every single vote and their balances (at least optional, for the pacli commands).
-
-        votes = {}
-        voters = [] # to filter out duplicates.
-        debug = self.debug
-
-        if debug: print("Enabled Voters:", self.enabled_voters)
-        try:
-            vtxes_proposal = self.voting_txes[proposal.first_ptx.txid]
-        except KeyError: # gets thrown if the proposal was not added to self.voting_txes, i.e. when no votes were found.
-            return {"positive" : 0, "negative" : 0}
-
-        voting_txes = []
-        for outcome in ("positive", "negative"):
-            if outcome in vtxes_proposal:
-                voting_txes += vtxes_proposal.get(outcome)
-
-        sorted_vtxes = sorted(voting_txes, key=lambda tx: tx.blockheight, reverse=True)
-
-        votes = { "negative" : 0, "positive" : 0 }
-
-        for v in sorted_vtxes: # reversed for the "last vote counts" rule.
-            if debug: print("Vote: Epoch", v.epoch, "txid:", v.txid, "sender:", v.sender, "outcome:", v.vote, "height", v.blockheight)
-            if (v.epoch == self.epoch) and (v.sender not in voters):
-                try:
-                    if debug: print("Vote is valid.")
-                    voter_balance = self.enabled_voters[v.sender] # voting token balance at start of epoch
-                    if debug: print("Voter balance", voter_balance)
-                    vote_outcome = "positive" if v.vote == b'+' else "negative"
-                    votes[vote_outcome] += voter_balance
-                    if debug: print("Balance of outcome", vote_outcome, "increased by", voter_balance)
-                    voters.append(v.sender)
-
-                except KeyError: # will always be thrown if a voter is not enabled in the "current" epoch.
-                    if debug: print("Voter has no balance in the current epoch.")
-                    continue
-
-            elif v.epoch < self.epoch: # due to it being sorted we can cut off all txes before the relevant epoch.
-                break
-
-        if formatted_result:
-            for outcome in ("positive", "negative"):
-                balance = Decimal(votes[outcome]) / 10 ** self.deck.number_of_decimals
-                # modified: base is number_of_decimals of main deck. old version:
-                # balance = Decimal(votes[outcome]) / 10**self.sdp_deck.number_of_decimals
-
-                votes.update({outcome : balance})
-
-        return votes
 
     def get_tracked_txes(self, tx_type, min_blockheight=None, max_blockheight=None):
         """Retrieves TrackedTransactions (except votes and proposals) for a deck from the blockchain
@@ -272,6 +216,9 @@ class ParserState(object):
                 elif tx_type == "signalling":
                     tx = SignallingTransaction.from_json(tx_json=rawtx, provider=self.provider, deck=self.deck)
 
+                # The ProposalTransaction is added as an object afterwards, to simplify the op_return procesing.
+                proposal_tx = self.proposal_states[tx.proposal_txid].first_ptx
+                tx.set_proposal(proposal_tx)
                 # We add the tx directly to the corresponding ProposalState.
                 # If the ProposalState does not exist, KeyError is thrown and the tx is ignored.
                 # When we create the first instance of the state we make a deepcopy.
@@ -293,12 +240,145 @@ class ParserState(object):
                 continue
         return q
 
+    def get_votes_old(self, proposal, formatted_result=False):
+        # TODO if it works it should be integrated in the ProposalState class.
+        # returns a dictionary with two keys: "positive" and "negative",
+        # containing the amounts of the tokens with whose address a proposal was voted.
+        # NOTE: The balances are valid for the epoch of the ParserState. So this cannot be called
+        #       for votes in other epochs.
+        # NOTE 2: In this protocol the last vote counts (this is why the vtxs list is reversed).
+        #       You can always change you vote.
+        # TODO: This is still without the "first vote can also be valid for second round" system.
+        # Formatted_result returns the "decimal" value of the votes, i.e. the number of "tokens"
+        # which voted for the proposal, which depends on the "number_of_decimals" value.
+
+        votes = {}
+        voters = [] # to filter out duplicates.
+        debug = self.debug
+
+        if debug: print("Enabled Voters:", self.enabled_voters)
+        try:
+            vtxes_proposal = self.voting_txes[proposal.id]
+        except KeyError: # gets thrown if the proposal was not added to self.voting_txes, i.e. when no votes were found.
+            return { "negative" : 0, "positive" : 0 }
+        # MODIFIED: we check if there were any votes in phase 0. If not, we already return 0 for both,
+        # because a proposal without first-round votes is always invalid.
+
+        votes = { "negative" : 0, "positive" : 0 }
+
+        voting_txes = []
+        for outcome in ("positive", "negative"):
+            if outcome in proposal:
+                voting_txes += vtxes_proposal.get(outcome)
+
+        sorted_vtxes = sorted(voting_txes, key=lambda tx: tx.blockheight, reverse=True)
+
+
+
+        for v in sorted_vtxes: # reversed for the "last vote counts" rule.
+            if debug: print("Vote: Epoch", v.epoch, "txid:", v.txid, "sender:", v.sender, "outcome:", v.vote, "height", v.blockheight)
+            if (v.epoch == self.epoch) and (v.sender not in voters):
+                try:
+                    if debug: print("Vote is valid.")
+                    voter_balance = self.enabled_voters[v.sender] # voting token balance at start of epoch
+                    if debug: print("Voter balance", voter_balance)
+                    vote_outcome = "positive" if v.vote == b'+' else "negative"
+                    votes[vote_outcome] += voter_balance
+                    if debug: print("Balance of outcome", vote_outcome, "increased by", voter_balance)
+                    voters.append(v.sender)
+
+                    # Vote states are appended to ProposalStates
+                    votestate = { "txid" : v.txid, "outcome" : vote_outcome, "voter" : v.sender, "balance" : voter_balance, "blockheight" : v.blockheight }
+                    if v.epoch == proposal.start_epoch:
+                        proposal.voting_states[0].append(votestate)
+                    elif v.epoch == proposal.end_epoch:
+                        proposal.voting_states[1].append(votestate)
+
+                except KeyError: # will always be thrown if a voter is not enabled in the "current" epoch.
+                    if debug: print("Voter has no balance in the current epoch.")
+                    continue
+
+            elif v.epoch < self.epoch: # due to it being sorted we can cut off all txes before the relevant epoch.
+                break
+
+        if formatted_result:
+            for outcome in ("positive", "negative"):
+                balance = Decimal(votes[outcome]) / 10 ** self.deck.number_of_decimals
+                # modified: base is number_of_decimals of main deck. old version:
+                # balance = Decimal(votes[outcome]) / 10**self.sdp_deck.number_of_decimals
+
+                votes.update({outcome : balance})
+
+        return votes
+
+
+    def get_votes(self, proposal, formatted_result=False):
+        # TODO if it works it should be integrated in the ProposalState class.
+        # returns a dictionary with two keys: "positive" and "negative",
+        # containing the amounts of the tokens with whose address a proposal was voted.
+        # NOTE: The balances are valid for the epoch of the ParserState. So this cannot be called
+        #       for votes in other epochs.
+        # NOTE 2: In this protocol the last vote counts (this is why the vtxs list is reversed).
+        #       You can always change you vote.
+        # TODO: This is still without the "first vote can also be valid for second round" system.
+        # Formatted_result returns the "decimal" value of the votes, i.e. the number of "tokens"
+        # which voted for the proposal, which depends on the "number_of_decimals" value.
+
+        votes = {}
+        voters = [] # to filter out duplicates.
+        debug = self.debug
+
+        if debug: print("Enabled Voters:", self.enabled_voters)
+
+        votes = { "negative" : 0, "positive" : 0 }
+        if len(proposal.all_voting_txes) == 0:
+            return votes
+
+        sorted_vtxes = sorted(proposal.all_voting_txes, key=lambda tx: tx.blockheight, reverse=True)
+
+        for v in sorted_vtxes: # reversed for the "last vote counts" rule.
+            if debug: print("Vote: Epoch", v.epoch, "txid:", v.txid, "sender:", v.sender, "outcome:", v.vote, "height", v.blockheight)
+            if (v.epoch == self.epoch) and (v.sender not in voters):
+                try:
+                    if debug: print("Vote is valid.")
+                    voter_balance = self.enabled_voters[v.sender] # voting token balance at start of epoch
+                    if debug: print("Voter balance", voter_balance)
+                    vote_outcome = "positive" if v.vote == b'+' else "negative"
+                    votes[vote_outcome] += voter_balance
+                    if debug: print("Balance of outcome", vote_outcome, "increased by", voter_balance)
+                    voters.append(v.sender)
+
+                    # set the weight in the transaction (vote_weight attribute)
+                    v.set_weight(voter_balance)
+
+                    # Valid voting txes are appended to ProposalStates.voting_txes by round and outcome
+                    if v.epoch == proposal.start_epoch:
+                        proposal.voting_txes[0].append(v)
+                    elif v.epoch == proposal.end_epoch:
+                        proposal.voting_txes[1].append(v)
+
+                except KeyError: # will always be thrown if a voter is not enabled in the "current" epoch.
+                    if debug: print("Voter has no balance in the current epoch.")
+                    continue
+
+            elif v.epoch < self.epoch: # due to it being sorted we can cut off all txes before the relevant epoch.
+                break
+
+        if formatted_result:
+            for outcome in ("positive", "negative"):
+                balance = Decimal(votes[outcome]) / 10 ** self.deck.number_of_decimals
+                # modified: base is number_of_decimals of main deck. old version:
+                # balance = Decimal(votes[outcome]) / 10**self.sdp_deck.number_of_decimals
+
+                votes.update({outcome : balance})
+
+        return votes
+
     def get_voting_txes(self, min_blockheight=None, max_blockheight=None):
         # gets ALL voting txes of a deck. Needs P2TH.
-        # TODO: change this to the same model than get_tracked_txes, should be added to the Proposal State (now it's on the ParserState!).
+        # MODIFIED: Votes now get stored along the ProposalState, not the ParserState.
         # uses a dict to group votes by proposal and by outcome ("positive" and "negative")
         # b'+' is the value for a positive vote, b'-' is negative, others are invalid.
-        txdict = {}
         outcome_options = { b'+' : "positive", b'-' : "negative" }
 
         for rawtx in get_marked_txes(self.provider, self.deck.derived_p2th_address("voting"), min_blockheight=min_blockheight, max_blockheight=max_blockheight):
@@ -309,18 +389,13 @@ class ParserState(object):
             except (KeyError, InvalidTrackedTransactionError):
                 continue
 
+            # The ProposalTransaction is added as an object afterwards, to simplify the op_return procesing.
+            proposal_state = self.proposal_states[tx.proposal_txid]
+            proposal_tx = proposal_state.first_ptx
+            tx.set_proposal(proposal_tx)
             proposal_txid = tx.proposal.txid
 
-            try:
-                txdict[proposal_txid][outcome].append(tx)
-
-            except KeyError:
-                if proposal_txid in txdict: # if "outcome" still not present
-                    txdict[proposal_txid].update({ outcome : [tx] })
-                else: # if proposal_txid not present
-                    txdict.update({ proposal_txid : { outcome : [tx] }})
-
-        self.voting_txes = txdict
+            proposal_state.all_voting_txes.append(tx)
 
 
     def validate_proposer_issuance(self, dtx_id, card_units, card_sender, card_blocknum):
@@ -335,15 +410,18 @@ class ParserState(object):
 
         # 2. Card must be issued after the last round deadline. Otherwise, a card could be valid for a couple of blocks,
         # and then become invalid.
+        # TODO this may be innecessary, as this is valid for all issuances, not only Proposer issuances.
+        # But check first if there are different checks in donation issuances.
         try:
-           last_round_start = proposal_state.rounds[8][0][0] # modified from round_starts
+           # MODIFIED: as the Proposer round is not longer necessary, modified [8][0][0] to [7][1][1] + 1
+           last_round_end = proposal_state.rounds[7][1][1] + 1 # modified from round_starts
         except (IndexError, AttributeError):
            # if rounds attribute is still not set , e.g. because there was not a single Donation CardIssue.
-           # then we set all rounds.
+           # then we set rounds. Should normally not be necessary, as rounds is now finalized in update_approved_proposals.
            proposal_state.set_rounds()
-           last_round_start = proposal_state.rounds[8][0][0]
+           last_round_end = proposal_state.rounds[7][1][1] + 1
 
-        if card_blocknum < last_round_start:
+        if card_blocknum < last_round_end:
             return False
 
         if len(proposal_state.donation_states) == 0:
@@ -368,11 +446,7 @@ class ParserState(object):
         # check A: does proposal exist?
         if debug: print("Valid proposals:", self.valid_proposals)
 
-        # TODO: we have here no DonationTransaction object
-        # We will probably need to create the ProposalState searching in it for the donation txid.
-        # Or alternatively for the donation txid in self.donation_txes
-        # Find a more efficient way! For now we will use the search ...
-        # MODIFIED: for now we use a dict.
+        # MODIFIED: for now we use a dict for the DonationTransaction objects, so they can be called fastly.
         try:
             dtx = self.donation_txes[dtx_id]
         except KeyError:
@@ -467,13 +541,13 @@ class ParserState(object):
                     if debug: print("Ignoring CardIssue: Invalid data.")
                     continue
 
-                valid_cards.append(card) # MODIFIED. So cards of all types are returned chronologically.
+                valid_cards.append(card) # Cards of all types are returned chronologically.
                 self.used_issuance_tuples.append((card.sender, dtx_id, dtx_vout))
 
             else:
 
                 if debug: print("DT CardTransfer:", card.txid)
-                valid_cards.append(card) # MODIFIED. So all cards are returned chronologically.
+                valid_cards.append(card)
 
         return valid_cards
 

@@ -15,8 +15,6 @@ from btcpy.structs.sig import P2shSolver, AbsoluteTimelockSolver, P2pkhSolver
 from decimal import Decimal
 from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
 from pypeerassets.at.transaction_formats import getfmt, PROPOSAL_FORMAT
-from binascii import unhexlify
-import hashlib as hl
 from collections import namedtuple
 
 ## Basic functions
@@ -27,7 +25,7 @@ def coin_value(network_name: str=None, network: namedtuple=None):
             raise ValueError("You must provide either network name or network object.")
         else:
             network = net_query(network_name)
-                
+
     return int(1 / network.from_unit)
 
 def sats_to_coins(sats: int, network_name: str=None, network: namedtuple=None) -> Decimal:
@@ -45,70 +43,39 @@ def min_p2th_fee(network) -> int:
 
 ## States / Periods
 
-def get_startendvalues(provider, proposal_txid, period):
-    # TODO: should be obsolete once the periods are all stored as attributes of the ProposalState.
-    # TODO: Unittest for that (should be easy).
-    # ./paclix transaction dt_vote 617005e36d23794763521ac3bad6d53a0ad6ee4259c8e45d8e81cdd09d67d595 81b042e652bd807ed2fd1cef069f90701a2fd1ae9385dc90cf69a5404a1f92e6 "+" --check_phase=1 --wait
-    # result: phase_start: 484022 phase_end: 484044 epoch_length 22
-    # This is mainly for PACLI. It returns the start and end block of the current period.
-    # Periods have the following format: (PERIOD_TYPE, round/phase).
-    # For example, the first voting phase is: ("voting", 0)
-    # and the second dist_round for signalling is: ("signalling", 1)
-
-    proposal_tx = proposal_from_tx(proposal_txid, provider)
-    # TODO: This still doesn't deal with Proposal Modifications. Will probably need a function get_last_proposal.
-    p = ProposalState(first_ptx=proposal_tx, valid_ptx=proposal_tx, provider=provider)
-
-    # TODO 2: Look if we can already implement the "voting only once and change vote" system (maybe we can simply go with the following rule for round 2: round 1 votes are added to round 2 votes, and only the last vote counts)
-    if (period == ("voting", 0)) or (period[0] in ("signalling", "locking", "donation") and period[1] < 5):
-        phase_start = p.dist_start # (p.start_epoch + 1) * p.deck.epoch_length
-    else:
-        phase_start = p.end_epoch * p.deck.epoch_length
-
-    phase_end = phase_start + p.deck.epoch_length - 1
-
-    print("Start of this distribution period:", phase_start, "End:", phase_end, "Period length:", p.deck.epoch_length)
-
-    # TODO reorganize this with "ps.rounds", much easier and less error prone.
-    if period[0] == "voting":
-        startblock = phase_start + p.security_periods[period[1]]
-        endblock = startblock + p.voting_periods[period[1]] - 1
-    elif period[0] == "signalling":
-        startblock = p.round_starts[period[1]]
-        endblock = p.round_halfway[period[1]] - 1
-    elif period[0] in ("locking", "donation"):
-        startblock = p.round_halfway[period[1]]
-        # endblock = min(p.round_starts[period[1] + 1], phase_end) - 1 # TODO: wrong number in round 4
-        endblock = p.round_starts[period[1]] + p.round_lengths[1] - 1
-
-    elif period[0] == "release":
-        startblock = phase_start + p.security_periods[period[1]] + p.voting_periods[period[1]]
-        endblock = startblock + p.release_period - 1
-
-    return {"start" : startblock, "end" : endblock}
-
 def get_votestate(provider, proposal_txid, debug=False):
     """Get the state of the votes of a Proposal without calling the parser completely."""
 
-    proposal = get_proposal_state(provider, proposal_txid, phase=1, debug=debug)
+    proposal = get_proposal_state(provider, proposal_txid, debug=debug) # Modified: eliminated phase=1 parameter.
     decimals = proposal.deck.number_of_decimals
     # We use the main deck's decimals as a base, and adjust its weight in the parser according to the
     # difference in number of decimals between main deck and SDP deck.
 
     result = []
-    for phase in (proposal.initial_votes, proposal.final_votes):
-        result.append(format_votes(decimals, phase))
+    for phase_votes in (proposal.initial_votes, proposal.final_votes):
+        result.append(format_votes(decimals, phase_votes))
 
     return result
 
-def get_dstate_from_txid(txid: str, proposal_state: ProposalState):
+def get_dstates_from_txid(txid: str, proposal_state: ProposalState, only_signalling=False):
     # returns donation state from a signalling, locking or donation transaction.
+    # If the tx given includes a reserved amount; then it will be shown in two dstates, and both being returned.
+    # The only_signalling flag avoids that a txid gives two results (necessary for pacli's get_previous_tx_input_data).
+    # It only searches in txes marked as signalling and reserve transactions, which are the ones needed for this function;
+    # if allowing the other tx types, there could be a donation/locking tx as well.
 
+    allowed_txes = [ds.signalling_tx.txid, ds.reserve_tx.txid]
+    if not only_signalling:
+        allowed_txes += [ds.locking_tx.txid, ds.donation_tx.txid]
+    result = []
     for ds in proposal_state.donation_states:
-        if txid in (ds.signalling_tx.txid, ds.locking_tx.txid, ds.reserve_tx.txid, ds.donation_tx.txid):
-            return ds
+        if txid in allowed_txes:
+            result.append(ds)
     else:
         return None
+
+    return result
+
 
 def get_dstates_from_address(address: str, proposal_state: ProposalState, dist_round: int=None):
     # returns donation state from a signalling, locking or donation transaction.
@@ -121,7 +88,7 @@ def get_dstates_from_address(address: str, proposal_state: ProposalState, dist_r
 
         if dist_round and (rd != dist_round):
             continue
-        
+
         for ds in rd_states.values():
             for tx in [ ds.signalling_tx, ds.locking_tx, ds.reserve_tx ]:
                if tx is None:
@@ -136,14 +103,16 @@ def get_dstates_from_address(address: str, proposal_state: ProposalState, dist_r
 
     return states
 
-def get_donation_state(provider, proposal_id=None, proposal_tx=None, tx_txid=None, address=None, phase=None, debug=False, dist_round=None, pos=None):
+def get_donation_states(provider, proposal_id=None, proposal_tx=None, tx_txid=None, address=None, phase=1, debug=False, dist_round=None, pos=None):
 
-    # TODO: check this for redundancy (proposal_id/tx).
+    # NOTE: phase is set as a default to 1.
+    # NOTE: we give the option to call this function already with the full proposal_tx if already available.
     proposal_state = get_proposal_state(provider, proposal_id=proposal_id, proposal_tx=proposal_tx, phase=phase, debug=debug)
 
     if tx_txid is not None:
-        # TODO: re-check: this should give a list!
-        result = get_dstate_from_txid(txid, proposal_state)
+        # MODIFIED: gives now a list, because it can have two results if the tx includes a reserved amount.
+        # result = get_dstate_from_txid(txid, proposal_state)
+        result = get_dstates_from_txid(tx_txid, proposal_state)
     elif address is not None:
         states = get_dstates_from_address(address, proposal_state, dist_round=dist_round)
         if debug: print("All donation states for address {}:".format(address), states)
@@ -154,10 +123,10 @@ def get_donation_state(provider, proposal_id=None, proposal_tx=None, tx_txid=Non
                 result = None
         else:
             result = states
-         
+
     else:
         result = [s for rddict in proposal_state.donation_states for s in rddict.values()]
- 
+
     return result
 
 def proposal_from_tx(proposal_id, provider):
@@ -183,7 +152,9 @@ def get_parser_state(provider, deck=None, deckid=None, lastblock=None, debug=Fal
     # NOTE: we don't need to return valid_cards as it is saved in pst.
     return pst
 
-def get_proposal_state(provider, proposal_id=None, proposal_tx=None, phase=None, debug=False, deck=None):
+def get_proposal_state(provider, proposal_id=None, proposal_tx=None, debug=False, deck=None):
+    # version 2: does not create an additional proposal state and always does the complete check (phase=1).
+    # MODIFIED: parameter phase eliminated. If we needed it, we could also derive it from the ptx values.
 
     current_blockheight = provider.getblockcount()
     if not proposal_tx:
@@ -191,20 +162,18 @@ def get_proposal_state(provider, proposal_id=None, proposal_tx=None, phase=None,
     else:
         ptx = proposal_tx
         proposal_id = ptx.txid
-    # TODO: Does probably not deal with ProposalModifications still.
 
-    pstate = ProposalState(first_ptx=ptx, valid_ptx=ptx, provider=provider)
+    # pstate = ProposalState(first_ptx=ptx, valid_ptx=ptx, provider=provider)
+    if debug: print("Deck:", ptx.deck.id)
 
-    if debug: print("Deck:", pstate.deck.id)
+    #if phase == 0:
+    #    lastblock = min(current_blockheight, pstate.dist_start + pstate.deck.epoch_length)
+    #elif phase == 1:
+    #    lastblock = min(current_blockheight, (pstate.end_epoch + 1) * pstate.deck.epoch_length)
+    #else:
+    #    raise ValueError("No correct phase number entered. Please enter 0 or 1.")
 
-    if phase == 0:
-        lastblock = min(current_blockheight, pstate.dist_start + pstate.deck.epoch_length)
-    elif phase == 1:
-        lastblock = min(current_blockheight, (pstate.end_epoch + 1) * pstate.deck.epoch_length)
-    else:
-        raise ValueError("No correct phase number entered. Please enter 0 or 1.")
-
-    pst = get_parser_state(provider, deck=pstate.deck, lastblock=lastblock, debug=debug, force_continue=True, force_dstates=True)
+    pst = get_parser_state(provider, deck=ptx.deck, lastblock=current_blockheight, debug=debug, force_continue=True, force_dstates=True)
 
     for p in pst.proposal_states.values():
         if debug: print("Checking proposal:", p.id)
@@ -253,12 +222,6 @@ def create_p2pkh_txout(value: int, address: str, n: int, network: namedtuple):
     script = p2pkh_script(network.shortname, address) # we need the shortname here
     return TxOut(value=value, n=n, script_pubkey=script, network=network)
 
-# not working properly, creates nonstandard tx, p2sh is needed!
-#def create_cltv_txout(value: int, address: str, n: int, timelock: int, network=PeercoinTestnet):
-#    print("Network", network, "Addr", address)
-#    script = DonationTimeLockScript(raw_locktime=timelock, dest_address_string=address, network=network)
-#    return TxOut(value=value, n=n, script_pubkey=script, network=network)
-
 def create_p2sh_txout(value: int, redeem_script: DonationTimeLockScript, n: int, network: namedtuple):
     p2sh_script = P2shScript(redeem_script)
     out = TxOut(value=value, n=n, script_pubkey=p2sh_script, network=network)
@@ -280,11 +243,10 @@ def create_p2th_txout(deck, tx_type, fee, network: namedtuple):
     p2th_addr = deck.derived_p2th_address(tx_type)
     return create_p2pkh_txout(value=fee, address=p2th_addr, n=0, network=network)
 
-def create_opreturn_txout(tx_type: str, data: bytes, network: namedtuple):
-    # Warning: always creates the opreturn out at n=1.
-    #data = datastr.encode("utf-8")
+def create_opreturn_txout(tx_type: str, data: bytes, network: namedtuple, position=1):
+    # By default creates the opreturn out at n=1.
     script = nulldata_script(data)
-    return TxOut(value=0, n=1, script_pubkey=script, network=network)
+    return TxOut(value=0, n=position, script_pubkey=script, network=network)
 
 
 def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, network_name: str, amount: int=None, proposal_txid: str=None, data: bytes=None, address: str=None, version: int=1, change_address: str=None, tx_fee: int=None, p2th_fee: int=None, input_txid: str=None, input_vout: int=None, input_address: str=None, locktime: int=0, cltv_timelock: int=0, reserved_amount: int=None, reserve_address: str=None, debug: bool=False):
@@ -294,12 +256,16 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, network_nam
             proposal_txid = str(data[2:34].hex())
 
     try:
-        # MODIF: network is the PeercoinTestnet ... obj and already includes the parameters, so net_query should not be needed!
         network = net_query(network_name)
         if not tx_fee:
-            tx_fee = coins_to_sats(network.min_tx_fee, network=network) # TODO: could be improved perhaps. this is rough, as it is min_tx_fee per kB, but a TrackedTransaction should only seldom have more than 1 kB.
+            # We use a flat fee, as tx will be mostly under 1 kB (check would be complicated). If it's bigger, an error will be thrown.
+            # In coins without min_tx_fee, the fee must be set manually.
+            if network.min_tx_fee > 0:
+                tx_fee = coins_to_sats(network.min_tx_fee, network=network)
+            else:
+                raise ValueError("This coin has no minimum transaction fee. You must provide the fee manually.")
         if not p2th_fee:
-            p2th_fee = coins_to_sats(min_p2th_fee, network=network)
+            p2th_fee = coins_to_sats(min_p2th_fee(network), network=network)
 
         p2th_output = create_p2th_txout(deck, tx_type, fee=p2th_fee, network=network)
         data_output = create_opreturn_txout(tx_type, data, network=network)
@@ -319,9 +285,7 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, network_nam
             print("P2SH address generated by this Locking Transaction:", p2sh_addr)
             print("You will need the keys for address", address, "to spend funds.")
             p2sh_output = create_p2sh_txout(amount, redeem_script, n=2, network=network)
-            # p2pkh_output = create_p2pkh_txout(amount, p2sh_addr.__str__(), 2)
             outputs.append(p2sh_output)
-            # outputs.append(create_cltv_txout(value=amount, address=address, n=2, timelock=cltv_timelock))
         elif tx_type in ("signalling", "donation"):
             value_output = create_p2pkh_txout(value=amount, address=address, n=2, network=network)
             outputs.append(value_output)
@@ -334,32 +298,26 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, network_nam
             reserved_amount = 0
 
         complete_amount = amount + reserved_amount + p2th_output.value + tx_fee
-        #if (input_txid is not None) and (input_vout is not None):
+
         if None not in (input_txid, input_vout):
-            input_tx = provider.getrawtransaction(input_txid, 1) # TODO: re-check if this is really needed.
+            input_tx = provider.getrawtransaction(input_txid, 1)
             inp_output = input_tx["vout"][input_vout]
             inp = MutableTxIn(txid=input_txid, txout=input_vout, script_sig=ScriptSig.empty(), sequence=Sequence.max())
             inputs = [inp]
-            #input_value = int(input_tx["vout"][input_vout]["value"] * coin)
             input_value = coins_to_sats(Decimal(input_tx["vout"][input_vout]["value"]), network=network)
         elif input_address:
             dec_complete_amount = sats_to_coins(Decimal(complete_amount), network=network)
             input_query = provider.select_inputs(input_address, dec_complete_amount)
             inputs = input_query["utxos"]
-            # input_value = int(input_query["total"] * coin)
             input_value = coins_to_sats(Decimal(input_query["total"]), network=network)
-            inp = inputs[0] # TODO: check!
         else:
             raise ValueError("No input information provided.") # we need input address or input txid/vout
-        
+
         change_value = input_value - complete_amount
         if debug: print("Change value and complete amount:", change_value, complete_amount)
-        #change_value = complete_amount - sum([i.value for i in inputs])
 
         # Look if there is change, if yes, create fourth output.
-        # TODO: Could be improved if an option creates a higher tx fee when the rest is dust.
-
-        if change_value >= 10000: # MODIFIED, it must be higher then the minimum amount. Otherwise it will be discarded as fee. TODO this is hardcoded, so it must be replaced by some network value!
+        if change_value >= p2th_fee: # Change amount must be higher then the minimum amount, which is equal to the default p2th_fee. Otherwise it will be discarded as fee.
             # If no change address is delivered we use the address from the input.
             if change_address is None:
                 if input_address is None:
@@ -377,35 +335,26 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, network_nam
                                        locktime=Locktime(locktime)
                                        )
 
+        if (unsigned_tx.size > 1000) and (network.min_tx_fee > 0):
+            # For now we don't change the fee/change value if the size is higher as 1 kB. May change in future versions.
+            raise Exception("Transaction too big (max: 1 kB). Please use other inputs or another address.")
         return unsigned_tx
 
     except IndexError: # (IndexError, AttributeError, ValueError):
         raise InvalidTrackedTransactionError("Invalid Transaction creation.")
 
 
-def pubkey_to_hashed_data(pubkey_hex):
-    # TODO: this seems to be much faster than Kutil, but re-check! Normally we should be able to do the same with kutil
-    pubkey = bytearray.fromhex(pubkey_hex)
-    round1 = hl.sha256(pubkey).digest()
-    h = hl.new('ripemd160')
-    h.update(round1)
-    pubkey_hash = h.digest()
-    return pubkey_hash
-
-
 def sign_p2sh_transaction(provider: Provider, unsigned: MutableTransaction, redeem_script: AbsoluteTimelockScript, key: Kutil):
-    # TODO: name 'locktime' is not defined
 
     # Original for P2PKH uses Kutil.
-
     # from pypeerassets kutil:
     # "due to design of the btcpy library, TxIn object must be converted to TxOut object before signing"
-    locktime = redeem_script.locktime
     txins = [find_parent_outputs(provider, i) for i in unsigned.ins]
     inner_solver = P2pkhSolver(key._private_key)
-    redeem_script_solver = AbsoluteTimelockSolver(locktime, inner_solver)
-    solver = P2shSolver(redeem_script, redeem_script_solver) # is P2ShSolver really needed? Possibly it's only AbsoluteTimelockSolver
 
+    solver = AbsoluteTimelockSolver(redeem_script.locktime, inner_solver) # TODO: re-check if this is confirmed and works as expected.
+    # redeem_script_solver = AbsoluteTimelockSolver(redeem_script.locktime, inner_solver)
+    # solver = P2shSolver(redeem_script, redeem_script_solver)
     #print(txins)
     #print(inner_solver)
     #print(solver)

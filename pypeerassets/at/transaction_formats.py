@@ -2,9 +2,9 @@
 
 """Basic formats of donation/proposal/signalling transactions and other constants.
 
-Format is a a dictionary with tuples: 
+Format is a a dictionary with tuples:
 
-- the first is the position of the first byte of the item in the OP_RETURN bytestring 
+- the first is the position of the first byte of the item in the OP_RETURN bytestring
 - the second one is the byte length of the item. If it is variable, then this value has to be 0.
 
 Note: OP_RETURN has 100 bytes maximum, so no large numbers of items can be stored. Current maximum of this protocol is 76 bytes for the Proposal format (which doesn't need other additions).
@@ -25,7 +25,7 @@ LOCK_LEN = 4 # up to ~4 billion blocks (3 bytes - 16 million - is probably too f
 # some general constants (originally in parser file, but we need them elsewhere.)
 
 # This is the minimum amount of blocks after a new epoch start before a new voting or slot allocation period can start, to prevent any edge effects.
-# MODIFIED: The following values now depend on ProposalState.round_length. Security period is half of a round_length (minimum 2), voting_period 4 times round_length (equivalent to a whole "distribution phase"). 
+# MODIFIED: The following values now depend on ProposalState.round_length. Security period is half of a round_length (minimum 2), voting_period 4 times round_length (equivalent to a whole "distribution phase").
 #DEFAULT_SECURITY_PERIOD = 2
 # roughly equivalent to 7 days; 1 day has between ~960 and ~1100 blocks
 #DEFAULT_VOTING_PERIOD = 288 # for PPC. 144 is one day.
@@ -78,11 +78,11 @@ LOCKING_FORMAT_LEGACY = { "id" : (0, ID_LEN), # identification of locking txes
 # Deck may not be necessary! Can be derived probably from the P2TH id.
 
 SIGNALLING_FORMAT = { "id" : (0, ID_LEN),
-                    "prp" : (ID_LEN, TX_LEN) 
+                    "prp" : (ID_LEN, TX_LEN)
                     }
 
 VOTING_FORMAT = { "id" : (0, ID_LEN),
-                    "prp" : (ID_LEN, TX_LEN), 
+                    "prp" : (ID_LEN, TX_LEN),
                     "vot" : (ID_LEN + TX_LEN, 1)
                     }
 
@@ -97,7 +97,6 @@ CARD_ISSUE_AT_FORMAT = { "id" : (0, ID_LEN),
                 }
 
 # TODO: check if "out" is needed, as per convention donation amounts are always in vout "2".
-# MODIFIED: MTX is no longer needed.
 CARD_ISSUE_DT_FORMAT = { "id" : (0, ID_LEN),
                   "dtx" : (ID_LEN, TX_LEN),
                   "out" : (ID_LEN + TX_LEN, 1),
@@ -153,7 +152,7 @@ TX_IDENTIFIERS = { "proposal" : "DP", "signalling": "DS", "locking" : "DL", "don
 def getfmt(strvar, fmt, key):
     # this function returns the part of a string or bytes variable defined in these formats.
     begin = fmt[key][0]
-    if fmt[key][1] == 0: # variable length 
+    if fmt[key][1] == 0: # variable length
         return strvar[begin:]
     else:
         end = fmt[key][0] + fmt[key][1]
@@ -176,7 +175,6 @@ def setfmt(params: dict, fmt: dict=None, tx_type: str=None):
             raise ValueError("Incomplete parameters.")
 
         if type(current_param) == str:
-            #if len([c for c in current_param if c not in "0123456789abcdef"]) > 0:
             try:
                 assert len(current_param) == 64 # length of TXIDs which are the only hex values
                 par = bytes.fromhex(current_param)
@@ -187,10 +185,13 @@ def setfmt(params: dict, fmt: dict=None, tx_type: str=None):
 
         elif type(current_param) == int:
             par = current_param.to_bytes(par_len, "big")
+        elif current_param is None: # a None value is always the last one. TODO: look if this can be enforced.
+            break
+        else:
+            raise ValueError("Values must be str, int or None.")
         bytestr += par
 
-    # print(len(bytestr))
     return bytestr
-                
-            
- 
+
+
+

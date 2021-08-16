@@ -4,7 +4,6 @@
 It loops through the cards by epoch, instead by card. This allows to update the enabled voters in each epoch,
 and so calculate the valid proposals which were selected from the next epoch.
 Minor functions are in dt_parser_utils. """
-# TODO: All functions with the exception of dt_parser should go into ParserState, as they use the pst variable centrally.
 
 from decimal import Decimal
 
@@ -21,6 +20,7 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
     # print([(c.txid, c.sender, c.receiver, c.amount, c.blocknum) for c in cards])
 
     # TODO: This should not be necessary normally, why is the list not chronologically ordered?
+    # TODO: Transactions in the same block must also be ordered by block position.
     cards.sort(key=lambda x: x.blocknum)
 
     if debug: print("Starting parser.")
@@ -87,7 +87,7 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
 
         if debug: print("SDP periods remaining:", (deck.sdp_periods - epochs_from_start))
 
-        if (deck.sdp_periods != 0) and (epochs_from_start <= deck.sdp_periods): # voters from other tokens
+        if (deck.sdp_periods > 0) and (epochs_from_start <= deck.sdp_periods): # voters from other tokens
 
             # We set apart all CardTransfers of SDP voters before the epoch start
             sdp_epoch_balances = pst.get_sdp_balances()

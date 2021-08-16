@@ -15,7 +15,7 @@ from copy import deepcopy
 
 def get_marked_txes(provider, p2th_account, min_blockheight=None, max_blockheight=None):
     # basic function. Gets all txes sent to a P2TH address, looping through "listtransactions".
-    # TODO: this needs before the address being imported into the wallet, and the account being set to its name.
+    # This needs before the address being imported into the coin wallet, and the account being set to its name.
     # (see import_p2th_address)
 
     if min_blockheight is not None:
@@ -33,7 +33,7 @@ def get_marked_txes(provider, p2th_account, min_blockheight=None, max_blockheigh
            if min_blockheight:
               if tx["blocktime"] < min_blocktime:
                   continue
-           
+
            txlist.append(provider.getrawtransaction(tx["txid"], 1))
 
         if len(newtxes) < 999: # lower than limit
@@ -52,15 +52,27 @@ def get_proposal_states(provider, deck, current_blockheight=None, all_signalling
         try:
             # print("rawtx:", rawtx)
             tx = ProposalTransaction.from_json(tx_json=rawtx, provider=provider, deck=deck)
-            # print("tx:", tx)
-            if tx.txid not in used_firsttxids:
+            # print("tx checked:", tx.txid, "first ptx", tx.first_ptx_txid)
+            """if tx.txid not in used_firsttxids:
                 state = ProposalState(first_ptx=tx, valid_ptx=tx, current_blockheight=current_blockheight, all_signalling_txes=all_signalling_txes, all_donation_txes=all_donation_txes, all_locking_txes=all_locking_txes, provider=provider)
             else:
                 state = statedict[tx.txid]
                 if state.first_ptx.txid == tx.first_ptx_txid:
                     state.valid_ptx = tx # TODO: This could need an additional validation step, although it is unlikely it can be used for attacks.
                 else:
+                    continue"""
+
+            if tx.txid not in used_firsttxids: # filters out duplicates
+                if (tx.first_ptx_txid in (None, tx.txid)) or len(tx.first_ptx_txid) != 64: # case 1: new proposal transaction # TODO: extra condition added for invalid proposals!
+                    state = ProposalState(first_ptx=tx, valid_ptx=tx, current_blockheight=current_blockheight, all_signalling_txes=all_signalling_txes, all_donation_txes=all_donation_txes, all_locking_txes=all_locking_txes, provider=provider)
+                elif tx.first_ptx_txid in statedict: # case 2: proposal modification
+                    state = statedict[tx.first_ptx_txid]
+                    if state.first_ptx.donation_address == tx.donation_address:
+                        state.valid_ptx = tx
+                else: # case 3: invalid first ptx
                     continue
+            else: # case 4: duplicate
+                continue
 
         except InvalidTrackedTransactionError as e:
             print(e)
@@ -68,6 +80,7 @@ def get_proposal_states(provider, deck, current_blockheight=None, all_signalling
 
         statedict.update({ tx.txid : state })
         used_firsttxids.append(tx.txid)
+        # print("updated state", tx.txid)
 
     return statedict
 
@@ -76,6 +89,7 @@ def get_proposal_states(provider, deck, current_blockheight=None, all_signalling
 # An idea could be to use burn transactions in the last epoch (if it's the first epoch, then it would be simply "counting backwards") -> but this would encourage burning perhaps too much
 # second idea: the deck issuer could vote for the first Proposal, or define the voters. However, this would make the token have a centralized element.
 # "all proposals are voted" or "voting by the donors" are not possible as they have a risk of cheating.
+# maybe best is make SDP mandatory.
 
 def get_sdp_weight(epochs_from_start: int, sdp_periods: int) -> Decimal:
     # Weight calculation for SDP token holders
@@ -131,7 +145,7 @@ def update_voters(voters={}, new_cards=[], weight=1, dec_diff=0, debug=False):
                 else:
                     old_amount = voters[receiver]
                     if debug: print("Voter:", receiver, "with old_amount:", old_amount, "updated to new amount:", old_amount + rec_amount)
-                    
+
                     voters.update({receiver : old_amount + rec_amount})
 
         # if cardissue, we only add balances to receivers, nothing is deducted.
@@ -152,7 +166,7 @@ def update_voters(voters={}, new_cards=[], weight=1, dec_diff=0, debug=False):
 
 def deck_from_tx(txid: str, provider: Provider, deck_version: int=1, prod: bool=True):
     '''Wrapper for deck_parser, gets the deck from the TXID.'''
-    # TODO: this may fit better in dt_misc_utils
+    # NOTE: at a first glance this may fit better in dt_misc_utils, but then it throws a circular import.
     from pypeerassets.pautils import deck_parser
 
     params = param_query(provider.network)
