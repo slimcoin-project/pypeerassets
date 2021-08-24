@@ -98,17 +98,16 @@ class ParserState(object):
 
             # We must ensure process_donation_states is only called once per round, otherwise
             # Locking/DonationTransactions will not be added (because of the 1 state per donor address restriction)
+            # MODIFIED. "processed" variable is now implemented, so double processing should be prevented with a simpler check.
+            phase = 1 if self.epoch <= p.end_epoch else 0 # TODO: re-check this!
+            if not p.processed[phase]:
+                p.set_donation_states(debug=self.debug, current_blockheight=self.current_blockheight)
+
             # Explanation: In the case the method is called after the end_epoch, it sets the donation states only
             # if there was no single donation state set for the last 4 rounds.
             # This is still "hacky". It will prevent double processing of states, but not prevent to call the method
             # twice, for example if there are no donation states in rounds 4-7.
             # phase 2 is necessary to guarantee the processing is complete, as phase 1 is in an earlier epoch.
-            # maybe it is easier to add a "processed" variable to ProposalState? (with the processed phase)
-            # MODIFIED. "processed" variable is now implemented, so double processing should be prevented with a simpler check.
-            phase = 1 if self.epoch <= p.end_epoch else 0
-            if not p.processed[phase]:
-                p.set_donation_states(debug=self.debug, current_blockheight=self.current_blockheight)
-
             #if self.epoch <= p.end_epoch:
             #    dstates_rounds = p.donation_states
             #else:
@@ -143,7 +142,6 @@ class ParserState(object):
         # TODO: To boost efficiency and avoid redundant checks, one could delete all
         # already approved proposals from the original list (which should be renamed to "unchecked proposals")
         # Would also allow differentiate between unchecked and unapproved proposals.
-        # TODO: In this instance we need to call set_rounds again, or better a function "modify".
 
         for pstate in self.proposal_states.values():
 
@@ -162,7 +160,7 @@ class ParserState(object):
             if pstate.first_ptx.txid != pstate.valid_ptx.txid:
                 pstate.modify()
 
-            self.approved_proposals.update({pstate.first_ptx.txid : pstate})
+            self.approved_proposals.update({pstate.id : pstate})
 
 
     def update_valid_ending_proposals(self):
@@ -178,7 +176,7 @@ class ParserState(object):
                 continue
             # donation address should not be possible to change (otherwise it's a headache for donors), so we use first ptx.
             pstate.final_votes = self.get_votes(pstate)
-            if self.debug: print("Votes round 2 for Proposal", pstate.first_ptx.txid, ":", pstate.final_votes)
+            if self.debug: print("Votes round 2 for Proposal", pstate.id, ":", pstate.final_votes)
             if pstate.final_votes["positive"] <= pstate.final_votes["negative"]:
                 pstate.state = "abandoned"
                 continue
@@ -190,7 +188,8 @@ class ParserState(object):
 
         self.epochs_with_completed_proposals += 1
 
-        # Set the Distribution Factor (number to be multiplied with the donation/slot, according to proposals and token amount)
+        # Set the Distribution Factor (number to be multiplied with the donation/slot,
+        # according to the requested amounts of all ending proposals)
         # Must be in a second loop as we need the complete list of valid proposals which end in this epoch.
         # Maybe this can still be optimized, with a special case if there is a single proposal in this epoch.
 
@@ -239,78 +238,6 @@ class ParserState(object):
             except (InvalidTrackedTransactionError, KeyError):
                 continue
         return q
-
-    def get_votes_old(self, proposal, formatted_result=False):
-        # TODO if it works it should be integrated in the ProposalState class.
-        # returns a dictionary with two keys: "positive" and "negative",
-        # containing the amounts of the tokens with whose address a proposal was voted.
-        # NOTE: The balances are valid for the epoch of the ParserState. So this cannot be called
-        #       for votes in other epochs.
-        # NOTE 2: In this protocol the last vote counts (this is why the vtxs list is reversed).
-        #       You can always change you vote.
-        # TODO: This is still without the "first vote can also be valid for second round" system.
-        # Formatted_result returns the "decimal" value of the votes, i.e. the number of "tokens"
-        # which voted for the proposal, which depends on the "number_of_decimals" value.
-
-        votes = {}
-        voters = [] # to filter out duplicates.
-        debug = self.debug
-
-        if debug: print("Enabled Voters:", self.enabled_voters)
-        try:
-            vtxes_proposal = self.voting_txes[proposal.id]
-        except KeyError: # gets thrown if the proposal was not added to self.voting_txes, i.e. when no votes were found.
-            return { "negative" : 0, "positive" : 0 }
-        # MODIFIED: we check if there were any votes in phase 0. If not, we already return 0 for both,
-        # because a proposal without first-round votes is always invalid.
-
-        votes = { "negative" : 0, "positive" : 0 }
-
-        voting_txes = []
-        for outcome in ("positive", "negative"):
-            if outcome in proposal:
-                voting_txes += vtxes_proposal.get(outcome)
-
-        sorted_vtxes = sorted(voting_txes, key=lambda tx: tx.blockheight, reverse=True)
-
-
-
-        for v in sorted_vtxes: # reversed for the "last vote counts" rule.
-            if debug: print("Vote: Epoch", v.epoch, "txid:", v.txid, "sender:", v.sender, "outcome:", v.vote, "height", v.blockheight)
-            if (v.epoch == self.epoch) and (v.sender not in voters):
-                try:
-                    if debug: print("Vote is valid.")
-                    voter_balance = self.enabled_voters[v.sender] # voting token balance at start of epoch
-                    if debug: print("Voter balance", voter_balance)
-                    vote_outcome = "positive" if v.vote == b'+' else "negative"
-                    votes[vote_outcome] += voter_balance
-                    if debug: print("Balance of outcome", vote_outcome, "increased by", voter_balance)
-                    voters.append(v.sender)
-
-                    # Vote states are appended to ProposalStates
-                    votestate = { "txid" : v.txid, "outcome" : vote_outcome, "voter" : v.sender, "balance" : voter_balance, "blockheight" : v.blockheight }
-                    if v.epoch == proposal.start_epoch:
-                        proposal.voting_states[0].append(votestate)
-                    elif v.epoch == proposal.end_epoch:
-                        proposal.voting_states[1].append(votestate)
-
-                except KeyError: # will always be thrown if a voter is not enabled in the "current" epoch.
-                    if debug: print("Voter has no balance in the current epoch.")
-                    continue
-
-            elif v.epoch < self.epoch: # due to it being sorted we can cut off all txes before the relevant epoch.
-                break
-
-        if formatted_result:
-            for outcome in ("positive", "negative"):
-                balance = Decimal(votes[outcome]) / 10 ** self.deck.number_of_decimals
-                # modified: base is number_of_decimals of main deck. old version:
-                # balance = Decimal(votes[outcome]) / 10**self.sdp_deck.number_of_decimals
-
-                votes.update({outcome : balance})
-
-        return votes
-
 
     def get_votes(self, proposal, formatted_result=False):
         # TODO if it works it should be integrated in the ProposalState class.
@@ -473,7 +400,7 @@ class ParserState(object):
         # When we find it, we get the DonationState for the card issuance.
         for rd_states in proposal_state.donation_states:
             for ds in rd_states.values():
-                if ds.donation_tx.txid == dtx_id:
+                if (ds.donation_tx is not None) and (ds.donation_tx.txid == dtx_id):
                     break
                 else:
                     continue

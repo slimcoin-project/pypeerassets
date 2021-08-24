@@ -22,12 +22,12 @@ class ProposalState(object):
         self.first_ptx = first_ptx # First ProposalTransaction of the ProposalState..
         self.valid_ptx = valid_ptx # Last proposal transaction which is valid.
 
-        self.req_amount = self.valid_ptx.req_amount # TODO: re-check this, this may work in ProposalModifications due to side effect
+        self.req_amount = self.valid_ptx.req_amount # should work with ProposalModifications due to side effect
         self.id = self.first_ptx.txid # Identification. Does not change with Modifications.
 
         # The round length of the second phase (not the first one) can be changed in ProposalModifications.
         # Thus all values based on round_length have 2 values, for the first and the second phase.
-        self.round_lengths = [self.first_ptx.round_length, self.valid_ptx.round_length] # TODO: re-check this, this may work in ProposalModifications due to side effect
+        self.round_lengths = [self.first_ptx.round_length, self.valid_ptx.round_length] # should work with ProposalModifications due to side effect
         self.donation_address = self.first_ptx.donation_address
         self.deck = self.first_ptx.deck
         self.donor_addresses = donor_addresses
@@ -110,11 +110,13 @@ class ProposalState(object):
         self.rounds = [None] * 8
         self.security_periods = [None] * 2
         self.voting_periods = [None] * 2
-        security_period_lengths = [max(l // 2, 2) for l in self.round_lengths]
+        security_period_lengths = [max(l // 2, 2) for l in self.round_lengths] # minimum 2 blocks
         voting_period_lengths = [l * 4 for l in self.round_lengths]
         release_period_length = voting_period_lengths[0]
 
-        halfway = self.first_ptx.round_length // 2 # TODO: potential bug in ProposalModifications? what happens with the second halfway?
+        # halfway = self.first_ptx.round_length // 2 # modified: this would lead to problems when only the second phase is processed.
+        halfways = [l // 2 for l in self.round_lengths]
+
         pre_allocation_period_phase1 = security_period_lengths[0] + voting_period_lengths[0]
         pre_allocation_period_phase2 = security_period_lengths[1] + voting_period_lengths[1] + release_period_length
 
@@ -146,12 +148,11 @@ class ProposalState(object):
 
             for rd in range(4): # first phase has 4 rounds
                 round_starts[rd] = phase_start + self.round_lengths[0] * rd
-                round_halfway[rd] = round_starts[rd] + halfway
+                round_halfway[rd] = round_starts[rd] + halfways[0] # MODIF: instead of "halfway"
                 self.rounds[rd] = [[round_starts[rd], round_halfway[rd] - 1], [round_halfway[rd], round_starts[rd] + self.round_lengths[0] - 1]]
 
         if phase in (0, 2):
             # we use valid_ptx here, this gives the option to change the round length of 2nd round.
-            # TODO: re-check if we want to make the 2nd phase values mutable by Proposal Modifications or not ...
 
             # epoch = self.end_epoch # final vote/distribution should always begin at the start of the end epoch.
 
@@ -169,14 +170,16 @@ class ProposalState(object):
 
             for i in range(4): # second phase has 4 rounds
                 # MODIFIED: no longer 5 rounds, but 4, because proposer round is innecesary.
-                # TODO: re-check!
                 rd = i + 4
                 round_starts[rd] = phase_start + self.round_lengths[1] * i
-                round_halfway[rd] = round_starts[rd] + halfway
+                round_halfway[rd] = round_starts[rd] + halfways[1] # MODIF: instead of "halfway"
                 self.rounds[rd] = [[round_starts[rd], round_halfway[rd] - 1], [round_halfway[rd], round_starts[rd] + self.round_lengths[1] - 1]]
 
     def modify(self):
-        # This function bundles all modifications when a valid Proposal Modification was recorded.
+        # This function bundles the modifications needed when a valid Proposal Modification was recorded.
+        # It does not reprocess set_donation_states, because this is only done after end_epoch
+        # when a card is detected or when the parser loop ends before end_epoch.
+        # Thus set_donation_states is never called before modify.
 
         # 1: Re-setting rounds and other values for phase 2.
         if self.first_ptx.epoch_number != self.valid_ptx.epoch_number:
@@ -335,7 +338,7 @@ class ProposalState(object):
                             available_amount=self.available_slot_amount)
             if debug: print("Slot for tx", tx.txid, ":", slot)
             if rd < 4:
-                locking_tx = tx.get_output_tx(self.all_locking_txes, self, rd, self.rounds)
+                locking_tx = tx.get_output_tx(self.all_locking_txes, self, rd)
                 # If the timelock is not correct, locking_tx is not added, and no donation tx is taken into account.
                 # The DonationState will be incomplete in this case. Only the SignallingTx is being added.
                 if (locking_tx is not None) and self.validate_timelock(locking_tx):
@@ -350,13 +353,13 @@ class ProposalState(object):
                     effective_locking_slot = min(slot, locking_tx.amount)
                     # print("EFFECTIVE LOCKING SLOT RD", rd, effective_locking_slot, slot, locking_tx.amount, locking_tx.txid, self.locked_amounts)
                     # print("Searching child txes of locking tx", locking_tx.txid)
-                    donation_tx = locking_tx.get_output_tx(self.all_donation_txes, self, rd, self.rounds, mode="locking")
+                    donation_tx = locking_tx.get_output_tx(self.all_donation_txes, self, rd, mode="locking")
                     if debug and donation_tx: print("Donation tx added in locking mode", donation_tx.txid, rd)
                     # if donation_tx: print("Donation tx added in locking mode", donation_tx.txid, rd)
 
             else:
                 # print("Searching child txes of tx", tx.txid, "of type", type(tx))
-                donation_tx = tx.get_output_tx(self.all_donation_txes, self, rd, self.rounds)
+                donation_tx = tx.get_output_tx(self.all_donation_txes, self, rd)
                 if debug and donation_tx: print("Donation tx added in donation mode", donation_tx.txid, rd)
 
             if donation_tx:

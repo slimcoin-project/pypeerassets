@@ -181,8 +181,8 @@ class TrackedTransaction(Transaction):
         network_params = net_query(self.network.shortname)
         return int(1 / network_params.from_unit) # perhaps to_unit can be used without the division, but it's not sure.
 
-    def get_output_tx(self, tx_list, proposal_state, dist_round: int=None, rounds: list=None, mode: str=None, debug: bool=False):
-        # searches a transaction which corresponds to the address a signalling transaction or reserve transaction
+    def get_output_tx(self, tx_list, proposal_state, dist_round, mode: str=None, debug: bool=False):
+        # Searches a locking/donation transaction which shares the address of a signalling or reserve transaction
 
         phase = dist_round // 4
         try:
@@ -196,25 +196,25 @@ class TrackedTransaction(Transaction):
         if debug: print("Donor addresses:", proposal_state.donor_addresses)
         if debug: print("Address checked:", adr)
         for tx in tx_list:
-            # MODIFIED: added address type, otherwise the signalling->locking search blocks the locking->donation search.
+            # MODIFIED: added tx type, otherwise the signalling->locking search blocks the locking->donation search.
             # dist_round // 4 represents the phase. You must be able to use the same donor address in phase 1 and 2,
             # due to the reserve transaction question in rd. 4/5.
             if (adr, type(tx), phase) in proposal_state.donor_addresses:
+                # TODO: Can this be improved? adr, type(tx), phase should give the same value for many
+                # txes of the list, so "continue" isn't the best option.
+                # Note: all_locking_txes etc. contain both phases, so it makes sense, but isn't very efficient.
                 if debug: print("Rejected, donor address", adr, "already used in this phase for this transaction type.")
                 continue
             if debug: print("Input addresses of tx", tx.txid, ":", tx.input_addresses)
             if adr in tx.input_addresses:
 
-                if dist_round:
-                    startblock = rounds[dist_round][1][0]
-                    endblock = rounds[dist_round][1][1] # here it is the last valid block!
-                    if startblock <= tx.blockheight <= endblock:
+                startblock = proposal_state.rounds[dist_round][1][0]
+                endblock = proposal_state.rounds[dist_round][1][1] # last valid block
 
-                        proposal_state.donor_addresses.append((adr, type(tx), phase))
-                        return tx
-                else:
+                if startblock <= tx.blockheight <= endblock:
                     proposal_state.donor_addresses.append((adr, type(tx), phase))
                     return tx
+
         return None
 
     def get_input_address(self, pubkey_hexstr):
