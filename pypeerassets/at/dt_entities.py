@@ -95,6 +95,7 @@ class TrackedTransaction(Transaction):
                 proposal_txid = getfmt(self.datastr, DONATION_FORMAT, "prp").hex()
 
             object.__setattr__(self, 'proposal_txid', proposal_txid)
+            # TODO: it's maybe not necessary to store the whole proposal object here!
             object.__setattr__(self, 'proposal', proposal)
             # dist_round: in case of Signalling or Donation TXes, the round when they were sent.
             object.__setattr__(self, 'dist_round', dist_round)
@@ -207,13 +208,20 @@ class TrackedTransaction(Transaction):
                 continue
             if debug: print("Input addresses of tx", tx.txid, ":", tx.input_addresses)
             if adr in tx.input_addresses:
+                # MODIF: in locking mode, we check the block height of the donation release transaction.
+                if mode == "locking":
+                    startblock = proposal_state.release_period[0]
+                    endblock = proposal_state.release_period[1]
 
-                startblock = proposal_state.rounds[dist_round][1][0]
-                endblock = proposal_state.rounds[dist_round][1][1] # last valid block
+                else:
+                    startblock = proposal_state.rounds[dist_round][1][0]
+                    endblock = proposal_state.rounds[dist_round][1][1] # last valid block
 
-                if startblock <= tx.blockheight <= endblock:
-                    proposal_state.donor_addresses.append((adr, type(tx), phase))
-                    return tx
+                if not (startblock <= tx.blockheight <= endblock):
+                    continue
+
+                proposal_state.donor_addresses.append((adr, type(tx), phase))
+                return tx
 
         return None
 
