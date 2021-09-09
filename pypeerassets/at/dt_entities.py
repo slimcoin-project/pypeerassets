@@ -9,11 +9,10 @@ from btcpy.structs.address import Address, P2shAddress, P2pkhAddress
 from btcpy.structs.crypto import PublicKey
 
 from pypeerassets.transactions import Transaction, TxIn, TxOut, Locktime, nulldata_script, tx_output, find_parent_outputs, p2pkh_script
-from decimal import Decimal
-from pypeerassets.kutil import Kutil
 from pypeerassets.provider import RpcNode
 from pypeerassets.networks import PeercoinMainnet, PeercoinTestnet, SlimcoinMainnet, SlimcoinTestnet, net_query
 from pypeerassets.at.transaction_formats import getfmt, PROPOSAL_FORMAT, DONATION_FORMAT, SIGNALLING_FORMAT, LOCKING_FORMAT, VOTING_FORMAT
+from pypeerassets.at.legacy import is_legacy_blockchain
 import hashlib as hl
 
 
@@ -110,7 +109,7 @@ class TrackedTransaction(Transaction):
 
             # This seems to be notably slower than P2TH_address
             # Probably we need it only for Bitcoin-0.6 based code
-            if not p2th_wif:
+            if is_legacy_blockchain(network.shortname) and (p2th_wif is None):
                 p2th_wif = self.deck.derived_p2th_wif(tx_type)
 
             epoch = self.blockheight // self.deck.epoch_length
@@ -347,7 +346,7 @@ class DonationTransaction(TrackedTransaction):
 class SignallingTransaction(TrackedTransaction):
     """A SignallingTransaction is a transaction where a Potential Donor signals available funds."""
 
-    def __init__(self, deck, txid=None, proposal=None, s_amount=Decimal(0), s_address=None, dist_round=None, json=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, provider=None, datastr=None, blockhash=None, blockheight=None, p2th_address=None, p2th_wif=None, epoch=None):
+    def __init__(self, deck, txid=None, proposal=None, s_amount=None, s_address=None, dist_round=None, json=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, provider=None, datastr=None, blockhash=None, blockheight=None, p2th_address=None, p2th_wif=None, epoch=None):
 
         TrackedTransaction.__init__(self, txid=txid, txjson=json, datastr=datastr, p2th_address=p2th_address, p2th_wif=p2th_wif, version=version, ins=ins, outs=outs, locktime=locktime, network=network, timestamp=timestamp, provider=provider, deck=deck, epoch=epoch, blockheight=blockheight, blockhash=blockhash)
 

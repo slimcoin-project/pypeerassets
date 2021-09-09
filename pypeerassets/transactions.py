@@ -279,7 +279,8 @@ def make_raw_transaction(
 
     network_params = net_query(network)
 
-    if network_params.name.startswith("peercoin"):
+    ### MODIFIED: added Slimcoin support, same tx structure than Peercoin.
+    if network_params.name.startswith("peercoin") or network_params.name.startswith("slimcoin"):
         return MutableTransaction(
             version=version,
             ins=inputs,
@@ -311,6 +312,15 @@ def find_parent_outputs(provider: Provider, utxo: TxIn) -> TxOut:
 def sign_transaction(provider: Provider, unsigned: MutableTransaction,
                      key: Kutil) -> Transaction:
     '''sign transaction with Kutil'''
+
+    ### EXPERIMENTAL: Slimcoin support: needs to use the original client signing method.
+    ## this is only a proof of concept, not for production usage!
+    if provider.network in ("slm", "tslm"):
+        from .provider.slm_rpcnode import SlmTransaction
+        # print(unsigned.hexlify())
+        tx_signed = provider.signrawtransaction(unsigned.hexlify())
+        tx = SlmTransaction(tx_signed["hex"], provider)
+        return tx
 
     parent_outputs = [find_parent_outputs(provider, i) for i in unsigned.ins]
     return key.sign_transaction(parent_outputs, unsigned)

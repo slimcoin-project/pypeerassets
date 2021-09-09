@@ -96,20 +96,28 @@ def deck_spawn(provider: Provider, deck: Deck, inputs: dict,
     network_params = net_query(deck.network)
     pa_params = param_query(deck.network)
 
+    ### AT: LEGACY SUPPORT for blockchains where no 0-value output is permitted ###
+    from pypeerassets.legacy import is_legacy_blockchain
+
+    if is_legacy_blockchain(network_params.shortname, "nulldata"):
+        op_return_txout_value = network_params.min_tx_fee
+    else:
+        op_return_txout_value = Decimal('0')
+
     if deck.production:
         p2th_addr = pa_params.P2TH_addr
     else:
         p2th_addr = pa_params.test_P2TH_addr
 
-    #  first round of txn making is done by presuming minimal fee
-    change_sum = Decimal(inputs['total'] - network_params.min_tx_fee - pa_params.P2TH_fee)
+    #  first round of txn making is done by presuming minimal fee ### LEGACY: added op_return value.
+    change_sum = Decimal(inputs['total'] - network_params.min_tx_fee - pa_params.P2TH_fee - op_return_txout_value)
 
     txouts = [
         tx_output(network=deck.network, value=pa_params.P2TH_fee,
                   n=0, script=p2pkh_script(address=p2th_addr,
                                            network=deck.network)),  # p2th
 
-        tx_output(network=deck.network, value=Decimal(0),
+        tx_output(network=deck.network, value=op_return_txout_value,
                   n=1, script=nulldata_script(deck.metainfo_to_protobuf)),  # op_return
 
         tx_output(network=deck.network, value=change_sum,
@@ -235,6 +243,15 @@ def card_transfer(provider: Provider, card: CardTransfer, inputs: dict,
     network_params = net_query(provider.network)
     pa_params = param_query(provider.network)
 
+    ### LEGACY SUPPORT for blockchains where no 0-value output is permitted ###
+    from pypeerassets.legacy import is_legacy_blockchain
+
+    if is_legacy_blockchain(network_params.shortname, "nulldata"):
+        min_value = network_params.min_tx_fee
+    else:
+        min_value = Decimal(0)
+
+
     if card.deck_p2th is None:
         raise Exception("card.deck_p2th required for tx_output")
 
@@ -244,19 +261,22 @@ def card_transfer(provider: Provider, card: CardTransfer, inputs: dict,
                   n=0, script=p2pkh_script(address=card.deck_p2th,
                                            network=provider.network)),  # deck p2th
         tx_output(network=provider.network,
-                  value=Decimal(0), n=1,
+                  value=min_value, n=1,
                   script=nulldata_script(card.metainfo_to_protobuf))  # op_return
     ]
 
     for addr, index in zip(card.receiver, range(len(card.receiver))):
         outs.append(   # TxOut for each receiver, index + 2 because we have two outs already
-            tx_output(network=provider.network, value=Decimal(0), n=index+2,
+            tx_output(network=provider.network, value=min_value, n=index+2,
                       script=p2pkh_script(address=addr,
                                           network=provider.network))
         )
 
+    ### LEGACY
+    total_min_values = (1 + len(card.receiver)) * min_value # includes P2TH output + zero outputs to receivers
+
     #  first round of txn making is done by presuming minimal fee
-    change_sum = Decimal(inputs['total'] - network_params.min_tx_fee - pa_params.P2TH_fee)
+    change_sum = Decimal(inputs['total'] - network_params.min_tx_fee - pa_params.P2TH_fee - total_min_values)
 
     outs.append(
         tx_output(network=provider.network,

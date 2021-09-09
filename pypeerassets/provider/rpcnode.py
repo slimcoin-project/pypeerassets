@@ -51,7 +51,7 @@ class RpcNode(Client, Provider):
     def is_testnet(self) -> bool:
         '''check if node is configured to use testnet or mainnet'''
 
-        if self.getblockchaininfo()["chain"] == "test": # MODIFIED for 0.8
+        if self.getblockchaininfo().get("chain") == "test":
             return True
         else:
             return False
@@ -98,7 +98,7 @@ class RpcNode(Client, Provider):
         values = [ Decimal(v["amount"]) for v in unspent ]
         #print(values)
         return sum(values)
-        
+
 
     def listtransactions(self, account="", many=999, since=0, include_watchonly=True): ### NEW FEATURE ###
         '''wrapper, because P2TH needs watchonly to be set by default. May even have to be extended to allow more than 999 transactions.'''

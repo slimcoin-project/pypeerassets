@@ -15,6 +15,7 @@ from btcpy.structs.sig import P2shSolver, AbsoluteTimelockSolver, P2pkhSolver
 from decimal import Decimal
 from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
 from pypeerassets.at.transaction_formats import getfmt, PROPOSAL_FORMAT
+from pypeerassets.at.legacy import is_legacy_blockchain
 from collections import namedtuple
 
 ## Basic functions
@@ -245,8 +246,13 @@ def create_p2th_txout(deck, tx_type, fee, network: namedtuple):
 
 def create_opreturn_txout(tx_type: str, data: bytes, network: namedtuple, position=1):
     # By default creates the opreturn out at n=1.
+    # MODIFIED: if the blockchain doesn't support 0 values, then a min_tx_fee value is created.
     script = nulldata_script(data)
-    return TxOut(value=0, n=position, script_pubkey=script, network=network)
+    if is_legacy_blockchain(network.shortname, "nulldata"):
+        value = coins_to_sats(network.min_tx_fee, network)
+    else:
+        value = 0
+    return TxOut(value=value, n=position, script_pubkey=script, network=network)
 
 
 def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, network_name: str, amount: int=None, proposal_txid: str=None, data: bytes=None, address: str=None, version: int=1, change_address: str=None, tx_fee: int=None, p2th_fee: int=None, input_txid: str=None, input_vout: int=None, input_address: str=None, locktime: int=0, cltv_timelock: int=0, reserved_amount: int=None, reserve_address: str=None, debug: bool=False):
@@ -360,3 +366,7 @@ def sign_p2sh_transaction(provider: Provider, unsigned: MutableTransaction, rede
     #print(solver)
 
     return unsigned.spend(txins, [solver for i in txins])
+
+
+
+

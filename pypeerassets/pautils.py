@@ -26,6 +26,7 @@ from pypeerassets.paproto_pb2 import DeckSpawn as DeckSpawnProto
 from pypeerassets.paproto_pb2 import CardTransfer as CardTransferProto
 from pypeerassets.protocol import Deck, CardTransfer, CardBundle
 from pypeerassets.kutil import Kutil ### ADDRESSTRACK ###
+from btcpy.structs.address import Address ### find_tx_sender coinbase bugfix ###
 
 
 def load_p2th_privkey_into_local_node(provider: RpcNode, prod: bool=True) -> None:
@@ -50,9 +51,11 @@ def find_tx_sender(provider: Provider, raw_tx: dict) -> str:
     '''find transaction sender, vin[0] is used in this case.'''
 
     vin = raw_tx["vin"][0]
-    txid = vin["txid"]
+    txid = vin["txid"] # this seems not to work with coinbase transactions as inputs!
     index = vin["vout"]
     return provider.getrawtransaction(txid, 1)["vout"][index]["scriptPubKey"]["addresses"][0]
+
+
 
 
 def find_deck_spawns(provider: Provider, prod: bool=True) -> Iterable[str]:

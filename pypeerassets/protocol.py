@@ -99,7 +99,7 @@ class Deck:
         self.network = network
         self.production = production
 
-        
+
         ### additional Deck attributes for AT/DT types:
         if self.asset_specific_data and self.issue_mode == IssueMode.CUSTOM.value:
 
@@ -139,7 +139,7 @@ class Deck:
             try:
                 if self._p2th_address:
                     return self._p2th_address
-            except AttributeError:                
+            except AttributeError:
                 self._p2th_address = Kutil(network=self.network,
                          privkey=bytearray.fromhex(self.id)).address
 
@@ -152,11 +152,11 @@ class Deck:
     def p2th_wif(self) -> Optional[str]:
         '''P2TH address of this deck'''
 
-        if self.id:          
+        if self.id:
             try:
                 if self._p2th_wif:
                     return self._p2th_wif
-            except AttributeError:                
+            except AttributeError:
                 self._p2th_wif = Kutil(network=self.network,
                          privkey=bytearray.fromhex(self.id)).wif
 
@@ -164,8 +164,8 @@ class Deck:
         else:
             return None
 
-    # EXPERIMENTAL: ids for the p2th addresses/keys for donation/proposal/signalling txs
-    # They are stored in a dictionary, to avoid too much code repetition.
+    ### DT: ids for the p2th addresses/keys for donation/proposal/signalling txs
+    ### They are stored in a dictionary, to avoid too much code repetition.
     def derived_id(self, tx_type) -> Optional[bytes]:
         if self.id:
             try:
@@ -186,7 +186,7 @@ class Deck:
             return None
 
     def derived_p2th_wif(self, tx_type) -> Optional[str]:
-        if self.id:    
+        if self.id:
             try:
 
                 if self.derived_p2th_wifs[tx_type] is not None:
@@ -196,7 +196,7 @@ class Deck:
                 self.derived_p2th_wifs = { tx_type : Kutil(network=self.network,
                          privkey=self.derived_id(tx_type)).wif }
 
-            except KeyError:                
+            except KeyError:
                 self.derived_p2th_wifs.update({ tx_type : Kutil(network=self.network,
                          privkey=self.derived_id(tx_type)).wif })
 
@@ -206,7 +206,7 @@ class Deck:
 
     def derived_p2th_address(self, tx_type) -> Optional[str]:
 
-        if self.id:    
+        if self.id:
 
             try:
                 if self.derived_p2th_addresses[tx_type] is not None:
@@ -214,7 +214,7 @@ class Deck:
             except AttributeError:
                 self.derived_p2th_addresses = { tx_type : Kutil(network=self.network,
                          privkey=self.derived_id(tx_type)).address }
-            except KeyError:                
+            except KeyError:
                 self.derived_p2th_addresses.update({ tx_type : Kutil(network=self.network,
                          privkey=self.derived_id(tx_type)).address })
 
@@ -277,7 +277,7 @@ class Deck:
         except KeyError:
             pass
 
-        return cls(**json)        
+        return cls(**json)
 
     def __str__(self) -> str:
 
@@ -333,7 +333,7 @@ class CardBundle:
 class CardTransfer:
 
 
-    def __init__(self, deck: Deck, 
+    def __init__(self, deck: Deck,
                  receiver: list=[],
                  amount: List[int]=[],
                  version: int=1,
@@ -446,7 +446,7 @@ class CardTransfer:
 
         # issuer is anyone else,
         # card type is CardTransfer
- 
+
         else:
             self.type = "CardTransfer"
 
@@ -540,7 +540,7 @@ def validate_card_issue_modes(issue_mode: int, cards: list, provider: Provider=N
                 parsed_cards = parser_fn(cards, dt_parser, provider, deck) # was at_parser before
             else:
                 parsed_cards = parser_fn(cards)
- 
+
             if not parsed_cards:
                 return []
             cards = parsed_cards
