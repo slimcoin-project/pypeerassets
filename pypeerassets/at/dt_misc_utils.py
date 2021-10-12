@@ -15,7 +15,7 @@ from btcpy.structs.sig import P2shSolver, AbsoluteTimelockSolver, P2pkhSolver
 from decimal import Decimal
 from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
 from pypeerassets.at.transaction_formats import getfmt, PROPOSAL_FORMAT
-from pypeerassets.at.legacy import is_legacy_blockchain
+from pypeerassets.legacy import is_legacy_blockchain
 from collections import namedtuple
 
 ## Basic functions

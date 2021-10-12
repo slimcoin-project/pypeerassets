@@ -12,7 +12,7 @@ from pypeerassets.transactions import Transaction, TxIn, TxOut, Locktime, nullda
 from pypeerassets.provider import RpcNode
 from pypeerassets.networks import PeercoinMainnet, PeercoinTestnet, SlimcoinMainnet, SlimcoinTestnet, net_query
 from pypeerassets.at.transaction_formats import getfmt, PROPOSAL_FORMAT, DONATION_FORMAT, SIGNALLING_FORMAT, LOCKING_FORMAT, VOTING_FORMAT
-from pypeerassets.at.legacy import is_legacy_blockchain
+from pypeerassets.legacy import is_legacy_blockchain
 import hashlib as hl
 
 
