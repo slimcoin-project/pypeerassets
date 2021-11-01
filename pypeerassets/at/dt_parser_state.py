@@ -13,6 +13,7 @@ from pypeerassets.at.dt_parser_utils import *
 
 class ParserState(object):
     """A ParserState contains the current state of all important variables for a single deck."""
+    # TODO: we need to evaluate where to use DeckState in the parser.
 
     def __init__(self, deck, initial_cards, provider, proposal_states={}, approved_proposals={}, valid_proposals={}, signalling_txes=[], locking_txes=[], donation_txes={}, voting_txes=[], epoch=None, start_epoch=None, end_epoch=None, used_issuance_tuples=[], valid_cards=[], enabled_voters={}, sdp_cards=[], sdp_deck=None, current_blockheight=None, epochs_with_completed_proposals=0, debug=False):
 
@@ -118,12 +119,17 @@ class ParserState(object):
             #    p.set_donation_states(debug=self.debug, current_blockheight=self.current_blockheight)
 
     def get_sdp_cards(self):
+        # NOTE: this does NOT filter out all invalid cards, only those determined by the parser type!
+        # This means we need to get the balances via DeckState.
         from pypeerassets.__main__ import find_all_valid_cards
         if self.debug: print("Searching for SDP Token Cards ...")
-        return list(find_all_valid_cards(self.provider, self.sdp_deck))
+        all_cards = list(find_all_valid_cards(self.provider, self.sdp_deck))
+        print("all", all_cards)
+        valid_cards = self.remove_invalid_cards(all_cards)
+        print("valid", valid_cards)
+        return valid_cards
 
     def get_sdp_balances(self):
-
         upper_limit = self.epoch * self.deck.epoch_length # balance at the start of the epoch.
         if self.epoch == self.start_epoch:
             if self.debug: print("Retrieving old cards ...")
@@ -206,7 +212,8 @@ class ParserState(object):
            and adds them to the corresponding ProposalState."""
         proposal_list = []
         tx_attr = "all_{}_txes".format(tx_type)
-        for q, rawtx in enumerate(get_marked_txes(self.provider, self.deck.derived_p2th_address(tx_type), min_blockheight=min_blockheight, max_blockheight=max_blockheight)):
+        txes = get_marked_txes(self.provider, self.deck.derived_p2th_address(tx_type), min_blockheight=min_blockheight, max_blockheight=max_blockheight)
+        for q, rawtx in enumerate(txes):
             try:
                 if tx_type == "donation":
                     tx = DonationTransaction.from_json(tx_json=rawtx, provider=self.provider, deck=self.deck)
@@ -237,7 +244,10 @@ class ParserState(object):
 
             except (InvalidTrackedTransactionError, KeyError):
                 continue
-        return q
+        try:
+            return q
+        except UnboundLocalError: # if no txes were found
+            return 0
 
     def get_votes(self, proposal, formatted_result=False):
         # TODO if it works it should be integrated in the ProposalState class.
@@ -477,4 +487,14 @@ class ParserState(object):
                 valid_cards.append(card)
 
         return valid_cards
+
+    @staticmethod
+    def remove_invalid_cards(cards):
+        from pypeerassets.protocol import DeckState
+        # this function filters out ALL invalid cards. It uses the DeckState from PeerAssets with a slight modification.
+        state = DeckState(cards)
+        return state.valid_cards
+
+
+
 

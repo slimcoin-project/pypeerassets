@@ -549,6 +549,7 @@ def validate_card_issue_modes(issue_mode: int, cards: list, provider: Provider=N
 
 
 class DeckState:
+    ### ADDRESSTRACK: added attribute valid_cards to be able to process only the valid cards.
 
     def __init__(self, cards: Generator) -> None:
 
@@ -559,6 +560,7 @@ class DeckState:
         self.processed_issues = set()
         self.processed_transfers = set()
         self.processed_burns = set()
+        self.valid_cards = cast(list, []) ### ADDRESSTRACK.
 
         self.calc_state()
         self.checksum = not bool(self.total - sum(self.balances.values()))
@@ -614,9 +616,15 @@ class DeckState:
                 validate = self._process(card, ctype)
                 self.total += amount * validate  # This will set amount to 0 if validate is False
                 self.processed_issues |= {cid}
+                if validate: ### ADDED ###
+                    self.valid_cards.append(card_from_dict(card))
 
             if ctype == 'CardTransfer' and cid not in self.processed_transfers:
-                self._process(card, ctype)
+                # self._process(card, ctype) ### original
+                validate = self._process(card, ctype) ### changed from here
+                if validate:
+                    self.valid_cards.append(card_from_dict(card))
+
                 self.processed_transfers |= {cid}
 
             if ctype == 'CardBurn' and cid not in self.processed_burns:
@@ -625,3 +633,12 @@ class DeckState:
                 self.total -= amount * validate
                 self.burned += amount * validate
                 self.processed_burns |= {cid}
+                if validate: ### changed from here
+                    self.valid_cards.append(card_from_dict(card))
+
+def card_from_dict(d): ### WORKAROUND. TODO: Look for a more elegant solution!
+    c = CardTransfer.__new__(CardTransfer)
+    for (key, value) in d.items():
+        setattr(c, key, value)
+    return c
+

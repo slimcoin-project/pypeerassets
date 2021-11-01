@@ -112,7 +112,8 @@ class ProposalState(object):
         self.voting_periods = [None] * 2
         security_period_lengths = [max(l // 2, 2) for l in self.round_lengths] # minimum 2 blocks
         voting_period_lengths = [l * 4 for l in self.round_lengths]
-        release_period_length = voting_period_lengths[0]
+        print("Proposal", self.id)
+        release_period_length = voting_period_lengths[0] # TODO: isn't it better to use voting_period_lengths[1] here?
 
         # halfway = self.first_ptx.round_length // 2 # modified: this would lead to problems when only the second phase is processed.
         halfways = [l // 2 for l in self.round_lengths]
@@ -140,9 +141,9 @@ class ProposalState(object):
                 self.dist_start = self.start_epoch * epoch_length
 
             # Security, voting and release periods
-            self.security_periods[0] = [self.dist_start, self.dist_start + security_period_lengths[0]]
+            self.security_periods[0] = [self.dist_start, self.dist_start + security_period_lengths[0] - 1] # FIX: added -1, otherwise we have one block more!
             voting_p1_start = self.security_periods[0][1] + 1
-            self.voting_periods[0] = [voting_p1_start, voting_p1_start + voting_period_lengths[0]]
+            self.voting_periods[0] = [voting_p1_start, voting_p1_start + voting_period_lengths[0] - 1] # FIX: added -1
 
             phase_start = self.dist_start + pre_allocation_period_phase1
 
@@ -161,12 +162,12 @@ class ProposalState(object):
             end_epoch_start = self.end_epoch * epoch_length
             phase_start = self.end_epoch * epoch_length + pre_allocation_period_phase2
 
-            self.security_periods[1] = [end_epoch_start, end_epoch_start + security_period_lengths[1]]
+            self.security_periods[1] = [end_epoch_start, end_epoch_start + security_period_lengths[1] - 1] # FIX
             voting_p2_start = self.security_periods[1][1] + 1
-            self.voting_periods[1] = [voting_p2_start, voting_p2_start + voting_period_lengths[1]]
+            self.voting_periods[1] = [voting_p2_start, voting_p2_start + voting_period_lengths[1] - 1] # FIX
 
             release_start = self.voting_periods[1][1] + 1
-            self.release_period = [release_start, release_start + release_period_length]
+            self.release_period = [release_start, release_start + release_period_length - 1] # FIX
 
             for i in range(4): # second phase has 4 rounds
                 # MODIFIED: no longer 5 rounds, but 4, because proposer round is innecesary.

@@ -49,7 +49,7 @@ class TrackedTransaction(Transaction):
         elif type(self) == SignallingTransaction:
             tx_type = "signalling"
 
-        object.__setattr__(self, 'input_addresses', self.set_input_addresses())
+        object.__setattr__(self, 'input_addresses', self.set_input_addresses(provider=provider))
 
         if not blockheight:
 
@@ -236,11 +236,22 @@ class TrackedTransaction(Transaction):
         #pubkey_hash = h.digest()
         return P2pkhAddress(pubkey.hash(), network=self.network).__str__()
 
-    def set_input_addresses(self):
+    def get_input_address_from_txid(self, txid, txout, provider):
+        # mainly for P2PK transactions, where no public key is given in the input.
+        inp_txjson = provider.getrawtransaction(txid, 1)
+        addr = inp_txjson["vout"][txout]["scriptPubKey"]["addresses"][0]
+        return addr
+
+
+    def set_input_addresses(self, provider=None):
         input_addresses = []
         for inp in self.ins:
-            pubkey_str = inp.script_sig.__str__().split()[1]
-            input_addresses.append(self.get_input_address(pubkey_str))
+            try:
+                pubkey_str = inp.script_sig.__str__().split()[1]
+                inp_address = self.get_input_address(pubkey_str)
+            except IndexError:
+                inp_address = self.get_input_address_from_txid(inp.txid, inp.txout, provider)
+            input_addresses.append(inp_address)
         return input_addresses
 
 

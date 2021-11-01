@@ -30,6 +30,6 @@ def legacy_import(provider: Provider, p2th_address: str, p2th_wif: str, rescan: 
         raise ValueError("Invalid address.")
 
     if (p2th_account is None) or (p2th_account != p2th_address):
-        provider.importprivkey(p2th_wif)
+        provider.importprivkey(p2th_wif, p2th_address)
         provider.setaccount(p2th_address, p2th_address) # address is also the account name.
 

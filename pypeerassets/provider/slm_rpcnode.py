@@ -45,15 +45,21 @@ class SlmRpcNode(RpcNode):
         # SLM adds a rescan option
         return self.req("importprivkey", [wif, label, rescan])
 
+    def getrawtransaction(self, txid, decode=False):
+        # in SLM, the decode option is an "int" value, not bool.
+        # TODO: as this may change in future versions this should be a legacy function
+        decode_int = 1 if decode == True else 0
+        return self.req("getrawtransaction", [txid, decode_int])
+
 
 
 class SlmTransaction(object):
     # this is only to mimic the behavior of the btcpy Transaction object in pacli! only for proof-of-concept usage!
     def __init__(self, hex_tx, provider):
         self.hex = hex_tx
-        print(self.hex, type(self.hex))
+        #print(self.hex, type(self.hex))
         self.json = provider.decoderawtransaction(hex_tx)
-        print(self.json)
+        #print(self.json)
         self.txid = self.json["txid"]
     def hexlify(self):
         return self.hex

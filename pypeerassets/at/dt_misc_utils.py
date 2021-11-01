@@ -54,8 +54,10 @@ def get_votestate(provider, proposal_txid, debug=False):
 
     result = []
     for phase_votes in (proposal.initial_votes, proposal.final_votes):
-        result.append(format_votes(decimals, phase_votes))
-
+        try:
+            result.append(format_votes(decimals, phase_votes))
+        except TypeError: # gets thrown if votes of a phase aren't available yet
+            pass
     return result
 
 def get_dstates_from_txid(txid: str, proposal_state: ProposalState, only_signalling=False):
@@ -249,7 +251,7 @@ def create_opreturn_txout(tx_type: str, data: bytes, network: namedtuple, positi
     # MODIFIED: if the blockchain doesn't support 0 values, then a min_tx_fee value is created.
     script = nulldata_script(data)
     if is_legacy_blockchain(network.shortname, "nulldata"):
-        value = coins_to_sats(network.min_tx_fee, network)
+        value = coins_to_sats(network.min_tx_fee, network.shortname, network)
     else:
         value = 0
     return TxOut(value=value, n=position, script_pubkey=script, network=network)
@@ -275,6 +277,7 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, network_nam
 
         p2th_output = create_p2th_txout(deck, tx_type, fee=p2th_fee, network=network)
         data_output = create_opreturn_txout(tx_type, data, network=network)
+
         if (address == None) and (tx_type == "donation"):
             ptx = proposal_from_tx(proposal_txid, provider)
             address = ptx.donation_address
@@ -303,7 +306,7 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, network_nam
         else:
             reserved_amount = 0
 
-        complete_amount = amount + reserved_amount + p2th_output.value + tx_fee
+        complete_amount = amount + reserved_amount + p2th_output.value + data_output.value + tx_fee
 
         if None not in (input_txid, input_vout):
             input_tx = provider.getrawtransaction(input_txid, 1)
@@ -366,7 +369,3 @@ def sign_p2sh_transaction(provider: Provider, unsigned: MutableTransaction, rede
     #print(solver)
 
     return unsigned.spend(txins, [solver for i in txins])
-
-
-
-

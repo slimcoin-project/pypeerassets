@@ -1,22 +1,33 @@
 from pypeerassets.at.dt_states import ProposalState
 
+
+"""This is a human- and machine-friendly interface for the different periods of the Proposal Lifecycle. It is only used in CLI or GUI apps like pacli, and does not affect the internals of pypeerassets.
+
+Take into account that the slot distribution round code is a bit unintuitive:
+- round 0 is B 10/11
+- round 1 is B 20/21
+etc.
+
+Fixed this in line 23 and 30 ("rd + 1") in Oct. 21. TODO: re-check if this doesn't lead to other bugs!
+"""
+
 def get_period_dict(ps: ProposalState) -> dict:
 
     # first periods are added manually
     # A: before the distribution start & B: first dist period
     submission_epoch_start = ps.first_ptx.epoch * ps.deck.epoch_length
-    periods = {("A", 0) : [0, submission_epoch_start], ("A", 1) : [submission_epoch_start, ps.dist_start - 1],
-               ("B", 0) : ps.security_periods[0], ("B", 1) : ps.voting_periods[0]}
+    periods = {("A", 0) : [0, submission_epoch_start - 1], ("A", 1) : [submission_epoch_start, ps.dist_start - 1],
+               ("B", 0) : ps.security_periods[0], ("B", 1) : ps.voting_periods[0]} # -1 added in first one.
 
     for rd in range(4):
-        periods.update({("B", rd * 10) : ps.rounds[rd][0], ("B", rd * 10 + 1) : ps.rounds[rd][1]})
+        periods.update({("B", (rd + 1) * 10) : ps.rounds[rd][0], ("B", (rd + 1) * 10 + 1) : ps.rounds[rd][1]})
 
     # C: Working period: from first block after round 3 until block before security period 1 & D: second dist period
     periods.update({("C", 0) : [ ps.rounds[3][1][1] + 1, ps.security_periods[1][0] - 1 ],
                     ("D", 0) : ps.security_periods[1], ("D", 1) : ps.voting_periods[1], ("D", 2) : ps.release_period})
 
     for rd in range(4):
-        periods.update({("D", rd * 10) : ps.rounds[rd + 4][0], ("D", rd * 10 + 1) : ps.rounds[rd + 4][1]})
+        periods.update({("D", (rd + 1) * 10) : ps.rounds[rd + 4][0], ("D", (rd + 1) * 10 + 1) : ps.rounds[rd + 4][1]})
     dist_end = (ps.end_epoch + 1) * ps.deck.epoch_length - 1
 
     # D50 & E: After the distribution
