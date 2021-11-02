@@ -110,7 +110,7 @@ def get_donation_states(provider, proposal_id=None, proposal_tx=None, tx_txid=No
 
     # NOTE: phase is set as a default to 1.
     # NOTE: we give the option to call this function already with the full proposal_tx if already available.
-    proposal_state = get_proposal_state(provider, proposal_id=proposal_id, proposal_tx=proposal_tx, phase=phase, debug=debug)
+    proposal_state = get_proposal_state(provider, proposal_id=proposal_id, proposal_tx=proposal_tx, debug=debug)
 
     if tx_txid is not None:
         # MODIFIED: gives now a list, because it can have two results if the tx includes a reserved amount.

@@ -112,7 +112,6 @@ class ProposalState(object):
         self.voting_periods = [None] * 2
         security_period_lengths = [max(l // 2, 2) for l in self.round_lengths] # minimum 2 blocks
         voting_period_lengths = [l * 4 for l in self.round_lengths]
-        print("Proposal", self.id)
         release_period_length = voting_period_lengths[0] # TODO: isn't it better to use voting_period_lengths[1] here?
 
         # halfway = self.first_ptx.round_length // 2 # modified: this would lead to problems when only the second phase is processed.
