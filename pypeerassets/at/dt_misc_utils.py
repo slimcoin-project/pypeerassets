@@ -257,7 +257,7 @@ def create_opreturn_txout(tx_type: str, data: bytes, network: namedtuple, positi
     return TxOut(value=value, n=position, script_pubkey=script, network=network)
 
 
-def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, network_name: str, amount: int=None, proposal_txid: str=None, data: bytes=None, address: str=None, version: int=1, change_address: str=None, tx_fee: int=None, p2th_fee: int=None, input_txid: str=None, input_vout: int=None, input_address: str=None, locktime: int=0, cltv_timelock: int=0, reserved_amount: int=None, reserve_address: str=None, debug: bool=False):
+def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, network_name: str, amount: int=None, proposal_txid: str=None, data: bytes=None, address: str=None, version: int=1, change_address: str=None, tx_fee: int=None, p2th_fee: int=None, input_txid: str=None, input_vout: int=None, input_address: str=None, locktime: int=0, cltv_timelock: int=0, reserved_amount: int=None, reserve_address: str=None, input_redeem_script: AbsoluteTimelockScript=None, debug: bool=False):
 
     if tx_type != "proposal":
         if data and (not proposal_txid):
@@ -308,10 +308,16 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, network_nam
 
         complete_amount = amount + reserved_amount + p2th_output.value + data_output.value + tx_fee
 
+        if network_name in ("slm", "tslm") and input_redeem_script is not None:
+            #load P2SH preimage in Slimcoin donation, as SLM cannot use normal solvers
+            pre_scriptsig = input_redeem_script.serialize()
+            print("Input redeem script preimage:", pre_scriptsig)
+        else:
+            pre_scriptsig = ScriptSig.empty()
+
         if None not in (input_txid, input_vout):
             input_tx = provider.getrawtransaction(input_txid, 1)
-            inp_output = input_tx["vout"][input_vout]
-            inp = MutableTxIn(txid=input_txid, txout=input_vout, script_sig=ScriptSig.empty(), sequence=Sequence.max())
+            inp = MutableTxIn(txid=input_txid, txout=input_vout, script_sig=pre_scriptsig, sequence=Sequence.max())
             inputs = [inp]
             input_value = coins_to_sats(Decimal(input_tx["vout"][input_vout]["value"]), network=network)
         elif input_address:
@@ -330,7 +336,7 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, network_nam
             # If no change address is delivered we use the address from the input.
             if change_address is None:
                 if input_address is None:
-                    change_address = inp_output['scriptPubKey']['addresses'][0]
+                    change_address = input_tx["vout"][input_vout]['scriptPubKey']['addresses'][0]
                 else:
                     change_address = input_address
             change_output = create_p2pkh_txout(change_value, change_address, len(outputs), network) # this just gives the correct one
@@ -358,14 +364,17 @@ def sign_p2sh_transaction(provider: Provider, unsigned: MutableTransaction, rede
     # Original for P2PKH uses Kutil.
     # from pypeerassets kutil:
     # "due to design of the btcpy library, TxIn object must be converted to TxOut object before signing"
+
     txins = [find_parent_outputs(provider, i) for i in unsigned.ins]
     inner_solver = P2pkhSolver(key._private_key)
+
 
     solver = AbsoluteTimelockSolver(redeem_script.locktime, inner_solver) # TODO: re-check if this is confirmed and works as expected.
     # redeem_script_solver = AbsoluteTimelockSolver(redeem_script.locktime, inner_solver)
     # solver = P2shSolver(redeem_script, redeem_script_solver)
-    #print(txins)
-    #print(inner_solver)
-    #print(solver)
+    #print("txins", [i.__str__() for i in txins])
+    #print("inner_solver", inner_solver.__str__())
+    #print("solver locktime", solver.get_absolute_locktime(), "redeem locktime", redeem_script.locktime)
+    #print("solver", solver.__str__())
 
     return unsigned.spend(txins, [solver for i in txins])

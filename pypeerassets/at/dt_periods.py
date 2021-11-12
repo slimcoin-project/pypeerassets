@@ -30,8 +30,10 @@ def get_period_dict(ps: ProposalState) -> dict:
         periods.update({("D", (rd + 1) * 10) : ps.rounds[rd + 4][0], ("D", (rd + 1) * 10 + 1) : ps.rounds[rd + 4][1]})
     dist_end = (ps.end_epoch + 1) * ps.deck.epoch_length - 1
 
-    # D50 & E: After the distribution
-    periods.update({("D", 50) : [ps.rounds[7][1][1] + 1, dist_end], ("E", 0) : [dist_end + 1, None]})
+    # D50 & E: After the distribution. D50 is only necessary if there are blocks left between rd. 8 and dist_end.
+    if ps.rounds[7][1][1] < dist_end:
+        periods.update({("D", 50) : [ps.rounds[7][1][1] + 1, dist_end]})
+    periods.update({("E", 0) : [dist_end + 1, None]})
 
     return periods
 
