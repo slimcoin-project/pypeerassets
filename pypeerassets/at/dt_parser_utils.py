@@ -173,4 +173,5 @@ def deck_from_tx(txid: str, provider: Provider, deck_version: int=1, prod: bool=
     p2th = params.P2TH_addr
     raw_tx = provider.getrawtransaction(txid, 1)
     # vout = raw_tx["vout"][0]["scriptPubKey"].get("addresses")[0] ???
-    return deck_parser((provider, raw_tx, deck_version, p2th), prod)
+    deck = deck_parser((provider, raw_tx, deck_version, p2th), prod)
+    return deck

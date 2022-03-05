@@ -5,6 +5,7 @@ from copy import deepcopy
 
 # TODO: optimize the initialization to make deepcopy innecessary.
 # TODO: Locked amounts does not work. (solved at 1/05?)
+# TODO: proposal states before the first voting round are currently marked as abandoned, this should not be so.
 
 def linit():
     return deepcopy([[],[],[],[],[],[],[],[]])

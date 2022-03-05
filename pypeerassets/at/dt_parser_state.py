@@ -42,6 +42,7 @@ class ParserState(object):
         # The SDP Decimal Diff is the difference between the number of decimals of the main token and the voting token.
         self.sdp_decimal_diff = self.deck.number_of_decimals - self.sdp_deck.number_of_decimals
 
+
         # used_issuance_tuples list joins all issuances of sender, txid, vout:
         self.used_issuance_tuples = used_issuance_tuples
 

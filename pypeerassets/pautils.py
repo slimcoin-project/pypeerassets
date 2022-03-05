@@ -51,8 +51,9 @@ def find_tx_sender(provider: Provider, raw_tx: dict) -> str:
     '''find transaction sender, vin[0] is used in this case.'''
 
     vin = raw_tx["vin"][0]
-    txid = vin["txid"] # this seems not to work with coinbase transactions as inputs!
+    txid = vin["txid"]
     index = vin["vout"]
+
     return provider.getrawtransaction(txid, 1)["vout"][index]["scriptPubKey"]["addresses"][0]
 
 
@@ -205,7 +206,6 @@ def validate_deckspawn_p2th(provider: Provider, rawtx: dict, p2th: str) -> bool:
     '''Return True if deck spawn pays to p2th in vout[0] and if the P2TH address
     is correct. Otherwise raises InvalidDeckSpawn.
     '''
-
     try:
         vout = rawtx["vout"][0]["scriptPubKey"].get("addresses")[0]
     except TypeError:

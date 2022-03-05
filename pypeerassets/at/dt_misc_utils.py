@@ -361,6 +361,7 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, network_nam
 
 def sign_p2sh_transaction(provider: Provider, unsigned: MutableTransaction, redeem_script: AbsoluteTimelockScript, key: Kutil):
 
+    # This signs P2SH inputs (solving P2SH scripts).
     # Original for P2PKH uses Kutil.
     # from pypeerassets kutil:
     # "due to design of the btcpy library, TxIn object must be converted to TxOut object before signing"
@@ -369,12 +370,15 @@ def sign_p2sh_transaction(provider: Provider, unsigned: MutableTransaction, rede
     inner_solver = P2pkhSolver(key._private_key)
 
 
-    solver = AbsoluteTimelockSolver(redeem_script.locktime, inner_solver) # TODO: re-check if this is confirmed and works as expected.
-    # redeem_script_solver = AbsoluteTimelockSolver(redeem_script.locktime, inner_solver)
-    # solver = P2shSolver(redeem_script, redeem_script_solver)
-    #print("txins", [i.__str__() for i in txins])
-    #print("inner_solver", inner_solver.__str__())
-    #print("solver locktime", solver.get_absolute_locktime(), "redeem locktime", redeem_script.locktime)
-    #print("solver", solver.__str__())
+    ## solver = AbsoluteTimelockSolver(redeem_script.locktime, inner_solver) # TODO: re-check if this is confirmed and works as expected. ## this seems to work with PPC (???) but not with SLM
+    redeem_script_solver = AbsoluteTimelockSolver(redeem_script.locktime, inner_solver)
+    solver = P2shSolver(redeem_script, redeem_script_solver)
+    # print("solver for all txins:", [solver for i in txins])
+    #for i in txins: ## TEST ##
+    #    print("txin:", i.__str__())
+    #    #print("solver result:", solver.solve([i])[0].__str__())
+    #    #print("inner_solver result:", inner_solver.solve(i)[0].__str__())
+    #    print("solver locktime:", solver.get_absolute_locktime(), "redeem locktime", redeem_script.locktime)
+
 
     return unsigned.spend(txins, [solver for i in txins])

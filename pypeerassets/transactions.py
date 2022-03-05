@@ -299,6 +299,9 @@ def make_raw_transaction(
     )
 
 
+"""
+ORIGINAL
+
 def find_parent_outputs(provider: Provider, utxo: TxIn) -> TxOut:
     '''due to design of the btcpy library, TxIn object must be converted to TxOut object before signing'''
 
@@ -315,12 +318,32 @@ def sign_transaction(provider: Provider, unsigned: MutableTransaction,
 
     ### EXPERIMENTAL: Slimcoin support: needs to use the original client signing method.
     ## this is only a proof of concept, not for production usage!
-    if provider.network in ("slm", "tslm"):
-        from .provider.slm_rpcnode import SlmTransaction
-        # print(unsigned.hexlify())
-        tx_signed = provider.signrawtransaction(unsigned.hexlify())
-        tx = SlmTransaction(tx_signed["hex"], provider)
-        return tx
+    #if provider.network in ("slm", "tslm"):
+    #    from .provider.slm_rpcnode import SlmTransaction
+    #    # print(unsigned.hexlify())
+    #    tx_signed = provider.signrawtransaction(unsigned.hexlify())
+    #    tx = SlmTransaction(tx_signed["hex"], provider)
+    #    return tx
 
     parent_outputs = [find_parent_outputs(provider, i) for i in unsigned.ins]
+    return key.sign_transaction(parent_outputs, unsigned)"""
+
+
+def find_parent_outputs(provider: Provider, utxo: TxIn) -> TxOut:
+    '''due to design of the btcpy library, TxIn object must be converted to TxOut object before signing'''
+
+    network_params = net_query(provider.network)
+    index = utxo.txout  # utxo index
+    txjson = provider.getrawtransaction(utxo.txid,
+                           1)['vout'][index]
+    return TxOut.from_json(txjson,
+                           network=network_params)
+
+
+def sign_transaction(provider: Provider, unsigned: MutableTransaction,
+                     key: Kutil) -> Transaction:
+    '''sign transaction with Kutil'''
+
+    parent_outputs = [find_parent_outputs(provider, i) for i in unsigned.ins]
+    print("This is using kutil", parent_outputs)
     return key.sign_transaction(parent_outputs, unsigned)
