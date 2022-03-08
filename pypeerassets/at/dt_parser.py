@@ -17,6 +17,7 @@ from pypeerassets.at.dt_parser_state import ParserState
 def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, initial_parser_state=None, force_dstates=False, force_continue=False, start_epoch=None, end_epoch=None):
     """Basic parser loop. Loops through all cards by epoch."""
 
+    # debug = True # uncomment for testing
     # print([(c.txid, c.sender, c.receiver, c.amount, c.blocknum) for c in cards])
 
     # TODO: This should not be necessary normally, why is the list not chronologically ordered?
@@ -37,8 +38,6 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
             pst.start_epoch = start_epoch # normally start when the deck was spawned.
     else:
         pst = ParserState(deck, cards, provider, current_blockheight=current_blockheight, start_epoch=start_epoch, end_epoch=end_epoch, debug=debug)
-
-    # debug = True # for testing
 
     pst.init_parser()
 
@@ -68,13 +67,17 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
         # grouping cards per epoch
 
         lowpos = pos
+        card_found = False
         for pos, card in enumerate(pst.initial_cards, start=lowpos):
 
             if debug: print("Card block height:", card.blocknum, "Position", pos, "Cards len", cards_len, "TXID", card.txid)
             # CardIssues before the first block of the epoch are always invalid.
             if not (epoch_firstblock <= card.blocknum <= epoch_lastblock):
                 break
+            card_found = True # TODO: This is probably necessary because enumerate doesn't add 1 to the index after every successful loop instance but at each re-start. Re-check!
 
+        if card_found == True:
+            pos += 1 # without this it won't work, e.g. if there is only 1 card - cards[0:0] # TODO Re-check!
         highpos = pos
         epoch_cards = cards[lowpos:highpos]
 
@@ -82,12 +85,13 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
 
 
         # Epochs which have passed since the deck spawn
-        epochs_from_start = epoch - pst.start_epoch
+        # epochs_from_start = epoch - pst.start_epoch # MODIFIED. We use sdp_epochs_remaining instead, as epochs_from_start counts all epochs, not only the ones with completed proposals.
+        sdp_epochs_remaining = deck.sdp_periods - pst.epochs_with_completed_proposals # TODO Re-check!
 
+        # if debug: print("Epochs with completed proposals:", pst.epochs_with_completed_proposals)
+        if debug: print("SDP periods remaining:", sdp_epochs_remaining)
 
-        if debug: print("SDP periods remaining:", (deck.sdp_periods - epochs_from_start))
-
-        if (deck.sdp_periods > 0) and (epochs_from_start <= deck.sdp_periods): # voters from other tokens
+        if (deck.sdp_periods > 0) and (sdp_epochs_remaining <= deck.sdp_periods): # voters from other tokens
 
             # We set apart all CardTransfers of SDP voters before the epoch start
             sdp_epoch_balances = pst.get_sdp_balances()

@@ -61,6 +61,8 @@ class ParserState(object):
         self.startblock = self.start_epoch * self.deck.epoch_length # first block of the epoch the deck was spawned. Probably not needed.
         self.debug = debug # print statements for debugging
 
+        if self.debug: print("Initial cards:", len(self.initial_cards))
+
     def init_parser(self):
         """Bundles all on-chain extractions."""
 
@@ -407,16 +409,27 @@ class ParserState(object):
         # check B: Does txid correspond to a real donation?
         # We go through the DonationStates per round and search for the dtx_id.
         # When we find it, we get the DonationState for the card issuance.
-        for rd_states in proposal_state.donation_states:
+        """for rd_states in proposal_state.donation_states:
             for ds in rd_states.values():
+                if debug: print("Checking donation state:", ds.id, "with donation tx", ds.donation_tx.txid)
                 if (ds.donation_tx is not None) and (ds.donation_tx.txid == dtx_id):
                     break
                 else:
                     continue
-            break
+            break => this break doesn't work properly!"""
+
+        dstates = [d for rd_states in proposal_state.donation_states for d in rd_states.values()]
+        for ds in dstates:
+
+            if debug: print("Checking donation state:", ds.id, "with donation tx", ds.donation_tx.txid)
+            if (ds.donation_tx is not None) and (ds.donation_tx.txid == dtx_id):
+                break
+            else:
+                continue
 
         # Check C: The card issuance transaction was signed really by the donor?
         if card_sender != ds.donor_address:
+            if debug: print("Card sender {} not corresponding to donor address {}".format(card_sender, ds.donor_address))
             return False
 
         if debug: print("Initial slot:", ds.slot, "Effective slot:", ds.effective_slot)

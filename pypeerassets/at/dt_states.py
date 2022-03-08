@@ -4,7 +4,7 @@ from decimal import Decimal
 from copy import deepcopy
 
 # TODO: optimize the initialization to make deepcopy innecessary.
-# TODO: Locked amounts does not work. (solved at 1/05?)
+# TODO: Locked amounts does not work. (solved at 1/05?) # seems solved (03/22)
 # TODO: proposal states before the first voting round are currently marked as abandoned, this should not be so.
 
 def linit():
@@ -443,7 +443,7 @@ class ProposalState(object):
     def set_proposer_reward(self):
         # MODIFIED. Based on effective slots.
         filled_amount = sum(self.effective_slots)
-        # Alternative:
+        # Alternative: # differs: if there are donation states with donated amounts > slots, proposer reward lowers.
         # filled_amount = self.total_donated_amount
 
         if filled_amount >= self.req_amount:

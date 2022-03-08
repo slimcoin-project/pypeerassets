@@ -249,6 +249,7 @@ def create_p2th_txout(deck, tx_type, fee, network: namedtuple):
 def create_opreturn_txout(tx_type: str, data: bytes, network: namedtuple, position=1):
     # By default creates the opreturn out at n=1.
     # MODIFIED: if the blockchain doesn't support 0 values, then a min_tx_fee value is created.
+    # TODO: there is a redundancy here. It should be unified with the op_return_fee value in pacli.
     script = nulldata_script(data)
     if is_legacy_blockchain(network.shortname, "nulldata"):
         value = coins_to_sats(network.min_tx_fee, network.shortname, network)
