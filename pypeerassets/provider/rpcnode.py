@@ -28,12 +28,6 @@ class RpcNode(Client, Provider):
         utxo_sum = Decimal(0)
         for tx in sorted(self.listunspent(address=address), key=itemgetter('confirmations')):
 
-            extended_txjson = self.getrawtransaction(tx["txid"], 1) ### P2PK workaround ###
-            # print("TX to select", extended_txjson) ### P2PK workaround ###
-            if "pubkey" in [v["scriptPubKey"]["type"] for v in extended_txjson["vout"]]: ### P2PK workaround ###
-                print("P2PK transaction discarded")
-                continue
-
             if tx["address"] not in (self.pa_parameters.P2TH_addr,
                                      self.pa_parameters.test_P2TH_addr):
 

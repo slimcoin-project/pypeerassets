@@ -11,7 +11,7 @@ from pypeerassets.networks import PeercoinMainnet, PeercoinTestnet, net_query
 from pypeerassets.provider.rpcnode import Sequence
 from btcpy.structs.address import P2shAddress
 from btcpy.structs.script import P2shScript, AbsoluteTimelockScript
-from btcpy.structs.sig import P2shSolver, AbsoluteTimelockSolver, P2pkhSolver
+from btcpy.structs.sig import P2shSolver, AbsoluteTimelockSolver, P2pkhSolver, P2pkSolver
 from decimal import Decimal
 from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
 from pypeerassets.at.transaction_formats import getfmt, PROPOSAL_FORMAT
@@ -380,6 +380,25 @@ def sign_p2sh_transaction(provider: Provider, unsigned: MutableTransaction, rede
     #    #print("solver result:", solver.solve([i])[0].__str__())
     #    #print("inner_solver result:", inner_solver.solve(i)[0].__str__())
     #    print("solver locktime:", solver.get_absolute_locktime(), "redeem locktime", redeem_script.locktime)
-
-
     return unsigned.spend(txins, [solver for i in txins])
+
+
+def sign_p2pk_transaction(provider: Provider, unsigned: MutableTransaction, key: Kutil):
+    txins = [find_parent_outputs(provider, i) for i in unsigned.ins]
+    solver = P2pkSolver(key._private_key)
+    return unsigned.spend(txins, [solver for i in txins])
+
+def sign_mixed_transaction(provider: Provider, unsigned: MutableTransaction, key: Kutil, input_types: list):
+    # this one can sign P2PK and P2PKH inputs
+    # should be extended later to allow segwit etc.
+    txins = [find_parent_outputs(provider, i) for i in unsigned.ins]
+    solver_list = []
+    for index, inp in enumerate(txins):
+        if input_types[index] == "pubkey":
+            solver = P2pkSolver(key._private_key)
+        elif input_types[index] == "pubkeyhash":
+            solver = P2pkhSolver(key._private_key)
+        else:
+            raise ValueError("TX type unknown or not implemented.")
+        solver_list.append(solver)
+    return unsigned.spend(txins, solver_list)
