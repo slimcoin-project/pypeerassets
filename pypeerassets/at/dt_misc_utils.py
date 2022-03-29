@@ -138,7 +138,6 @@ def proposal_from_tx(proposal_id, provider):
     deck = deck_from_tx(deckid, provider)
     return ProposalTransaction.from_txid(proposal_id, provider, deck=deck, basicdata=basicdata)
 
-
 def get_parser_state(provider, deck=None, deckid=None, lastblock=None, debug=False, force_continue=False, force_dstates=False):
 
     if not deck:
