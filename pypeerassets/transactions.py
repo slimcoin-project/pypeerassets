@@ -345,5 +345,4 @@ def sign_transaction(provider: Provider, unsigned: MutableTransaction,
     '''sign transaction with Kutil'''
 
     parent_outputs = [find_parent_outputs(provider, i) for i in unsigned.ins]
-    print("This is using kutil", parent_outputs)
     return key.sign_transaction(parent_outputs, unsigned)
