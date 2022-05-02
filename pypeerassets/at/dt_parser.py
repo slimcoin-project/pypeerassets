@@ -25,7 +25,7 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
     cards.sort(key=lambda x: x.blocknum)
 
     if debug: print("Starting parser.")
-    if not current_blockheight:
+    if current_blockheight is None:
         current_blockheight = provider.getblockcount()
 
     # initial_parser_state enables to continue parsing from a certain blockheight or use the parser from "outside".
@@ -34,7 +34,7 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
         pst = initial_parser_state
         debug = pst.debug
         if debug: print("Using initial parser state provided.")
-        if not pst.start_epoch: # workaround, should be done more elegant. Better move the whole section to ParserState.__init__.
+        if pst.start_epoch is None: # workaround, should be done more elegant. Better move the whole section to ParserState.__init__.
             pst.start_epoch = start_epoch # normally start when the deck was spawned.
     else:
         pst = ParserState(deck, cards, provider, current_blockheight=current_blockheight, start_epoch=start_epoch, end_epoch=end_epoch, debug=debug)

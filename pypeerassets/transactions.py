@@ -310,23 +310,7 @@ def find_parent_outputs(provider: Provider, utxo: TxIn) -> TxOut:
     return TxOut.from_json(provider.getrawtransaction(utxo.txid,
                            1)['vout'][index],
                            network=network_params)
-
-
-def sign_transaction(provider: Provider, unsigned: MutableTransaction,
-                     key: Kutil) -> Transaction:
-    '''sign transaction with Kutil'''
-
-    ### EXPERIMENTAL: Slimcoin support: needs to use the original client signing method.
-    ## this is only a proof of concept, not for production usage!
-    #if provider.network in ("slm", "tslm"):
-    #    from .provider.slm_rpcnode import SlmTransaction
-    #    # print(unsigned.hexlify())
-    #    tx_signed = provider.signrawtransaction(unsigned.hexlify())
-    #    tx = SlmTransaction(tx_signed["hex"], provider)
-    #    return tx
-
-    parent_outputs = [find_parent_outputs(provider, i) for i in unsigned.ins]
-    return key.sign_transaction(parent_outputs, unsigned)"""
+"""
 
 
 def find_parent_outputs(provider: Provider, utxo: TxIn) -> TxOut:
