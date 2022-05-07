@@ -53,6 +53,8 @@ def test_get_marked_txes():
     txes = pu.get_marked_txes(PROVIDER, p2th_account, min_blockheight=0, max_blockheight=484163)
     assert len(txes) == 1
 
+# TODO change all to pst.get_tracked_txes!
+# structure is completely different now, as a ParserState has to be created. Must thus be moved to the ParserState tests.
 def test_get_donation_txes():
     txes = pu.get_donation_txes(PROVIDER, DECK_OBJ, PST, min_blockheight=0, max_blockheight=484163)
     assert len(txes) == 1

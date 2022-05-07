@@ -10,6 +10,7 @@ from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
 from pypeerassets.at.dt_states import ProposalState, DonationState
 from pypeerassets.at.transaction_formats import *
 from pypeerassets.at.dt_parser_utils import *
+from copy import deepcopy
 
 class ParserState(object):
     """A ParserState contains the current state of all important variables for a single deck."""
@@ -91,8 +92,8 @@ class ParserState(object):
         if self.debug: print(q, "found.")
 
         if self.debug: print("Get voting txes ...", )
-        self.get_voting_txes()
-        if self.debug: print(len(self.voting_txes), "proposals with voting transactions found.")
+        q = self.get_tracked_txes("voting")
+        if self.debug: print(q, "found.")
 
     def force_dstates(self):
         # Allows to set all states even if no card has been issued.
@@ -155,7 +156,8 @@ class ParserState(object):
             if (pstate.start_epoch != self.epoch):
                 continue
 
-            pstate.initial_votes = self.get_votes(pstate)
+            pstate.initial_votes = self.get_votes(pstate, 0) ### phase added
+
             if self.debug: print("Votes round 1 for Proposal", pstate.id, ":", pstate.initial_votes)
 
             if pstate.initial_votes["positive"] <= pstate.initial_votes["negative"]:
@@ -182,7 +184,7 @@ class ParserState(object):
             if (pstate.end_epoch != self.epoch):
                 continue
             # donation address should not be possible to change (otherwise it's a headache for donors), so we use first ptx.
-            pstate.final_votes = self.get_votes(pstate)
+            pstate.final_votes = self.get_votes(pstate, 1) ### phase added
             if self.debug: print("Votes round 2 for Proposal", pstate.id, ":", pstate.final_votes)
             if pstate.final_votes["positive"] <= pstate.final_votes["negative"]:
                 pstate.state = "abandoned"
@@ -211,6 +213,7 @@ class ParserState(object):
     def get_tracked_txes(self, tx_type, min_blockheight=None, max_blockheight=None):
         """Retrieves TrackedTransactions (except votes and proposals) for a deck from the blockchain
            and adds them to the corresponding ProposalState."""
+        # TODO: we try to add voting_txes too. EXPERIMENTAL!
         proposal_list = []
         tx_attr = "all_{}_txes".format(tx_type)
         txes = get_marked_txes(self.provider, self.deck.derived_p2th_address(tx_type), min_blockheight=min_blockheight, max_blockheight=max_blockheight)
@@ -222,6 +225,8 @@ class ParserState(object):
                     tx = LockingTransaction.from_json(tx_json=rawtx, provider=self.provider, deck=self.deck)
                 elif tx_type == "signalling":
                     tx = SignallingTransaction.from_json(tx_json=rawtx, provider=self.provider, deck=self.deck)
+                elif tx_type == "voting":
+                    tx = VotingTransaction.from_json(tx_json=rawtx, provider=self.provider, deck=self.deck)
 
                 # The ProposalTransaction is added as an object afterwards, to simplify the op_return procesing.
                 proposal_tx = self.proposal_states[tx.proposal_txid].first_ptx
@@ -237,7 +242,6 @@ class ParserState(object):
                 else:
                     current_state = self.proposal_states[tx.proposal_txid]
                     getattr(current_state, tx_attr).append(tx)
-                    # current_state.all_donation_txes.append(tx)
 
                 # We keep a dictionary of DonationTransactions for better lookup from the Parser.
                 if tx_type == "donation":
@@ -250,7 +254,7 @@ class ParserState(object):
         except UnboundLocalError: # if no txes were found
             return 0
 
-    def get_votes(self, proposal, formatted_result=False):
+    def get_votes(self, proposal, phase, formatted_result=False):
         # TODO if it works it should be integrated in the ProposalState class.
         # returns a dictionary with two keys: "positive" and "negative",
         # containing the amounts of the tokens with whose address a proposal was voted.
@@ -261,6 +265,7 @@ class ParserState(object):
         # TODO: This is still without the "first vote can also be valid for second round" system.
         # Formatted_result returns the "decimal" value of the votes, i.e. the number of "tokens"
         # which voted for the proposal, which depends on the "number_of_decimals" value.
+        # MODIFIED: This is now called by phase, it is more transparent and efficient.
 
         votes = {}
         voters = [] # to filter out duplicates.
@@ -272,7 +277,13 @@ class ParserState(object):
         if len(proposal.all_voting_txes) == 0:
             return votes
 
-        sorted_vtxes = sorted(proposal.all_voting_txes, key=lambda tx: tx.blockheight, reverse=True)
+        ### FIX 1 ### (try to do it more elegant later)
+        if phase == 0:
+            phase_vtxes = [ v for v in proposal.all_voting_txes if v.epoch == proposal.start_epoch ]
+        elif phase == 1:
+            phase_vtxes = [ v for v in proposal.all_voting_txes if v.epoch == proposal.end_epoch ]
+        # sorted_vtxes = sorted(proposal.all_voting_txes, key=lambda tx: tx.blockheight, reverse=True)
+        sorted_vtxes = sorted(phase_vtxes, key=lambda tx: tx.blockheight, reverse=True)
 
         for v in sorted_vtxes: # reversed for the "last vote counts" rule.
             if debug: print("Vote: Epoch", v.epoch, "txid:", v.txid, "sender:", v.sender, "outcome:", v.vote, "height", v.blockheight)
@@ -290,17 +301,18 @@ class ParserState(object):
                     v.set_weight(voter_balance)
 
                     # Valid voting txes are appended to ProposalStates.voting_txes by round and outcome
-                    if v.epoch == proposal.start_epoch:
-                        proposal.voting_txes[0].append(v)
-                    elif v.epoch == proposal.end_epoch:
-                        proposal.voting_txes[1].append(v)
+                    #if v.epoch == proposal.start_epoch:
+                    #    proposal.voting_txes[0].append(v)
+                    #elif v.epoch == proposal.end_epoch:
+                    #    proposal.voting_txes[1].append(v)
+                    proposal.voting_txes[phase].append(v)
 
                 except KeyError: # will always be thrown if a voter is not enabled in the "current" epoch.
                     if debug: print("Voter has no balance in the current epoch.")
                     continue
 
             elif v.epoch < self.epoch: # due to it being sorted we can cut off all txes before the relevant epoch.
-                break
+                break ### maybe not more necessary due to phase addition!
 
         if formatted_result:
             for outcome in ("positive", "negative"):
@@ -311,30 +323,6 @@ class ParserState(object):
                 votes.update({outcome : balance})
 
         return votes
-
-    def get_voting_txes(self, min_blockheight=None, max_blockheight=None):
-        # gets ALL voting txes of a deck. Needs P2TH.
-        # MODIFIED: Votes now get stored along the ProposalState, not the ParserState.
-        # uses a dict to group votes by proposal and by outcome ("positive" and "negative")
-        # b'+' is the value for a positive vote, b'-' is negative, others are invalid.
-        outcome_options = { b'+' : "positive", b'-' : "negative" }
-
-        for rawtx in get_marked_txes(self.provider, self.deck.derived_p2th_address("voting"), min_blockheight=min_blockheight, max_blockheight=max_blockheight):
-
-            try:
-                tx = VotingTransaction.from_json(tx_json=rawtx, provider=self.provider, deck=self.deck)
-                outcome = outcome_options[tx.vote]
-            except (KeyError, InvalidTrackedTransactionError):
-                continue
-
-            # The ProposalTransaction is added as an object afterwards, to simplify the op_return procesing.
-            proposal_state = self.proposal_states[tx.proposal_txid]
-            proposal_tx = proposal_state.first_ptx
-            tx.set_proposal(proposal_tx)
-            proposal_txid = tx.proposal.txid
-
-            proposal_state.all_voting_txes.append(tx)
-
 
     def validate_proposer_issuance(self, dtx_id, card_units, card_sender, card_blocknum):
 

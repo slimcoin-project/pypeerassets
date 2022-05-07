@@ -9,7 +9,6 @@ from pypeerassets.at.transaction_formats import *
 from pypeerassets.provider import Provider
 from pypeerassets.kutil import Kutil
 from pypeerassets.pa_constants import param_query
-from copy import deepcopy
 
 ### Transaction retrieval
 
@@ -50,17 +49,7 @@ def get_proposal_states(provider, deck, current_blockheight=None, all_signalling
 
     for rawtx in get_marked_txes(provider, deck.derived_p2th_address("proposal")):
         try:
-            # print("rawtx:", rawtx)
             tx = ProposalTransaction.from_json(tx_json=rawtx, provider=provider, deck=deck)
-            # print("tx checked:", tx.txid, "first ptx", tx.first_ptx_txid)
-            """if tx.txid not in used_firsttxids:
-                state = ProposalState(first_ptx=tx, valid_ptx=tx, current_blockheight=current_blockheight, all_signalling_txes=all_signalling_txes, all_donation_txes=all_donation_txes, all_locking_txes=all_locking_txes, provider=provider)
-            else:
-                state = statedict[tx.txid]
-                if state.first_ptx.txid == tx.first_ptx_txid:
-                    state.valid_ptx = tx # TODO: This could need an additional validation step, although it is unlikely it can be used for attacks.
-                else:
-                    continue"""
 
             if tx.txid not in used_firsttxids: # filters out duplicates
                 if (tx.first_ptx_txid in (None, tx.txid)) or len(tx.first_ptx_txid) != 64: # case 1: new proposal transaction # TODO: extra condition added for invalid proposals!

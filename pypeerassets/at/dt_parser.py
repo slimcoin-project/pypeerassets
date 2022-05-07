@@ -20,7 +20,6 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
     # debug = True # uncomment for testing
     # print([(c.txid, c.sender, c.receiver, c.amount, c.blocknum) for c in cards])
 
-    # TODO: This should not be necessary normally, why is the list not chronologically ordered?
     # TODO: Transactions in the same block must also be ordered by block position.
     cards.sort(key=lambda x: x.blocknum)
 
@@ -114,7 +113,6 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
         #if pst.debug: print("Approved proposals before epoch", pst.epoch, pst.approved_proposals)
         pst.update_approved_proposals()
         # if debug: print("Approved proposals after epoch", pst.epoch, pst.approved_proposals)
-
         pst.update_valid_ending_proposals()
         # if debug: print("Valid ending proposals after epoch:", pst.epoch, pst.valid_proposals)
 
