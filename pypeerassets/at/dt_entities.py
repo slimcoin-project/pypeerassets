@@ -9,7 +9,6 @@ from btcpy.structs.address import Address, P2shAddress, P2pkhAddress
 from btcpy.structs.crypto import PublicKey
 
 from pypeerassets.transactions import Transaction, TxIn, TxOut, Locktime, nulldata_script, tx_output, find_parent_outputs, p2pkh_script
-from pypeerassets.provider import RpcNode
 from pypeerassets.networks import PeercoinMainnet, PeercoinTestnet, SlimcoinMainnet, SlimcoinTestnet, net_query
 from pypeerassets.at.transaction_formats import getfmt, PROPOSAL_FORMAT, DONATION_FORMAT, SIGNALLING_FORMAT, LOCKING_FORMAT, VOTING_FORMAT
 from pypeerassets.legacy import is_legacy_blockchain
@@ -150,7 +149,8 @@ class TrackedTransaction(Transaction):
         return { "data" : data, "json" : json }
 
     @classmethod
-    def from_json(cls, tx_json, provider, network=PeercoinTestnet, deck=None):
+    def from_json(cls, tx_json, provider, deck=None):
+        network = net_query(provider.network)
         try:
 
             return cls(
@@ -172,10 +172,10 @@ class TrackedTransaction(Transaction):
 
 
     @classmethod
-    def from_txid(cls, txid, provider, network=PeercoinTestnet, deck=None, basicdata=None):
+    def from_txid(cls, txid, provider, deck=None, basicdata=None):
         if basicdata is None:
            basicdata = cls.get_basicdata(txid, provider)
-        return cls.from_json(basicdata["json"], provider=provider, network=network, deck=deck)
+        return cls.from_json(basicdata["json"], provider=provider, deck=deck)
 
     def coin_multiplier(self):
         network_params = net_query(self.network.shortname)
@@ -226,14 +226,8 @@ class TrackedTransaction(Transaction):
 
     def get_input_address(self, pubkey_hexstr):
         # calculates input address from pubkey from scriptsig.
-        # MODIFIED: we now use directly the btcpy methods. PublicKey.hash() is identic to this.
-        pubkey = PublicKey(bytearray.fromhex(pubkey_hexstr))
 
-        #pubkey = bytearray.fromhex(pubkey_hexstr) # or do we need this?
-        #round1 = hl.sha256(pubkey).digest()
-        #h = hl.new('ripemd160')
-        #h.update(round1)
-        #pubkey_hash = h.digest()
+        pubkey = PublicKey(bytearray.fromhex(pubkey_hexstr))
         return P2pkhAddress(pubkey.hash(), network=self.network).__str__()
 
     def get_input_address_from_txid(self, txid, txout, provider):
@@ -241,7 +235,6 @@ class TrackedTransaction(Transaction):
         inp_txjson = provider.getrawtransaction(txid, 1)
         addr = inp_txjson["vout"][txout]["scriptPubKey"]["addresses"][0]
         return addr
-
 
     def set_input_addresses(self, provider=None):
         input_addresses = []

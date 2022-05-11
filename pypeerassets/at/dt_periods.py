@@ -53,7 +53,9 @@ def get_startendvalues(period: tuple, ps: ProposalState) -> list:
     return get_period_dict(ps)[period]
 
 def humanreadable_to_periodcode(period_str: str, period_index: int) -> tuple:
-    """The humanreadable format is for example 'voting, 0' or 'signalling, 21' """
+    """The humanreadable format is for example 'voting, 0' or 'signalling, 2' """
+    # TODO: index here starts at 1 it seems, not at 0.
+    # rework this for the next pypeerassets upgrade!
 
     epoch_codes = ("B", "D") # B is "phase 1", D is "phase 2"
     pre_dist_periods = ("security", "voting", "release")

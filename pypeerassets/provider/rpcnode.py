@@ -5,8 +5,8 @@ from operator import itemgetter
 from .common import Provider
 from pypeerassets.exceptions import InsufficientFunds
 from btcpy.structs.transaction import MutableTxIn, Sequence, ScriptSig
-from decimal import Decimal, getcontext
-getcontext().prec = 6
+from decimal import Decimal, getcontext, localcontext ### localcontext added for more precise utxo value calculation
+getcontext().prec = 15 ### BUGFIX: changed from 6 to 15, 6 does lots of unexpected roundings, because precision is across all the decimal places, also before the comma! 15 supports values up to 100 million coins.
 
 try:
     from peercoin_rpc import Client
@@ -38,7 +38,8 @@ class RpcNode(Client, Provider):
                                     script_sig=ScriptSig.empty())
                          )
 
-                utxo_sum += Decimal(tx["amount"])
+
+                utxo_sum += Decimal(str(tx["amount"]))
                 if utxo_sum >= amount:
                     return {'utxos': utxos, 'total': utxo_sum}
 

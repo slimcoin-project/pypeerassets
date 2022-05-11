@@ -465,7 +465,7 @@ class ProposalState(object):
 
         # Slots are considered filled if 95% of the initial slot are locked or donated.
         # This prevents small rounding errors and P2TH/tx fees to make the slot invalid for the next rounds.
-        # 95% allows a donation of 1 coin minus 0.04 fees, without having to add new outputs.
+        # 95% allows a donation of 1 coin minus 0.04 fees, without having to add new UTXOs.
         fill_threshold = Decimal(0.95)
 
         if dist_round in (0, 3, 6, 7):

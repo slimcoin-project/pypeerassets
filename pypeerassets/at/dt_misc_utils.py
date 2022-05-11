@@ -7,7 +7,7 @@ from pypeerassets.provider import Provider
 from pypeerassets.protocol import Deck
 from pypeerassets.kutil import Kutil
 from pypeerassets.transactions import make_raw_transaction, p2pkh_script, find_parent_outputs, nulldata_script, MutableTxIn, TxIn, TxOut, Transaction, MutableTransaction, MutableTxIn, ScriptSig, Locktime
-from pypeerassets.networks import PeercoinMainnet, PeercoinTestnet, net_query
+from pypeerassets.networks import net_query
 from pypeerassets.provider.rpcnode import Sequence
 from btcpy.structs.address import P2shAddress
 from btcpy.structs.script import P2shScript, AbsoluteTimelockScript
@@ -307,7 +307,6 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, network_nam
             reserved_amount = 0
 
         complete_amount = amount + reserved_amount + p2th_output.value + data_output.value + tx_fee
-
         if network_name in ("slm", "tslm") and input_redeem_script is not None:
             #load P2SH preimage in Slimcoin donation, as SLM cannot use normal solvers
             pre_scriptsig = input_redeem_script.serialize()
@@ -329,6 +328,7 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, network_nam
             raise ValueError("No input information provided.") # we need input address or input txid/vout
 
         change_value = input_value - complete_amount
+        if debug: print("Input value:", input_value)
         if debug: print("Change value and complete amount:", change_value, complete_amount)
 
         # Look if there is change, if yes, create fourth output.
@@ -369,8 +369,6 @@ def sign_p2sh_transaction(provider: Provider, unsigned: MutableTransaction, rede
     txins = [find_parent_outputs(provider, i) for i in unsigned.ins]
     inner_solver = P2pkhSolver(key._private_key)
 
-
-    ## solver = AbsoluteTimelockSolver(redeem_script.locktime, inner_solver) # TODO: re-check if this is confirmed and works as expected. ## this seems to work with PPC (???) but not with SLM
     redeem_script_solver = AbsoluteTimelockSolver(redeem_script.locktime, inner_solver)
     solver = P2shSolver(redeem_script, redeem_script_solver)
     # print("solver for all txins:", [solver for i in txins])
