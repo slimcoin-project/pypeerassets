@@ -321,6 +321,14 @@ class ProposalState(object):
 
         # 3. Generate DonationState and add locking/donation txes:
         for tx in (valid_stxes + valid_rtxes):
+
+            # we need to separate Locking/Donation and ReserveTxes here.
+            phase = rd // 4
+            if type(tx) == SignallingTransaction:
+                self.donor_addresses.append((tx.address, type(tx), phase))
+            else:
+                self.donor_addresses.append((tx.address, "reserve", phase))
+
             donation_tx, locking_tx, effective_locking_slot, effective_slot = None, None, None, None
             state = "incomplete"
             # Initial slot: based on signalled amount.
@@ -397,17 +405,16 @@ class ProposalState(object):
 
         return dstates
 
-    def donor_address_check(self, tx, rd, addr=None, append=True):
+    def donor_address_check(self, tx, rd, addr=None, reserve=False):
         # checks if a donor address of a transaction was already used in the same phase for the same tx type.
         # Donor address can be found by the preceding phase (for reserve txes).
         phase = rd // 4
         if type(tx) == SignallingTransaction:
             addr = tx.address
-        if (addr, type(tx), phase) in self.donor_addresses:
+        tx_type = "reserve" if reserve else type(tx)
+        if (addr, tx_type, phase) in self.donor_addresses:
             raise InvalidTrackedTransactionError("Rejected, donor address {} already used in this phase for this transaction type.".format(addr))
         else:
-            if append:
-                self.donor_addresses.append((addr, type(tx), phase))
             return True
 
     def stx_pre_checks(self, stx):
@@ -510,10 +517,7 @@ class ProposalState(object):
         for tx in tx_list:
             # if debug: print("Checking tx:", tx.txid, type(tx))
             if type(tx) in (LockingTransaction, DonationTransaction):
-                #try:
-                # TODO: this seems to require that valid_rtx_txids and valid_dstates have the same length.
-                # Is this correct?
-                # likely BUG: seems not! The valid_rtx_txids does only contain those with valid donation or locking txes, not all donation states!
+
                 # tx_dstate = valid_dstates[valid_rtx_txids.index(tx.txid)]
                 for dstate in valid_dstates:
                     if (dstate.locking_tx is not None) and (dstate.locking_tx.txid == tx.txid):

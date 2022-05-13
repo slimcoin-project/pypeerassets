@@ -183,21 +183,25 @@ class TrackedTransaction(Transaction):
 
     def get_output_tx(self, tx_list, proposal_state, dist_round, mode: str=None, debug: bool=False):
         # Searches a locking/donation transaction which shares the address of a signalling or reserve transaction
+        # Locking mode searches for the DonationTransaction following to a LockingTransaction.
+        # If locking mode, then a reserve address is ignored even if it exists.
 
         phase = dist_round // 4
+        reserve = False
         try:
             # Here we separate ReserveTXes and SignallingTXes
-            # If locking mode, then reserve address is ignored even if it exists.
-            # (Locking mode searches the DonationTransaction following to a LockingTransaction)
             assert mode != "locking"
             addr = self.reserve_address
         except (AttributeError, AssertionError):
+            # AttributeError is thrown for SignallingTXes
+            # AssertionError for LockingTxes or DonationTxes which act as ReserveTxes
             addr = self.address
-        if debug: print("Donor addresses:", proposal_state.donor_addresses)
-        if debug: print("Address checked:", addr)
+            if mode != "locking":
+                reserve = True
+
         for tx in tx_list:
             try:
-                proposal_state.donor_address_check(tx, dist_round, addr, append=False)
+                proposal_state.donor_address_check(tx, dist_round, addr, reserve=reserve)
             except InvalidTrackedTransactionError as e:
                 if debug: print(e)
                 continue
