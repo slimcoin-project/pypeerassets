@@ -190,23 +190,28 @@ class TrackedTransaction(Transaction):
             # If locking mode, then reserve address is ignored even if it exists.
             # (Locking mode searches the DonationTransaction following to a LockingTransaction)
             assert mode != "locking"
-            adr = self.reserve_address
+            addr = self.reserve_address
         except (AttributeError, AssertionError):
-            adr = self.address
+            addr = self.address
         if debug: print("Donor addresses:", proposal_state.donor_addresses)
-        if debug: print("Address checked:", adr)
+        if debug: print("Address checked:", addr)
         for tx in tx_list:
-            # MODIFIED: added tx type, otherwise the signalling->locking search blocks the locking->donation search.
+            try:
+                proposal_state.donor_address_check(tx, dist_round, addr, append=False)
+            except InvalidTrackedTransactionError as e:
+                if debug: print(e)
+                continue
+
             # dist_round // 4 represents the phase. You must be able to use the same donor address in phase 1 and 2,
             # due to the reserve transaction question in rd. 4/5.
-            if (adr, type(tx), phase) in proposal_state.donor_addresses:
-                # TODO: Can this be improved? adr, type(tx), phase should give the same value for many
-                # txes of the list, so "continue" isn't the best option.
-                # Note: all_locking_txes etc. contain both phases, so it makes sense, but isn't very efficient.
-                if debug: print("Rejected, donor address", adr, "already used in this phase for this transaction type.")
-                continue
+            #if (addr, type(tx), phase) in proposal_state.donor_addresses:
+            #    # TODO: Can this be improved? adr, type(tx), phase should give the same value for many
+            #    # txes of the list, so "continue" isn't the best option.
+            #    # Note: all_locking_txes etc. contain both phases, so it makes sense, but isn't very efficient.
+            #    if debug: print("Rejected, donor address", addr, "already used in this phase for this transaction type.")
+            #    continue
             if debug: print("Input addresses of tx", tx.txid, ":", tx.input_addresses)
-            if adr in tx.input_addresses:
+            if addr in tx.input_addresses:
                 # MODIF: in locking mode, we check the block height of the donation release transaction.
                 if mode == "locking":
                     startblock = proposal_state.release_period[0]
@@ -219,7 +224,7 @@ class TrackedTransaction(Transaction):
                 if not (startblock <= tx.blockheight <= endblock):
                     continue
 
-                proposal_state.donor_addresses.append((adr, type(tx), phase))
+                proposal_state.donor_addresses.append((addr, type(tx), phase))
                 return tx
 
         return None

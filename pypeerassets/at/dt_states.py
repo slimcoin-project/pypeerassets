@@ -1,5 +1,5 @@
 from pypeerassets.at.dt_slots import get_slot
-from pypeerassets.at.dt_entities import SignallingTransaction, DonationTransaction, LockingTransaction
+from pypeerassets.at.dt_entities import SignallingTransaction, DonationTransaction, LockingTransaction, InvalidTrackedTransactionError
 from decimal import Decimal
 from copy import deepcopy
 
@@ -149,7 +149,7 @@ class ProposalState(object):
 
             for rd in range(4): # first phase has 4 rounds
                 round_starts[rd] = phase_start + self.round_lengths[0] * rd
-                round_halfway[rd] = round_starts[rd] + halfways[0] # MODIF: instead of "halfway"
+                round_halfway[rd] = round_starts[rd] + halfways[0]
                 self.rounds[rd] = [[round_starts[rd], round_halfway[rd] - 1], [round_halfway[rd], round_starts[rd] + self.round_lengths[0] - 1]]
 
         if phase in (0, 2):
@@ -170,7 +170,6 @@ class ProposalState(object):
             self.release_period = [release_start, release_start + release_period_length - 1] # FIX
 
             for i in range(4): # second phase has 4 rounds
-                # MODIFIED: no longer 5 rounds, but 4, because proposer round is innecesary.
                 rd = i + 4
                 round_starts[rd] = phase_start + self.round_lengths[1] * i
                 round_halfway[rd] = round_starts[rd] + halfways[1] # MODIF: instead of "halfway"
@@ -244,14 +243,15 @@ class ProposalState(object):
             dstates[rd] = self._process_donation_states(rd, debug=debug, set_reward=set_reward, abandon_until=abandon_until)
             # if debug: print("Donation states of round", rd, ":", dstates[rd])
 
-
         if phase in (0, 1):
 
             self.donation_states = dstates
             self.processed[0] = True
             if phase == 0:
                 self.processed[1] = True
+
         elif phase == 2:
+
             self.donation_states[4:] = dstates[4:]
             self.processed[1] = True
 
@@ -274,9 +274,14 @@ class ProposalState(object):
 
         for stx in self.all_signalling_txes:
             # if debug: print("STX round:", self.get_stx_dist_round(stx), "Current round:", rd)
-            if self.get_stx_dist_round(stx) == rd:
+            #if self.get_stx_dist_round(stx) == rd:
+            try:
+                assert self.stx_pre_checks(stx) == rd
                 all_stxes.append(stx)
                 if debug: print("STX", stx.txid, "appended in round", rd)
+            except (InvalidTrackedTransactionError, AssertionError) as e:
+                if debug: print("STX not added:", e)
+
 
         # if debug: print("All signalling txes for round", rd, ":", all_stxes)
         if rd in (0, 3, 6, 7):
@@ -315,28 +320,14 @@ class ProposalState(object):
             self.effective_locking_slots[rd] = 0
 
         # 3. Generate DonationState and add locking/donation txes:
-        # TODO: Do we need to validate the correct round of locking/donation, and even reserve txes?
         for tx in (valid_stxes + valid_rtxes):
             donation_tx, locking_tx, effective_locking_slot, effective_slot = None, None, None, None
             state = "incomplete"
             # Initial slot: based on signalled amount.
-            # TODO: if we can give "self" simply to get_slot, we could make this simpler.
             # Maybe refactor it as a method of ProposalState.
             # MODIFIED: first_req_amount and final_req_amount removed as no longer necessary.
             # reserve_txes and available_amount added.
-            slot = get_slot(tx,
-                            rd,
-                            signalling_txes=self.signalling_txes,
-                            locking_txes=self.locking_txes,
-                            donation_txes=self.donation_txes,
-                            reserve_txes=self.reserve_txes,
-                            signalled_amounts=self.signalled_amounts,
-                            reserved_amounts=self.reserved_amounts,
-                            locked_amounts=self.locked_amounts,
-                            donated_amounts=self.donated_amounts,
-                            effective_slots=self.effective_slots,
-                            effective_locking_slots=self.effective_locking_slots,
-                            available_amount=self.available_slot_amount)
+            slot = get_slot(self, tx, rd)
             if debug: print("Slot for tx", tx.txid, ":", slot)
             if rd < 4:
                 locking_tx = tx.get_output_tx(self.all_locking_txes, self, rd)
@@ -406,21 +397,40 @@ class ProposalState(object):
 
         return dstates
 
+    def donor_address_check(self, tx, rd, addr=None, append=True):
+        # checks if a donor address of a transaction was already used in the same phase for the same tx type.
+        # Donor address can be found by the preceding phase (for reserve txes).
+        phase = rd // 4
+        if type(tx) == SignallingTransaction:
+            addr = tx.address
+        if (addr, type(tx), phase) in self.donor_addresses:
+            raise InvalidTrackedTransactionError("Rejected, donor address {} already used in this phase for this transaction type.".format(addr))
+        else:
+            if append:
+                self.donor_addresses.append((addr, type(tx), phase))
+            return True
+
+    def stx_pre_checks(self, stx):
+        # this checks the dist_round and duplicate donor addresses.
+        rd = self.get_stx_dist_round(stx)
+        try:
+            self.donor_address_check(stx, rd)
+            return rd
+        except InvalidTrackedTransactionError as e:
+            raise InvalidTrackedTransactionError(e)
+
     def get_stx_dist_round(self, stx):
         # This one only checks for the blockheight. Thus it can only be used for stxes.
        for rd in range(8):
            start = self.rounds[rd][0][0]
            end = self.rounds[rd][1][0]
-           # old version:
-           # start = self.round_starts[rd]
-           # end = self.round_halfway[rd] - 1
 
            # print("Start/bh/end:", start, stx.blockheight, end, "txid:", stx.txid)
            if start <= stx.blockheight <= end:
                return rd
        else:
-           # raise InvalidTrackedTransactionError("Incorrect blockheight for a signalling transaction.")
-           return None
+           raise InvalidTrackedTransactionError("Incorrect blockheight for a signalling transaction.")
+           # return None
 
     def set_dist_factor(self, ending_proposals):
         # TODO: It could make sense to calculate the rewards here directly, i.e. multiply this with deck.epoch_quantity
@@ -498,17 +508,32 @@ class ProposalState(object):
 
         # print("round here", dist_round)
         for tx in tx_list:
+            # if debug: print("Checking tx:", tx.txid, type(tx))
             if type(tx) in (LockingTransaction, DonationTransaction):
-                try:
-                    tx_dstate = valid_dstates[valid_rtx_txids.index(tx.txid)]
-                except (IndexError, ValueError):
+                #try:
+                # TODO: this seems to require that valid_rtx_txids and valid_dstates have the same length.
+                # Is this correct?
+                # likely BUG: seems not! The valid_rtx_txids does only contain those with valid donation or locking txes, not all donation states!
+                # tx_dstate = valid_dstates[valid_rtx_txids.index(tx.txid)]
+                for dstate in valid_dstates:
+                    if (dstate.locking_tx is not None) and (dstate.locking_tx.txid == tx.txid):
+                        break
+                    elif (dstate.donation_tx is not None) and (dstate.donation_tx.txid == tx.txid):
+                        break
+                else:
                     if debug: print("Transaction rejected by priority check:", tx.txid)
                     continue
+                tx_dstate = dstate
+                #except (IndexError, ValueError, AttributeError):
+                #    if debug: print("Transaction rejected by priority check:", tx.txid)
+                #    continue
             # In the case of signalling transactions, we must look for donation/locking TXes
             # using the spending address as donor address, because the used output can be another one.
             elif type(tx) == SignallingTransaction:
                 for dstate in valid_dstates:
+                    #if debug: print("Donation state checked:", dstate.id, "for tx", tx.txid, "with input addresses", tx.input_addresses)
                     if dstate.donor_address in tx.input_addresses:
+                        # TODO: tx_dstate should better be renamed to "parent_dstate"
                         tx_dstate = dstate
                         break
                 else:
@@ -516,6 +541,7 @@ class ProposalState(object):
                     continue
 
             try:
+                # if debug: print("TX DSTATE", tx_dstate.id, "for", tx.txid)
                 if (dist_round < 4) and (tx_dstate.locking_tx.amount >= (Decimal(tx_dstate.slot) * fill_threshold)): # we could use the "complete" attribute? or only in the case of DonationTXes?
                     valid_txes.append(tx)
                 elif (dist_round >= 4) and (tx_dstate.donation_tx.amount >= (Decimal(tx_dstate.slot) * fill_threshold)):
@@ -523,10 +549,11 @@ class ProposalState(object):
                     valid_txes.append(tx)
 
                 else:
-                    if debug: print("Reserve transaction rejected due to incomplete slot:", tx.txid, "\nSlot:", tx_dstate.slot, "Amount / Locked Amount:", tx_dstate.effective_slot, tx_dstate.effective_locking_slot)
+                    if debug: print("Reserve transaction rejected due to incomplete slot of parent donation state:", tx.txid, "\nSlot:", tx_dstate.slot, "Amount / Locked Amount:", tx_dstate.effective_slot, tx_dstate.effective_locking_slot)
                     continue
-            except AttributeError:
-                if debug: print("Required transaction (donation or locking) missing.")
+            except AttributeError as e:
+                if debug: print("Required transaction (donation or locking) of parent donation state missing:", tx.txid)
+                if debug: print(e)
                 continue
 
         return valid_txes
