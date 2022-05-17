@@ -85,37 +85,21 @@ def get_slot(ps: object, tx: TrackedTransaction, dist_round: int) -> int:
         tx_amount = tx.amount
 
     # First 4 rounds require timelocks, so ProposalState.locked_amounts must be initalized.
-    if dist_round in (0, 1, 2, 3) and not locked_amounts:
+    if dist_round in (0, 1, 2, 3) and (locked_amounts is None):
         locked_amounts = [0, 0, 0, 0]
 
     if dist_round in (0, 6):
         # Note: available_amount[0] is the same than req_amount.
         return get_raw_slot(tx_amount, available_amount[dist_round], total_amount=signalled_amounts[dist_round])
 
-    elif dist_round in (1, 2):
+    elif dist_round in (1, 2, 4, 5):
         # in priority rounds, we need to check if the signalled amounts correspond to a donation in the previous round
         # These are added to the reserved amounts (second output of DonationTransactions).
-        # MODIFIED: The reserve txes are now assigned to the round the Donation corresponds.
-        # print("checking round 1", locking_txes[0], signalling_txes[1], reserved_amounts[0], signalled_amounts[1])
-        return get_priority_slot(tx, rtxes=locking_txes[dist_round - 1], stxes=signalling_txes[dist_round], av_amount=available_amount[dist_round], ramount=reserved_amounts[dist_round - 1], samount=signalled_amounts[dist_round])
+        # MODIFIED: Added priority rounds 4 and 5. rtxes is now reserve_txes[rd] instead of donation_txes[rd-1]. See above: already managed in ProposalState.
+        return get_priority_slot(tx, rtxes=reserve_txes[dist_round], stxes=signalling_txes[dist_round], av_amount=available_amount[dist_round], ramount=reserved_amounts[dist_round], samount=signalled_amounts[dist_round])
 
     elif dist_round in (3, 7):
         return get_first_serve_slot(tx, signalling_txes[dist_round], slot_rest=available_amount[dist_round])
-
-    elif dist_round == 4:
-        # this is a complex round. Priority is as follows:
-        # 1. Donors of rounds1-3 who have finished the donation of their slot.
-        # rtxes_phase1 = [dtx for rd in donation_txes[:4] for dtx in rd if (dtx.reserved_amount is not None) and (dtx.reserved_amount > 0)] # MODIFIED and simplified.
-        rtxes_phase1 = [rtx for rd in reserve_txes[:4] for rtx in rd]
-        reserved_amount_phase1 = sum(reserved_amounts[:4])
-        # print(reserved_amount_phase1)
-        return get_priority_slot(tx, rtxes=rtxes_phase1, stxes=signalling_txes[4], av_amount=available_amount[4], ramount=reserved_amount_phase1, samount=signalled_amounts[4])
-
-    elif dist_round == 5:
-        # priority as follows:
-        # 1. Donors of round 4 with second outputs
-        # 2. signalling txes of rd 5.
-        return get_priority_slot(tx, rtxes=donation_txes[4], stxes=signalling_txes[5], av_amount=available_amount[5], ramount=reserved_amounts[4], samount=signalled_amounts[5])
 
     else:
         return 0 # if dist_round is incorrect

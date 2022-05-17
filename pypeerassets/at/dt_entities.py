@@ -185,6 +185,7 @@ class TrackedTransaction(Transaction):
         # Searches a locking/donation transaction which shares the address of a signalling or reserve transaction
         # Locking mode searches for the DonationTransaction following to a LockingTransaction.
         # If locking mode, then a reserve address is ignored even if it exists.
+        # NOTE: This finds only the first transaction of those searched.
 
         phase = dist_round // 4
         reserve = False
@@ -200,10 +201,7 @@ class TrackedTransaction(Transaction):
                 reserve = True
 
         for tx in tx_list:
-            try:
-                proposal_state.donor_address_check(tx, dist_round, addr, reserve=reserve)
-            except InvalidTrackedTransactionError as e:
-                if debug: print(e)
+            if not proposal_state.donor_address_check(tx, dist_round, addr, reserve=reserve, debug=debug):
                 continue
 
             # dist_round // 4 represents the phase. You must be able to use the same donor address in phase 1 and 2,
