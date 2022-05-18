@@ -13,43 +13,32 @@ from pypeerassets.at.dt_parser_utils import *
 from copy import deepcopy
 
 class ParserState(object):
-    """A ParserState contains the current state of all important variables for a single deck."""
-    # TODO: we need to evaluate where to use DeckState in the parser.
+    """A ParserState contains the current state of all important variables for a single deck,
+       while the card parser is running.
+       A sub_state is a dict to allow to create a ParserState in a pre-processed state.
+       Currently not used but maybe useful."""
 
-    def __init__(self, deck, initial_cards, provider, proposal_states={}, approved_proposals={}, valid_proposals={}, signalling_txes=[], locking_txes=[], donation_txes={}, voting_txes=[], epoch=None, start_epoch=None, end_epoch=None, used_issuance_tuples=[], valid_cards=[], enabled_voters={}, sdp_cards=[], sdp_deck=None, current_blockheight=None, epochs_with_completed_proposals=0, debug=False):
+    def __init__(self, deck: object, initial_cards: list, provider: object, epoch: int=None, start_epoch: int=None, end_epoch: int=None,  current_blockheight: int=None, debug: bool=False, epochs_with_completed_proposals: int=0, **sub_state):
 
         self.deck = deck
         self.initial_cards = initial_cards
         self.provider = provider
-        self.current_blockheight = current_blockheight
+        self.debug = debug
 
-        self.valid_cards = valid_cards
-        self.proposal_states = proposal_states
-        self.approved_proposals = approved_proposals # approved by round 1 votes
-        self.valid_proposals = valid_proposals # successfully completed: approved by round 1 + 2 votes
-        self.donation_txes = donation_txes # MODIFIED as a dict!
-        self.voting_txes = voting_txes # this is a dict, not list.
-        self.epochs_with_completed_proposals = epochs_with_completed_proposals
-
-        # enabled_voters variable is calculated once per epoch, taking into account card issuances and card transfers.
-        # enabled_voters are all voters with valid balances, and their balance.
-        self.enabled_voters = enabled_voters
         # SDP voters/balances are stored as CardTransfers, so they can be easily retrieved with PeerAsset standard methods.
         if self.deck.sdp_deckid:
             self.sdp_deck = deck_from_tx(self.deck.sdp_deckid, self.provider)
         else:
-            self.sdp_deck = sdp_deck
-        self.sdp_cards = sdp_cards
+            self.sdp_deck = None # we don't need this in sub_state: if the deck has no sdp_deck, then it's not using SDP.
+
         # The SDP Decimal Diff is the difference between the number of decimals of the main token and the voting token.
         self.sdp_decimal_diff = self.deck.number_of_decimals - self.sdp_deck.number_of_decimals
 
-
-        # used_issuance_tuples list joins all issuances of sender, txid, vout:
-        self.used_issuance_tuples = used_issuance_tuples
-
         self.epoch = epoch
+        self.epochs_with_completed_proposals = epochs_with_completed_proposals
+        self.current_blockheight = current_blockheight
 
-        if not start_epoch:
+        if start_epoch is None:
             # prepare the loop, needed for SDP
             deckspawn_blockhash = provider.getrawtransaction(deck.id, 1)["blockhash"]
             deckspawn_block = provider.getblock(deckspawn_blockhash)["height"]
@@ -61,6 +50,24 @@ class ParserState(object):
 
         self.startblock = self.start_epoch * self.deck.epoch_length # first block of the epoch the deck was spawned. Probably not needed.
         self.debug = debug # print statements for debugging
+
+        # Notes for some attributes:
+        # enabled_voters variable is calculated once per epoch, taking into account card issuances and card transfers.
+        # enabled_voters are all voters with valid balances, and their balance.
+        # used_issuance_tuples list joins all issuances of sender, txid, vout
+        dict_items = ("proposal_states", "approved_proposals", "valid_proposals", "donation_txes", "enabled_voters")
+        list_items = ("signalling_txes", "locking_txes", "voting_txes", "used_issuance_tuples", "valid_cards", "sdp_cards")
+
+        for key in dict_items + list_items:
+
+            if key in sub_state:
+                init_value = sub_state["key"]
+            elif key in dict_items:
+                init_value = {}
+            elif key in list_items:
+                init_value = []
+
+            self.__setattr__(key, init_value)
 
         if self.debug: print("Initial cards:", len(self.initial_cards))
 

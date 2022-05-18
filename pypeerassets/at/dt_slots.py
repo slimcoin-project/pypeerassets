@@ -10,8 +10,7 @@ def get_raw_slot(tx_amount: int, av_amount: int, total_amount: int=None, round_t
     if (total_amount is None) and round_txes:
         total_amount = sum([tx.amount for tx in round_txes])
 
-    # print("Total amount", total_amount, "TX amount", tx_amount, "REQ amount", req_amount, "slot rest", slot_rest)
-    # Decimal precision is set to 6 by peerassets. We need more precision here.
+    # Decimal precision is set to 15 by peerassets. We need more precision here.
     with localcontext() as ctx:
         ctx.prec = 28
         tx_proportion = Decimal(tx_amount) / total_amount
@@ -57,49 +56,3 @@ def get_priority_slot(tx: TrackedTransaction, rtxes: list, stxes: list, av_amoun
             return get_raw_slot(tx.amount, slot_rest, total_amount=samount)
 
     return 0
-
-def get_slot(ps: object, tx: TrackedTransaction, dist_round: int) -> int:
-
-    # TODO better use the ps parameters directly.
-    if ps is not None:
-        signalling_txes = ps.signalling_txes
-        locking_txes = ps.locking_txes
-        donation_txes = ps.donation_txes
-        reserve_txes = ps.reserve_txes
-        signalled_amounts = ps.signalled_amounts
-        reserved_amounts = ps.reserved_amounts
-        locked_amounts = ps.locked_amounts
-        donated_amounts = ps.donated_amounts
-        effective_slots = ps.effective_slots
-        effective_locking_slots = ps.effective_locking_slots
-        available_amount = ps.available_slot_amount
-
-    # This is only necessary if there were donations in the first phase.
-    # Check transaction type (signalling or donation/locking):
-    # This works because SignallingTransactions have no attribute .reserved_amount and thus throw AttributeError.
-    try:
-        tx_amount = tx.reserved_amount
-        if dist_round in (0, 3, 6, 7): # Reserve transactions are not valid in these rounds.
-            return 0 # could perhaps be implemented as an Exception?
-    except AttributeError:
-        tx_amount = tx.amount
-
-    # First 4 rounds require timelocks, so ProposalState.locked_amounts must be initalized.
-    if dist_round in (0, 1, 2, 3) and (locked_amounts is None):
-        locked_amounts = [0, 0, 0, 0]
-
-    if dist_round in (0, 6):
-        # Note: available_amount[0] is the same than req_amount.
-        return get_raw_slot(tx_amount, available_amount[dist_round], total_amount=signalled_amounts[dist_round])
-
-    elif dist_round in (1, 2, 4, 5):
-        # in priority rounds, we need to check if the signalled amounts correspond to a donation in the previous round
-        # These are added to the reserved amounts (second output of DonationTransactions).
-        # MODIFIED: Added priority rounds 4 and 5. rtxes is now reserve_txes[rd] instead of donation_txes[rd-1]. See above: already managed in ProposalState.
-        return get_priority_slot(tx, rtxes=reserve_txes[dist_round], stxes=signalling_txes[dist_round], av_amount=available_amount[dist_round], ramount=reserved_amounts[dist_round], samount=signalled_amounts[dist_round])
-
-    elif dist_round in (3, 7):
-        return get_first_serve_slot(tx, signalling_txes[dist_round], slot_rest=available_amount[dist_round])
-
-    else:
-        return 0 # if dist_round is incorrect

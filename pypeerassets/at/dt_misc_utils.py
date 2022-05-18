@@ -165,7 +165,6 @@ def get_proposal_state(provider, proposal_id=None, proposal_tx=None, debug=False
         ptx = proposal_tx
         proposal_id = ptx.txid
 
-    # pstate = ProposalState(first_ptx=ptx, valid_ptx=ptx, provider=provider)
     if debug: print("Deck:", ptx.deck.id)
 
     #if phase == 0:

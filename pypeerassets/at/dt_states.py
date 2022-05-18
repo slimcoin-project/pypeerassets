@@ -1,24 +1,24 @@
-from pypeerassets.at.dt_slots import get_slot
-from pypeerassets.at.dt_entities import SignallingTransaction, DonationTransaction, LockingTransaction, InvalidTrackedTransactionError
+from pypeerassets.at.dt_slots import get_raw_slot, get_first_serve_slot, get_priority_slot
+from pypeerassets.at.dt_entities import TrackedTransaction, ProposalTransaction, SignallingTransaction, DonationTransaction, LockingTransaction, InvalidTrackedTransactionError
 from decimal import Decimal
 from copy import deepcopy
 
-# TODO: optimize the initialization to make deepcopy innecessary.
-# TODO: Locked amounts does not work. (solved at 1/05?) # seems solved (03/22)
 # TODO: proposal states before the first voting round are currently marked as abandoned, this should not be so.
 
-def linit():
+"""def linit():
     return deepcopy([[],[],[],[],[],[],[],[]])
 def linitz():
     return deepcopy([0, 0, 0, 0, 0, 0, 0, 0])
 def linitz4():
-    return deepcopy([0, 0, 0, 0])
+    return deepcopy([0, 0, 0, 0])"""
 
 class ProposalState(object):
    # A ProposalState unifies all functions from proposals which are mutable.
    # i.e. which can change after the first proposal transaction was sent.
 
-    def __init__(self, valid_ptx, first_ptx, rounds=[], signalling_txes=linit(), locking_txes=linit(), donation_txes=linit(), signalled_amounts=linitz(), locked_amounts=linitz(), donated_amounts=linitz(), reserve_txes=linit(), reserved_amounts=linitz(), effective_slots=linitz(), effective_locking_slots=linitz4(), available_slot_amount=None, donation_states=[], total_donated_amount=None, provider=None, current_blockheight=None, all_signalling_txes=[], all_donation_txes=[], all_locking_txes=[], all_voting_txes=[], donor_addresses=[], initial_votes=None, final_votes=None, voting_states=[[],[]], voting_txes=[[],[]], dist_factor=None, processed=None, proposer_reward=None):
+    # def __init__(self, valid_ptx, first_ptx, rounds=[], signalling_txes=linit(), locking_txes=linit(), donation_txes=linit(), signalled_amounts=linitz(), locked_amounts=linitz(), donated_amounts=linitz(), reserve_txes=linit(), reserved_amounts=linitz(), effective_slots=linitz(), effective_locking_slots=linitz4(), available_slot_amount=None, donation_states=[], total_donated_amount=None, provider=None, current_blockheight=None, all_signalling_txes=[], all_donation_txes=[], all_locking_txes=[], all_voting_txes=[], donor_addresses=[], initial_votes=None, final_votes=None, voting_txes=[[],[]], dist_factor=None, processed=None, proposer_reward=None):
+    def __init__(self, valid_ptx: ProposalTransaction, first_ptx: ProposalTransaction, all_signalling_txes: int=None, all_locking_txes: int=None, all_donation_txes: int=None, all_voting_txes: int=None, **sub_state):
+        # MODIFIED: removed provider and current_blockheight. Isn't needed here probably.
 
         self.first_ptx = first_ptx # First ProposalTransaction of the ProposalState..
         self.valid_ptx = valid_ptx # Last proposal transaction which is valid.
@@ -31,48 +31,54 @@ class ProposalState(object):
         self.round_lengths = [self.first_ptx.round_length, self.valid_ptx.round_length] # should work with ProposalModifications due to side effect
         self.donation_address = self.first_ptx.donation_address
         self.deck = self.first_ptx.deck
-        self.donor_addresses = donor_addresses
 
         # Slot Allocation Round Attributes are lists with values for each of the 8 distribution rounds
         # Phase 2 can vary if there is a ProposalModification, so this can be set various times.
-        if not rounds:
-            self.set_rounds(phase=0)
-        else:
-            self.rounds = rounds
-            self.dist_start = dist_start # start block of first voting/distribution round.
+        self.set_rounds(phase=0)
 
-        if not current_blockheight and (not signalling_txes or not donation_txes):
-            current_blockheight = provider.getblockcount()
+        # TODO: do we really still need provider and current_blockheight? Normally it should not be necessary here.
+        # TODO: disabling it, but re-check well!
+        #if not current_blockheight and (not signalling_txes or not donation_txes):
+        #    current_blockheight = provider.getblockcount()
 
+        self.init_fresh_state()
+
+        if sub_state:
+            for key, value in sub_state.items():
+                self.__setattr__(key, value)
+
+    def init_fresh_state(self):
+
+        self.donor_addresses = []
         # New: Attributes for all TrackedTransactions without checking them (with the exception of VotingTransactions)
-        self.all_signalling_txes = all_signalling_txes
-        self.all_locking_txes = all_locking_txes
-        self.all_donation_txes = all_donation_txes
-        self.all_voting_txes = all_voting_txes
+        self.all_signalling_txes = []
+        self.all_locking_txes = []
+        self.all_donation_txes = []
+        self.all_voting_txes = []
 
         # The following attributes are set by the parser once a proposal ends.
         # Only valid transactions are recorded in them.
-        self.signalling_txes = signalling_txes
-        self.signalled_amounts = signalled_amounts
-        self.locking_txes = locking_txes
-        self.locked_amounts = locked_amounts
-        self.donation_txes = donation_txes
-        self.donated_amounts = donated_amounts
-        self.donation_states = donation_states
-        self.total_donated_amount = total_donated_amount
-        self.reserve_txes = reserve_txes
-        self.reserved_amounts = reserved_amounts
+        self.signalling_txes = [[],[],[],[],[],[],[],[]]
+        self.signalled_amounts = [0, 0, 0, 0, 0, 0, 0, 0]
+        self.locking_txes = [[],[],[],[],[],[],[],[]]
+        self.locked_amounts = [0, 0, 0, 0, 0, 0, 0, 0]
+        self.donation_txes = [[],[],[],[],[],[],[],[]]
+        self.donated_amounts = [0, 0, 0, 0, 0, 0, 0, 0]
+        self.donation_states = []
+        self.total_donated_amount = None
+        self.reserve_txes = [[],[],[],[],[],[],[],[]]
+        self.reserved_amounts = [0, 0, 0, 0, 0, 0, 0, 0]
 
         # Votes are set after the start and the end phase.
-        self.voting_txes = voting_txes
-        self.initial_votes = initial_votes
-        self.final_votes = final_votes
+        self.voting_txes = [[],[]]
+        self.initial_votes = None
+        self.final_votes = None
 
         # The effective slot values are the sums of the effective slots in each round.
-        self.effective_locking_slots = effective_locking_slots
-        self.effective_slots = effective_slots
+        self.effective_locking_slots = [0, 0, 0, 0]
+        self.effective_slots = [0, 0, 0, 0, 0, 0, 0, 0]
         # Available slot amount: part of the req_amount which is still available for slots.
-        self.available_slot_amount = available_slot_amount
+        self.available_slot_amount = [0, 0, 0, 0, 0, 0, 0, 0]
 
         # State: The general state of the proposal. Can be "active", "complete" or "abandoned".
         # At the start until the first voting round it is set to active.
@@ -82,17 +88,14 @@ class ProposalState(object):
         # It depends on the Token Quantity per distribution period
         # and the number of coins required by the proposals in their ending period.
         # The higher the amount of proposals and their required amounts, the lower this factor is.
-        self.dist_factor = dist_factor
+        self.dist_factor = None
         # Processed is a list of 3 values and refers to the donation states processed in each of both phases and the
         # completeness (i.e. if there were blocks missing for the last processed phase):
         # [ phase1, phase2, complete ]
-        if not processed:
-            self.processed = [False, False, False] # TODO: delete third one, no longer needed!
-        else:
-            self.processed = processed
+        self.processed = [False, False, False] # TODO: delete third one, no longer needed! # re-checking ...
 
         # If there are slots missing at the end, the proposer can claim the proportion.
-        self.proposer_reward = proposer_reward
+        self.proposer_reward = None
 
 
     def set_rounds(self, phase=0):
@@ -266,12 +269,10 @@ class ProposalState(object):
         # 1. determinate the valid signalling txes (include reserve/locking txes).
         dstates = {}
         donation_tx, locking_tx, effective_locking_slot, effective_slot = None, None, None, None
-
         round_stxes = [stx for stx in self.all_signalling_txes if self.get_stx_dist_round(stx) == rd]
 
-        # if debug: print("All signalling txes for round", rd, ":", all_stxes)
         if rd in (0, 3, 6, 7):
-             # first round, round 6 and first-come-first-serve rds: all signalling txes inside the blockheight limit.
+
              valid_stxes = [stx for stx in round_stxes if self.donor_address_check(stx, rd, stx.address, add_address=True, debug=debug)]
              valid_rtxes = [] # No RTXes in these rounds.
              total_reserved_amount = 0
@@ -284,10 +285,10 @@ class ProposalState(object):
              else:
                  base_txes = self.donation_txes[rd - 1]
 
-             round_rtxes = [tx for tx in base_txes if (tx.reserved_amount is not None) and (tx.reserved_amount > 0)]
+             round_rtxes = [tx for tx in base_txes if tx.reserved_amount]
              if debug: print("All possible reserve TXes in round:", rd, ":", [(t.txid, t.reserved_amount) for t in round_rtxes])
 
-             # Reserve Transactions are validated before, as they have higher priority.
+             # Reserve Transactions are validated first, as they have higher priority.
              valid_rtxes = self.validate_priority(round_rtxes, rd, debug=debug) if len(round_rtxes) > 0 else []
              total_reserved_amount = sum([tx.reserved_amount for tx in valid_rtxes])
 
@@ -307,10 +308,8 @@ class ProposalState(object):
 
         self.reserve_txes[rd] = valid_rtxes
         self.reserved_amounts[rd] = total_reserved_amount
-
         self.signalling_txes[rd] = valid_stxes
         self.signalled_amounts[rd] = sum([tx.amount for tx in valid_stxes])
-
         self.effective_slots[rd] = 0
         self.donated_amounts[rd] = 0
 
@@ -319,13 +318,14 @@ class ProposalState(object):
             self.effective_locking_slots[rd] = 0
 
         # 3. Generate DonationState and add locking/donation txes:
+        # TODO maybe this could go into DonationState.init()
         for tx in (valid_stxes + valid_rtxes):
 
             donation_tx, locking_tx, effective_locking_slot, effective_slot = None, None, None, None
             state = "incomplete"
             # Initial slot: based on signalled amount.
             # Maybe refactor it as a method of ProposalState.
-            slot = get_slot(self, tx, rd)
+            slot = self.get_slot(tx, rd)
             if debug: print("Slot for tx", tx.txid, ":", slot)
 
             if rd < 4:
@@ -389,6 +389,7 @@ class ProposalState(object):
                 continue
 
             dstate = DonationState(signalling_tx=signalling_tx, reserve_tx=reserve_tx, locking_tx=locking_tx, donation_tx=donation_tx, slot=slot, effective_slot=effective_slot, effective_locking_slot=effective_locking_slot, dist_round=rd, state=state)
+
             if set_reward:
                 dstate.set_reward(self)
 
@@ -405,22 +406,15 @@ class ProposalState(object):
 
         tx_type = "reserve" if reserve else type(tx)
         if (addr, tx_type, phase) in self.donor_addresses:
-            # raise InvalidTrackedTransactionError("Rejected, donor address {} already used in this phase for this transaction type.".format(addr))
+
             if debug: print("TX {} rejected, donor address {} already used in this phase for this transaction type.".format(tx.txid, addr))
             return False
+
         else:
+
             if add_address:
                 self.donor_addresses.append((addr, tx_type, phase))
             return True
-
-    """def stx_pre_checks(self, stx):
-        # this checks the dist_round and duplicate donor addresses.
-        rd = self.get_stx_dist_round(stx)
-        try:
-            self.donor_address_check(stx, rd)
-            return rd
-        except InvalidTrackedTransactionError as e:
-            raise InvalidTrackedTransactionError(e)"""
 
     def get_stx_dist_round(self, stx):
         # checks block height of signalling transaction, and returns round.
@@ -439,11 +433,6 @@ class ProposalState(object):
         # TODO: It could make sense to calculate the rewards here directly, i.e. multiply this with deck.epoch_quantity
         # Proposal factor: if there is more than one proposal ending in the same epoch,
         # the resulting slot is divided by the req_amounts of them.
-        # This is set in the function dt_parser_utils.get_valid_ending_proposals.
-
-        # ending_proposals = [p for p in pst.valid_proposals.values() if p.end_epoch == proposal_state.end_epoch]
-
-        # print("Ending proposals in the same epoch than the one referenced here:", ending_proposals)
 
         if len(ending_proposals) > 1:
             total_req_amount = sum([p.req_amount for p in ending_proposals])
@@ -451,13 +440,8 @@ class ProposalState(object):
         else:
             self.dist_factor = Decimal(1)
 
-        # print("Dist factor", self.dist_factor)
-
     def set_proposer_reward(self):
-        # MODIFIED. Based on effective slots.
         filled_amount = sum(self.effective_slots)
-        # Alternative: # differs: if there are donation states with donated amounts > slots, proposer reward lowers.
-        # filled_amount = self.total_donated_amount
 
         if filled_amount >= self.req_amount:
             proposer_proportion = 0
@@ -469,7 +453,7 @@ class ProposalState(object):
         else:
             self.proposer_reward = 0
 
-    def validate_priority(self, tx_list, dist_round, debug=False):
+    def validate_priority(self, tx_list: list, dist_round: int, debug: bool=False):
         """Validates the priority of signalling and reserve transactions in round 2, 3, 5 and 6."""
         # New version with DonationStates, modified to validate a whole round list at once (more efficient).
         # Should be optimized in the beta/release version.
@@ -490,19 +474,20 @@ class ProposalState(object):
         elif dist_round == 4: # rd 5 is special because all donors of previous rounds are admitted.
 
             valid_dstates = [dstate for rd in (0, 1, 2, 3) for dstate in self.donation_states[rd].values()]
+
             if type(tx_list[0]) == DonationTransaction:
                 valid_rtx_txids = [dstate.donation_tx.txid for dstate in valid_dstates if dstate.donation_tx is not None]
 
         elif dist_round == 5:
 
             valid_dstates = [dstate for dstate in self.donation_states[4].values()]
+
             if type(tx_list[0]) == DonationTransaction:
                 valid_rtx_txids = [dstate.donation_tx.txid for dstate in valid_dstates if dstate.donation_tx is not None]
 
         elif dist_round in (1, 2):
 
             valid_dstates = [dstate for dstate in self.donation_states[dist_round - 1].values()]
-            # print("VALID STATES", valid_dstates, "TYPE", type(tx_list[0]))
             if type(tx_list[0]) == LockingTransaction:
                 try:
                     valid_rtx_txids = [dstate.locking_tx.txid for dstate in valid_dstates if dstate.locking_tx is not None]
@@ -512,12 +497,10 @@ class ProposalState(object):
         # Locking or DonationTransactions: we simply look for the DonationState including it
         # If it's not in any of the valid states, it can't be valid.
 
-        # print("round here", dist_round)
         for tx in tx_list:
-            # if debug: print("Checking tx:", tx.txid, type(tx))
+            if debug: print("Checking tx:", tx.txid, type(tx))
             if type(tx) in (LockingTransaction, DonationTransaction):
 
-                # tx_dstate = valid_dstates[valid_rtx_txids.index(tx.txid)]
                 for dstate in valid_dstates:
                     if (dstate.locking_tx is not None) and (dstate.locking_tx.txid == tx.txid):
                         break
@@ -527,9 +510,7 @@ class ProposalState(object):
                     if debug: print("Transaction rejected by priority check:", tx.txid)
                     continue
                 parent_dstate = dstate
-                #except (IndexError, ValueError, AttributeError):
-                #    if debug: print("Transaction rejected by priority check:", tx.txid)
-                #    continue
+
             # In the case of signalling transactions, we must look for donation/locking TXes
             # using the spending address as donor address, because the used output can be another one.
             elif type(tx) == SignallingTransaction:
@@ -582,10 +563,41 @@ class ProposalState(object):
         else:
             return False
 
+    def get_slot(self, tx: TrackedTransaction, dist_round: int) -> int:
+
+        # Check transaction type (signalling or donation/locking):
+        # This works because SignallingTransactions have no attribute .reserved_amount and thus throw AttributeError.
+        try:
+            tx_amount = tx.reserved_amount
+            if dist_round in (0, 3, 6, 7): # Reserve transactions are not valid in these rounds.
+                raise ValueError("No reserve transactions in this round.")
+        except AttributeError:
+            tx_amount = tx.amount
+
+        # First 4 rounds require timelocks, so ProposalState.locked_amounts must be initalized.
+        # TODO: check if this is really necessary
+        if dist_round in (0, 1, 2, 3) and (self.locked_amounts is None):
+            self.locked_amounts = [0, 0, 0, 0]
+
+        if dist_round in (0, 6):
+            # Note: available_amount[0] is the same than req_amount.
+            return get_raw_slot(tx_amount, self.available_slot_amount[dist_round], total_amount=self.signalled_amounts[dist_round])
+
+        elif dist_round in (1, 2, 4, 5):
+            # in priority rounds, we need to check if the signalled amounts correspond to a donation in the previous round
+            # These are added to the reserved amounts (second output of DonationTransactions).
+            return get_priority_slot(tx, rtxes=self.reserve_txes[dist_round], stxes=self.signalling_txes[dist_round], av_amount=self.available_slot_amount[dist_round], ramount=self.reserved_amounts[dist_round], samount=self.signalled_amounts[dist_round])
+
+        elif dist_round in (3, 7):
+            return get_first_serve_slot(tx, self.signalling_txes[dist_round], slot_rest=self.available_slot_amount[dist_round])
+
+        else:
+            return 0 # if dist_round is incorrect
+
 class DonationState(object):
     # A DonationState contains Signalling, Locked and Donation transaction and the slot.
     # Must be created always with either SignallingTX or ReserveTX.
-    # MODIFIED: Added child_state_id to have more control over inheriting. A parent state would be even better but would need refactoring or costly processing.
+    # Child_state_id allows more control over inheriting. A parent state would be even better but would need refactoring or costly processing.
 
     def __init__(self, signalling_tx=None, reserve_tx=None, locking_tx=None, donation_tx=None, slot=None, dist_round=None, effective_slot=None, effective_locking_slot=None, reward=None, state="incomplete"):
         self.signalling_tx = signalling_tx
@@ -599,20 +611,18 @@ class DonationState(object):
         self.effective_locking_slot = effective_locking_slot
         self.reward = reward
         self.state = state
-        self.child_state_ids = []
+        self.child_state_ids = [] # this will only be filled if there are child states
 
         if signalling_tx:
             self.donor_address = signalling_tx.address
             self.signalled_amount = signalling_tx.amount
             self.id = self.signalling_tx.txid
-            #if dist_round in (1, 2, 4, 5):
-            #    if not parent_state:
-            #        raise InvalidDonationStateError("Signalling TXes in this round need a parent with filled slot.")
+
         elif reserve_tx:
             self.donor_address = reserve_tx.reserve_address
             self.reserved_amount = reserve_tx.reserved_amount
             self.id = self.reserve_tx.txid
-            # self.parent_state = self.reserve_tx.ins[0].txid
+
         else:
             raise InvalidDonationStateError("A DonationState must be initialized with a signalling or reserve address.")
 

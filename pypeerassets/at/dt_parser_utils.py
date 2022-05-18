@@ -53,7 +53,7 @@ def get_proposal_states(provider, deck, current_blockheight=None, all_signalling
 
             if tx.txid not in used_firsttxids: # filters out duplicates
                 if (tx.first_ptx_txid in (None, tx.txid)) or len(tx.first_ptx_txid) != 64: # case 1: new proposal transaction # TODO: extra condition added for invalid proposals!
-                    state = ProposalState(first_ptx=tx, valid_ptx=tx, current_blockheight=current_blockheight, all_signalling_txes=all_signalling_txes, all_donation_txes=all_donation_txes, all_locking_txes=all_locking_txes, provider=provider)
+                    state = ProposalState(first_ptx=tx, valid_ptx=tx, all_signalling_txes=all_signalling_txes, all_donation_txes=all_donation_txes, all_locking_txes=all_locking_txes)
                 elif tx.first_ptx_txid in statedict: # case 2: proposal modification
                     state = statedict[tx.first_ptx_txid]
                     if state.first_ptx.donation_address == tx.donation_address:
@@ -99,7 +99,7 @@ def update_voters(voters={}, new_cards=[], weight=1, dec_diff=0, debug=False):
     # The dec_diff value is the difference between number_of_decimals of main deck/sdp deck.
     # dec_diff isn't applied to old voters, thus it cannot be merged with "weight".
 
-    # TODO: The dec_adjustment calculation will throw Type problems if the SDP token has more decimals as the main token.
+    # TODO: The dec_adjustment calculation will throw Type problems if the SDP token has more decimals than the main token.
     # Perhaps use it as a decimal, and then convert all values to int again (check the precision!)
 
     #if debug: print("Voters", voters, "\nWeight:", weight)

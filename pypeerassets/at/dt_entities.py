@@ -28,7 +28,7 @@ class TrackedTransaction(Transaction):
        Note: TrackedTransactions are immutable. Once created they can't easily be changed.
     """
 
-    def __init__(self, tx_type=None, txjson=None, txid=None, proposal=None, p2th_address=None, p2th_wif=None, dist_round=None, version=None, ins=[], outs=[], locktime=0, network=PeercoinTestnet, timestamp=None, provider=None, datastr=None, deck=None, epoch=None, blockheight=None, blockhash=None):
+    def __init__(self, tx_type=None, txjson=None, txid=None, proposal=None, p2th_address=None, p2th_wif=None, dist_round=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, provider=None, deck=None, epoch=None, blockheight=None, blockhash=None):
 
         # For security, should later perhaps be replaced by Transaction.__init__()
         # The difference is that here we don't use self.txid, which results in a (relatively expensive) hashing operation.
@@ -73,13 +73,13 @@ class TrackedTransaction(Transaction):
 
         # other attributes come from datastr
         # CONVENTION: datastr is always in SECOND output (outs[1]) like in PeerAssets tx.
+        # MODIFIED: datastr is now always taken from self.outs.
 
-        if not datastr:
-            try:
-                scriptpubkey = self.outs[DATASTR_OUTPUT].script_pubkey
-                datastr = bytes(scriptpubkey.data.data)
-            except Exception as e: # if no op_return it throws InvalidNulldataOutput
-                raise InvalidTrackedTransactionError("No OP_RETURN data.")
+        try:
+            scriptpubkey = self.outs[DATASTR_OUTPUT].script_pubkey
+            datastr = bytes(scriptpubkey.data.data)
+        except Exception as e: # if no op_return it throws InvalidNulldataOutput
+            raise InvalidTrackedTransactionError("No OP_RETURN data.")
 
         object.__setattr__(self, 'datastr', datastr) # OP_RETURN data byte string
 
@@ -259,9 +259,9 @@ class LockingTransaction(TrackedTransaction):
     """A LockingTransaction is a transaction which locks the donation amount until the end of the
        working period of the Proposer. They are only necessary in the first phase (round 1-4)."""
 
-    def __init__(self, deck, txid=None, proposal=None, timelock=None, secret_hash=None, d_address=None, d_amount=None, reserved_amount=None, reserve_address=None, signalling_tx=None, previous_dtx=None, json=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, provider=None, blockheight=None, blockhash=None, datastr=None, p2th_address=None, p2th_wif=None, p2sh_address=None, epoch=None):
+    def __init__(self, deck, txid=None, proposal=None, timelock=None, secret_hash=None, d_address=None, d_amount=None, reserved_amount=None, reserve_address=None, signalling_tx=None, previous_dtx=None, json=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, provider=None, blockheight=None, blockhash=None, p2th_address=None, p2th_wif=None, p2sh_address=None, epoch=None):
 
-        TrackedTransaction.__init__(self, txid=txid, txjson=json, datastr=datastr, p2th_address=p2th_address, p2th_wif=p2th_wif, version=version, ins=ins, outs=outs, locktime=locktime, network=network, timestamp=timestamp, provider=provider, deck=deck, epoch=epoch, blockheight=blockheight, blockhash=blockhash)
+        TrackedTransaction.__init__(self, txid=txid, txjson=json, p2th_address=p2th_address, p2th_wif=p2th_wif, version=version, ins=ins, outs=outs, locktime=locktime, network=network, timestamp=timestamp, provider=provider, deck=deck, epoch=epoch, blockheight=blockheight, blockhash=blockhash)
 
         if len(outs) > 0:
             # CONVENTION: Donation is in output 2 (0: P2TH, 1: OP_RETURN).
@@ -324,9 +324,9 @@ class LockingTransaction(TrackedTransaction):
 class DonationTransaction(TrackedTransaction):
     """A DonationTransaction is a transaction which transfers the donation to the Proposer."""
 
-    def __init__(self, deck, txid=None, proposal=None, timelock=None, secret_hash=None, d_address=None, d_amount=None, reserved_amount=None, reserve_address=None, signalling_tx=None, previous_dtx=None, json=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, provider=None, blockheight=None, blockhash=None, datastr=None, p2th_address=None, p2th_wif=None, epoch=None):
+    def __init__(self, deck, txid=None, proposal=None, timelock=None, secret_hash=None, d_address=None, d_amount=None, reserved_amount=None, reserve_address=None, signalling_tx=None, previous_dtx=None, json=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, provider=None, blockheight=None, blockhash=None, p2th_address=None, p2th_wif=None, epoch=None):
 
-        TrackedTransaction.__init__(self, txid=txid, txjson=json, datastr=datastr, p2th_address=p2th_address, p2th_wif=p2th_wif, version=version, ins=ins, outs=outs, locktime=locktime, network=network, timestamp=timestamp, provider=provider, deck=deck, epoch=epoch, blockheight=blockheight, blockhash=blockhash)
+        TrackedTransaction.__init__(self, txid=txid, txjson=json, p2th_address=p2th_address, p2th_wif=p2th_wif, version=version, ins=ins, outs=outs, locktime=locktime, network=network, timestamp=timestamp, provider=provider, deck=deck, epoch=epoch, blockheight=blockheight, blockhash=blockhash)
 
         try:
             if len(outs) > 0:
@@ -357,9 +357,9 @@ class DonationTransaction(TrackedTransaction):
 class SignallingTransaction(TrackedTransaction):
     """A SignallingTransaction is a transaction where a Potential Donor signals available funds."""
 
-    def __init__(self, deck, txid=None, proposal=None, s_amount=None, s_address=None, dist_round=None, json=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, provider=None, datastr=None, blockhash=None, blockheight=None, p2th_address=None, p2th_wif=None, epoch=None):
+    def __init__(self, deck, txid=None, proposal=None, s_amount=None, s_address=None, dist_round=None, json=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, provider=None, blockhash=None, blockheight=None, p2th_address=None, p2th_wif=None, epoch=None):
 
-        TrackedTransaction.__init__(self, txid=txid, txjson=json, datastr=datastr, p2th_address=p2th_address, p2th_wif=p2th_wif, version=version, ins=ins, outs=outs, locktime=locktime, network=network, timestamp=timestamp, provider=provider, deck=deck, epoch=epoch, blockheight=blockheight, blockhash=blockhash)
+        TrackedTransaction.__init__(self, txid=txid, txjson=json, p2th_address=p2th_address, p2th_wif=p2th_wif, version=version, ins=ins, outs=outs, locktime=locktime, network=network, timestamp=timestamp, provider=provider, deck=deck, epoch=epoch, blockheight=blockheight, blockhash=blockhash)
 
         if outs:
             # CONVENTION: Signalling is in output 2 (0: P2TH, 1: OP_RETURN).
@@ -379,10 +379,10 @@ class ProposalTransaction(TrackedTransaction):
     """A ProposalTransaction is the transaction where a DT Proposer (originator) specifies required amount and donation address."""
     # Modified: instead of previous_proposal, we use first_ptx_txid. We always reference the first tx, not a previous modification.
 
-    def __init__(self, deck, txid=None, donation_address=None, epoch_number=None, round_length=None, req_amount=None, start_epoch=None, round_starts=[], round_txes=[], round_amounts=[], first_ptx_txid=None, json=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, provider=None, datastr=None, p2th_address=None, p2th_wif=None, epoch=None, blockhash=None, blockheight=None):
+    def __init__(self, deck, txid=None, donation_address=None, epoch_number=None, round_length=None, req_amount=None, start_epoch=None, round_starts=[], round_txes=[], round_amounts=[], first_ptx_txid=None, json=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, provider=None, p2th_address=None, p2th_wif=None, epoch=None, blockhash=None, blockheight=None):
 
 
-        TrackedTransaction.__init__(self, txid=txid, txjson=json, datastr=datastr, p2th_address=p2th_address, p2th_wif=p2th_wif, version=version, ins=ins, outs=outs, locktime=locktime, network=network, timestamp=timestamp, provider=provider, deck=deck, epoch=epoch, blockheight=blockheight, blockhash=blockhash)
+        TrackedTransaction.__init__(self, txid=txid, txjson=json, p2th_address=p2th_address, p2th_wif=p2th_wif, version=version, ins=ins, outs=outs, locktime=locktime, network=network, timestamp=timestamp, provider=provider, deck=deck, epoch=epoch, blockheight=blockheight, blockhash=blockhash)
 
         fmt = PROPOSAL_FORMAT
 
@@ -433,9 +433,9 @@ class VotingTransaction(TrackedTransaction):
 
     # Vote is always cast with the entire current balance.
 
-    def __init__(self, deck, tx_type=None, txjson=None, txid=None, proposal=None, p2th_address=None, p2th_wif=None, dist_round=None, version=None, ins=[], outs=[], locktime=0, network=PeercoinTestnet, timestamp=None, provider=None, datastr=None, epoch=None, blockheight=None, blockhash=None, vote=None, sender=None):
+    def __init__(self, deck, tx_type=None, txjson=None, txid=None, proposal=None, p2th_address=None, p2th_wif=None, dist_round=None, version=None, ins=[], outs=[], locktime=0, network=PeercoinTestnet, timestamp=None, provider=None, epoch=None, blockheight=None, blockhash=None, vote=None, sender=None):
 
-        TrackedTransaction.__init__(self, txid=txid, txjson=txjson, proposal=proposal, datastr=datastr, p2th_address=p2th_address, p2th_wif=p2th_wif, version=version, ins=ins, outs=outs, locktime=locktime, network=network, timestamp=timestamp, provider=provider, deck=deck, epoch=epoch, blockheight=blockheight, blockhash=blockhash)
+        TrackedTransaction.__init__(self, txid=txid, txjson=txjson, proposal=proposal, p2th_address=p2th_address, p2th_wif=p2th_wif, version=version, ins=ins, outs=outs, locktime=locktime, network=network, timestamp=timestamp, provider=provider, deck=deck, epoch=epoch, blockheight=blockheight, blockhash=blockhash)
 
         if not vote:
             vote = getfmt(self.datastr, VOTING_FORMAT, "vot")
