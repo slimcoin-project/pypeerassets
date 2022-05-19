@@ -220,7 +220,7 @@ class ParserState(object):
     def get_tracked_txes(self, tx_type, min_blockheight=None, max_blockheight=None):
         """Retrieves TrackedTransactions (except votes and proposals) for a deck from the blockchain
            and adds them to the corresponding ProposalState."""
-        # TODO: we try to add voting_txes too. EXPERIMENTAL!
+
         proposal_list = []
         tx_attr = "all_{}_txes".format(tx_type)
         txes = get_marked_txes(self.provider, self.deck.derived_p2th_address(tx_type), min_blockheight=min_blockheight, max_blockheight=max_blockheight)
@@ -236,8 +236,8 @@ class ParserState(object):
                     tx = VotingTransaction.from_json(tx_json=rawtx, provider=self.provider, deck=self.deck)
 
                 # The ProposalTransaction is added as an object afterwards, to simplify the op_return procesing.
-                proposal_tx = self.proposal_states[tx.proposal_txid].first_ptx
-                tx.set_proposal(proposal_tx)
+                # proposal_tx = self.proposal_states[tx.proposal_txid].first_ptx
+                # tx.set_proposal(proposal_tx)
                 # We add the tx directly to the corresponding ProposalState.
                 # If the ProposalState does not exist, KeyError is thrown and the tx is ignored.
                 # When we create the first instance of the state we make a deepcopy.

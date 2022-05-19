@@ -5,18 +5,11 @@ from copy import deepcopy
 
 # TODO: proposal states before the first voting round are currently marked as abandoned, this should not be so.
 
-"""def linit():
-    return deepcopy([[],[],[],[],[],[],[],[]])
-def linitz():
-    return deepcopy([0, 0, 0, 0, 0, 0, 0, 0])
-def linitz4():
-    return deepcopy([0, 0, 0, 0])"""
-
 class ProposalState(object):
    # A ProposalState unifies all functions from proposals which are mutable.
    # i.e. which can change after the first proposal transaction was sent.
 
-    # def __init__(self, valid_ptx, first_ptx, rounds=[], signalling_txes=linit(), locking_txes=linit(), donation_txes=linit(), signalled_amounts=linitz(), locked_amounts=linitz(), donated_amounts=linitz(), reserve_txes=linit(), reserved_amounts=linitz(), effective_slots=linitz(), effective_locking_slots=linitz4(), available_slot_amount=None, donation_states=[], total_donated_amount=None, provider=None, current_blockheight=None, all_signalling_txes=[], all_donation_txes=[], all_locking_txes=[], all_voting_txes=[], donor_addresses=[], initial_votes=None, final_votes=None, voting_txes=[[],[]], dist_factor=None, processed=None, proposer_reward=None):
+
     def __init__(self, valid_ptx: ProposalTransaction, first_ptx: ProposalTransaction, all_signalling_txes: int=None, all_locking_txes: int=None, all_donation_txes: int=None, all_voting_txes: int=None, **sub_state):
         # MODIFIED: removed provider and current_blockheight. Isn't needed here probably.
 
@@ -273,7 +266,7 @@ class ProposalState(object):
 
         if rd in (0, 3, 6, 7):
 
-             valid_stxes = [stx for stx in round_stxes if self.donor_address_check(stx, rd, stx.address, add_address=True, debug=debug)]
+             valid_stxes = [stx for stx in round_stxes if self.check_donor_address(stx, rd, stx.address, add_address=True, debug=debug)]
              valid_rtxes = [] # No RTXes in these rounds.
              total_reserved_amount = 0
         else:
@@ -397,10 +390,15 @@ class ProposalState(object):
 
         return dstates
 
-    def donor_address_check(self, tx, rd, addr, reserve=False, add_address=False, debug=False):
+    def check_donor_address(self, tx, rd, addr, reserve=False, add_address=False, debug=False):
         # checks if a donor address of a transaction was already used in the same phase for the same tx type.
         # Donor address can be found by the preceding phase (for reserve txes).
         # add_address is needed because there are cases where the addition occurs later.
+        # NOTES from tx.get_output_tx():
+        # You must be able to use the same donor address in phase 1 and 2,
+        # due to the reserve transaction question in rd. 4/5. => TODO: is this still true with unique donor addresses?
+        # TODO: Can this be improved? adr, type(tx), phase should give the same value for many
+        # txes of the list, so "continue" isn't the best option.
         phase = rd // 4
         if debug: print("Checking tx", tx.txid, "with address", tx.address)
 
@@ -413,8 +411,11 @@ class ProposalState(object):
         else:
 
             if add_address:
-                self.donor_addresses.append((addr, tx_type, phase))
+                self.add_donor_address(addr, tx_type, phase)
             return True
+
+    def add_donor_address(self, addr, tx_type, phase):
+        self.donor_addresses.append((addr, tx_type, phase))
 
     def get_stx_dist_round(self, stx):
         # checks block height of signalling transaction, and returns round.
@@ -468,7 +469,6 @@ class ProposalState(object):
         if dist_round in (0, 3, 6, 7):
             # TODO: this should never be called in these rounds so for now we raise a ValueError.
             # In rounds without priority check, we only need to check that donor addresses are not re-used.
-            # return [tx for tx in tx_list if self.donor_address_check(tx, dist_round, tx.address, add_address=True, debug=debug)]
             raise ValueError("Round {} is not a priority round.".format(rd))
 
         elif dist_round == 4: # rd 5 is special because all donors of previous rounds are admitted.
@@ -517,14 +517,14 @@ class ProposalState(object):
 
                 # Donor address check is done first, but without adding addresses; we do this at the end of validation.
                 # We don't check donor addresses for Locking/Donation txes, they are checked in tx.get_output_addresses().
-                if not self.donor_address_check(tx, dist_round, tx.address, add_address=False, debug=debug):
+                if not self.check_donor_address(tx, dist_round, tx.address, add_address=False, debug=debug):
                     continue
                 for dstate in valid_dstates:
                     #if debug: print("Donation state checked:", dstate.id, "for tx", tx.txid, "with input addresses", tx.input_addresses)
                     if dstate.donor_address in tx.input_addresses:
 
                         parent_dstate = dstate
-                        self.donor_addresses.append((tx.address, type(tx), (dist_round // 4)))
+                        self.add_donor_address(tx.address, type(tx), (dist_round // 4))
                         break
                 else:
                     if debug: print("Transaction rejected by priority check:", tx.txid)

@@ -40,9 +40,9 @@ def get_marked_txes(provider, p2th_account, min_blockheight=None, max_blockheigh
         start += 999
 
 def get_proposal_states(provider, deck, current_blockheight=None, all_signalling_txes=[], all_donation_txes=[], all_locking_txes=[], force_dstates=False):
-    # gets ALL proposal txes of a deck and calculates the initial ProposalState. Needs P2TH.
-    # if a new Proposal Transaction referencing an earlier one is found, the ProposalState is modified.
-    # Modified: if provided, then donation/signalling txes are calculated
+    # Gets all proposal txes of a deck and creates the initial ProposalStates. Needs P2TH.
+    # If a new Proposal Transaction referencing an earlier one is found, the ProposalState is modified.
+    # If provided, then donation/signalling txes are calculated
     # Modified: force_dstates option (for pacli commands) calculates all phases/rounds and DonationStates, even if no card was issued.
     statedict = {}
     used_firsttxids = []
@@ -102,20 +102,18 @@ def update_voters(voters={}, new_cards=[], weight=1, dec_diff=0, debug=False):
     # TODO: The dec_adjustment calculation will throw Type problems if the SDP token has more decimals than the main token.
     # Perhaps use it as a decimal, and then convert all values to int again (check the precision!)
 
-    #if debug: print("Voters", voters, "\nWeight:", weight)
     dec_adjustment = 10 ** dec_diff
-    # dec_adjustment = 1 # test
 
     # 1. Update cards of old SDP voters by weight.
     if weight != 1:
+
         for voter in voters:
+
            # MODIFIED: Adjustment to get rounding to the precision of the voting token.
            old_amount = Decimal(voters[voter]) / dec_adjustment
            new_amount = int(old_amount * weight) * dec_adjustment
            voters.update({voter : new_amount})
-           # old one:
-           #old_amount = voters[voter]
-           #voters.update({ voter : int(old_amount * weight) })
+
            if debug: print("Updating SDP balance:", old_amount * 10 ** dec_diff, "to:", voters[voter], "- weight:", weight)
 
     # 2. Add votes of new cards
@@ -125,13 +123,17 @@ def update_voters(voters={}, new_cards=[], weight=1, dec_diff=0, debug=False):
         if card.type != "CardBurn":
 
             for receiver in card.receiver:
+
                 rec_position = card.receiver.index(receiver)
                 rec_amount = int(card.amount[rec_position] * weight) * dec_adjustment
 
                 if receiver not in voters:
+
                     if debug: print("New voter:", receiver, "with amount:", rec_amount)
                     voters.update({receiver : rec_amount })
+
                 else:
+
                     old_amount = voters[receiver]
                     if debug: print("Voter:", receiver, "with old_amount:", old_amount, "updated to new amount:", old_amount + rec_amount)
 
@@ -139,12 +141,18 @@ def update_voters(voters={}, new_cards=[], weight=1, dec_diff=0, debug=False):
 
         # if cardissue, we only add balances to receivers, nothing is deducted.
         # Donors have to send the CardIssue to themselves if they want their coins.
+
         if card.type in ("CardTransfer", "CardBurn"):
+
             rest = -int(sum(card.amount)) # MODIFIED: weight here does not apply!
+
             if card.sender not in voters:
+
                 if debug: print("Card sender not in voters. Resting the rest:", rest)
                 voters.update({card.sender : rest * dec_adjustment})
+
             else:
+
                 old_amount = voters[card.sender]
                 if debug: print("Card sender updated from:", old_amount, "to:", old_amount + rest * dec_adjustment)
                 voters.update({card.sender : old_amount + rest * dec_adjustment})
@@ -161,6 +169,5 @@ def deck_from_tx(txid: str, provider: Provider, deck_version: int=1, prod: bool=
     params = param_query(provider.network)
     p2th = params.P2TH_addr
     raw_tx = provider.getrawtransaction(txid, 1)
-    # vout = raw_tx["vout"][0]["scriptPubKey"].get("addresses")[0] ???
     deck = deck_parser((provider, raw_tx, deck_version, p2th), prod)
     return deck

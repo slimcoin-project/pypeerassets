@@ -1,34 +1,35 @@
-"""Functions for slot allocation are grouped in this file, so it can be used in dt_states."""
+"""Functions for slot allocation are grouped in this file, so they can be used in dt_states."""
 
-from decimal import Decimal, getcontext, localcontext
+from decimal import Decimal, localcontext
 from pypeerassets.at.dt_entities import TrackedTransaction, SignallingTransaction, LockingTransaction, DonationTransaction
 
 def get_raw_slot(tx_amount: int, av_amount: int, total_amount: int=None, round_txes: list=None) -> int:
     """Calculates the slot (maximum donation amount which gets translated into tokens) in a normal round (rd0/6))."""
-    # MODIFIED: replaced req_amount and slot_rest with av_amount. There seems to be no reason for separating them.
 
     if (total_amount is None) and round_txes:
         total_amount = sum([tx.amount for tx in round_txes])
 
     # Decimal precision is set to 15 by peerassets. We need more precision here.
+
     with localcontext() as ctx:
         ctx.prec = 28
         tx_proportion = Decimal(tx_amount) / total_amount
         max_slot = int(av_amount * tx_proportion)
 
-    # print("Proportion", tx_proportion, "Max slot", max_slot)
+    # Slot cannot be higher than the amount of the Signalling Transaction.
 
-    # Slot cannot be higher than the signalling transaction amount.
-    # Otherwise, if donation amounts are higher than req_amount, slots would be higher than the signalled amounts.
     return min(tx_amount, max_slot)
 
+
 def get_first_serve_slot(stx: SignallingTransaction, round_txes: list, slot_rest: int=0) -> int:
-    """Calculates the slot in First come first serve rounds (4, 8)
+    """Calculates the slot in First come first serve rounds (3, 7)
     Assumes chronological order of txes (should work, otherwise we would need a function retrieving the block).
     Only accepts SignallingTXes, not reserve txes."""
+
     try:
         stx_pos = [t.txid for t in round_txes].index(stx.txid) # MODIFIED: now we use Txid as marker.
         amount_before_stx = sum([tx.amount for tx in round_txes[:stx_pos]])
+
         if amount_before_stx < slot_rest:
             return min(stx.amount, slot_rest - amount_before_stx)
         else:
@@ -45,12 +46,13 @@ def get_priority_slot(tx: TrackedTransaction, rtxes: list, stxes: list, av_amoun
         ramount = sum([t.reserved_amount for t in rtxes])
     if not samount:
         samount = sum([t.amount for t in stxes])
-    # print(tx.txid, [r.txid for r in rtxes])
+
+
     if tx.txid in [r.txid for r in rtxes]:
-        # print("TX in rtxes", ramount, samount)
         return get_raw_slot(tx.reserved_amount, av_amount, total_amount=ramount)
+
     elif tx.txid in [s.txid for s in stxes]:
-        # print("TX in stxes", ramount, samount)
+
         slot_rest = max(0, av_amount - ramount)
         if slot_rest > 0:
             return get_raw_slot(tx.amount, slot_rest, total_amount=samount)
