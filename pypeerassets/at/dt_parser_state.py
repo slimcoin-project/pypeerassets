@@ -50,6 +50,7 @@ class ParserState(object):
 
         self.startblock = self.start_epoch * self.deck.epoch_length # first block of the epoch the deck was spawned. Probably not needed.
         self.debug = debug # print statements for debugging
+        self.valid_cards = []
 
         # Notes for some attributes:
         # enabled_voters variable is calculated once per epoch, taking into account card issuances and card transfers.
@@ -103,6 +104,7 @@ class ParserState(object):
         if self.debug: print(q, "found.")
 
     def force_dstates(self):
+
         # Allows to set all states even if no card has been issued.
         # Has to be called in the moment the state is evaluated, i.e. normally at the end of the parsing process.
         for p in self.proposal_states.values():
@@ -130,15 +132,18 @@ class ParserState(object):
             #    p.set_donation_states(debug=self.debug, current_blockheight=self.current_blockheight)
 
     def get_sdp_cards(self):
-        # NOTE: this does NOT filter out all invalid cards, only those determined by the parser type!
+
+        # NOTE: find_all_valid_cards does not filter out all invalid cards, only those determined by the parser type!
         # This means we need to get the balances via DeckState.
         from pypeerassets.__main__ import find_all_valid_cards
+
         if self.debug: print("Searching for SDP Token Cards ...")
-        all_cards = list(find_all_valid_cards(self.provider, self.sdp_deck))
-        valid_cards = self.remove_invalid_cards(all_cards)
-        return valid_cards
+        all_sdp_cards = list(find_all_valid_cards(self.provider, self.sdp_deck))
+        valid_sdp_cards = self.remove_invalid_cards(all_sdp_cards)
+        return valid_sdp_cards
 
     def get_sdp_balances(self):
+
         upper_limit = self.epoch * self.deck.epoch_length # balance at the start of the epoch.
         if self.epoch == self.start_epoch:
             if self.debug: print("Retrieving old cards ...")
@@ -514,8 +519,8 @@ class ParserState(object):
             if len(sdp_epoch_balances) > 0:
                 self.enabled_voters.update(update_voters(self.enabled_voters, sdp_epoch_balances, weight=sdp_weight, debug=self.debug, dec_diff=self.sdp_decimal_diff))
 
-        # as card issues can occur any time after the proposal has been voted
-        # we always need ALL valid proposals voted up to this epoch.
+        # As card issues can occur any time after the proposal has been voted
+        # we always need to process all valid proposals voted up to this epoch.
 
         #if debug: print("Get ending proposals ...")
         #if debug: print("Approved proposals before epoch", self.epoch, self.approved_proposals)
@@ -535,6 +540,7 @@ class ParserState(object):
         self.valid_cards += valid_epoch_cards # we probably don't need this, as we have DeckState.valid_cards
 
     def process_cardless_epochs(self, start, end):
+
         for epoch in range(start, end):
             self.epoch = epoch
             self.epoch_init()

@@ -56,13 +56,16 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
 
     if debug: print("Start and end epoch:", pst.start_epoch, pst.end_epoch)
 
-    ### Loop changed temporarily from here, with new epoch_init and epoch_postprocess methods. EXPERIMENTAL!
+    ### MODIFIED: Loop changed from here, with new epoch_init and epoch_postprocess methods.
     ### Loop goes through now and provides identic results for Proposal A.
     ### TODO: re-check all commands for equivalency!
+    ### TODO: maybe integrate into ParserState.
     # first_epochs_processed = False
+    valid_epoch_cards = []
     pst.epoch = pst.start_epoch
     epoch_initialized = False
-    epoch_completed = False
+    # epoch_completed = False # probably not needed:
+    # We complete always when we have valid_epoch_cards at the start of the loop or after the loop has ended.
 
     for card in pst.initial_cards:
 
@@ -76,14 +79,14 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
             # 3) between epochs where no new cards were transferred.
 
             if len(valid_epoch_cards) > 0:
-                # normal epoch advancement: still the epoch cards were not processed
+                # epoch_postprocess must be here, because the
                 pst.epoch_postprocess(valid_epoch_cards)
                 valid_epoch_cards == []
 
             # epoch(s) without cards is/are processed.
             # TODO: is second argument card_epoch or card_epoch - 1??
-
             pst.process_cardless_epochs(pst.epoch, card_epoch - 1)
+            epoch_initialized = False
 
         if card_epoch == pst.epoch:
 
@@ -95,12 +98,17 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
 
             if pst.check_card(card): # new method which checks only ONE card, replaces get_valid_epoch_cards
                 # yield card
+                # TODO: if the loop is transformed into a generator,
+                # check if we need to process something directly after the yield statement.
                 valid_epoch_cards.append(card)
 
-        # TODO: if this is transformed into a generator, check if we need to process something directly after the yield statement.
 
-    # if no more cards are recorded, we only process the rest if force_continue was set, i.e. for informational purposes.
-    # (e.g. proposal state or get_votes commands)
+    if len(valid_epoch_cards) > 0:
+        pst.epoch_postprocess(valid_epoch_cards)
+
+    # if no more cards are recorded, we only process the rest until the current blockheight if force_continue was set
+    #  i.e. for informational purposes. (e.g. proposal state or get_votes commands)
+
     if force_continue:
         pst.process_cardless_epochs(pst.epoch, pst.end_epoch)
 
