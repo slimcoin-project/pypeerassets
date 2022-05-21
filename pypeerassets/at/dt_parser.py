@@ -15,13 +15,14 @@ from pypeerassets.at.dt_parser_utils import *
 from pypeerassets.at.dt_parser_state import ParserState
 
 def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, initial_parser_state=None, force_dstates=False, force_continue=False, start_epoch=None, end_epoch=None):
-    """Basic parser loop. Loops through all cards by epoch."""
+    """Basic parser loop. Loops through all cards, and processes epochs."""
 
     # debug = True # uncomment for testing
     # print([(c.txid, c.sender, c.receiver, c.amount, c.blocknum) for c in cards])
 
     # TODO: Transactions in the same block must also be ordered by block position.
-    cards.sort(key=lambda x: x.blocknum)
+    # Modified: added blockseq and cardseq.
+    cards.sort(key=lambda x: (x.blocknum, x.blockseq, x.cardseq))
 
     if debug: print("Starting parser.")
     if current_blockheight is None:
@@ -55,77 +56,53 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
 
     if debug: print("Start and end epoch:", pst.start_epoch, pst.end_epoch)
 
-    for epoch in range(pst.start_epoch, pst.end_epoch):
+    ### Loop changed temporarily from here, with new epoch_init and epoch_postprocess methods. EXPERIMENTAL!
+    ### Loop goes through now and provides identic results for Proposal A.
+    ### TODO: re-check all commands for equivalency!
+    # first_epochs_processed = False
+    pst.epoch = pst.start_epoch
+    epoch_initialized = False
+    epoch_completed = False
 
-        pst.epoch = epoch
-        epoch_firstblock = deck.epoch_length * epoch
-        epoch_lastblock = deck.epoch_length * (epoch + 1)
+    for card in pst.initial_cards:
 
-        if debug: print("\nChecking epoch", epoch, "from block", epoch_firstblock, "to", epoch_lastblock)
+        card_epoch = card.blocknum // deck.epoch_length # as deck count start is from genesis block this is correct
 
-        # grouping cards per epoch
+        if card_epoch > pst.epoch:
+            # this happens if the card is located after the epoch we're currently processing
+            # so it will happen:
+            # 1) when all cards of an epoch have been processed and it's the next one's turn
+            # 2) almost always in the first loop iteration,
+            # 3) between epochs where no new cards were transferred.
 
-        lowpos = pos
-        card_found = False
-        for pos, card in enumerate(pst.initial_cards, start=lowpos):
+            if len(valid_epoch_cards) > 0:
+                # normal epoch advancement: still the epoch cards were not processed
+                pst.epoch_postprocess(valid_epoch_cards)
+                valid_epoch_cards == []
 
-            if debug: print("Card block height:", card.blocknum, "Position", pos, "Cards len", cards_len, "TXID", card.txid)
-            # CardIssues before the first block of the epoch are always invalid.
-            if not (epoch_firstblock <= card.blocknum <= epoch_lastblock):
-                break
-            card_found = True # TODO: This is probably necessary because enumerate doesn't add 1 to the index after every successful loop instance but at each re-start. Re-check!
+            # epoch(s) without cards is/are processed.
+            # TODO: is second argument card_epoch or card_epoch - 1??
 
-        if card_found == True:
-            pos += 1 # without this it won't work, e.g. if there is only 1 card - cards[0:0] # TODO Re-check!
-        highpos = pos
-        epoch_cards = cards[lowpos:highpos]
+            pst.process_cardless_epochs(pst.epoch, card_epoch - 1)
 
-        if debug: print("Cards found in this epoch:", len(epoch_cards))
+        if card_epoch == pst.epoch:
 
+            # this should happen only if we're now processing the epoch with the current CardTransfer.
+            if not epoch_initialized:
+                pst.epoch_init()
+                if debug: print("\nChecking epoch", self.epoch, "from block", epoch_firstblock, "to", epoch_lastblock)
+                epoch_initialized = True
 
-        # Epochs which have passed since the deck spawn
-        # epochs_from_start = epoch - pst.start_epoch # MODIFIED. We use sdp_epochs_remaining instead, as epochs_from_start counts all epochs, not only the ones with completed proposals.
-        sdp_epochs_remaining = deck.sdp_periods - pst.epochs_with_completed_proposals # TODO Re-check!
+            if pst.check_card(card): # new method which checks only ONE card, replaces get_valid_epoch_cards
+                # yield card
+                valid_epoch_cards.append(card)
 
-        # if debug: print("Epochs with completed proposals:", pst.epochs_with_completed_proposals)
-        if debug: print("SDP periods remaining:", sdp_epochs_remaining)
+        # TODO: if this is transformed into a generator, check if we need to process something directly after the yield statement.
 
-        if (deck.sdp_periods > 0) and (sdp_epochs_remaining <= deck.sdp_periods): # voters from other tokens
-
-            # We set apart all CardTransfers of SDP voters before the epoch start
-            sdp_epoch_balances = pst.get_sdp_balances()
-
-            # Weight is calculated according to the epoch
-            # Weight is reduced only in epochs where proposals were completely approved.
-            sdp_weight = get_sdp_weight(pst.epochs_with_completed_proposals, deck.sdp_periods)
-
-            # Adjusted weight multiplies the token balance by the difference in decimal places
-            # between the main token and the SDP token.
-            # adjusted_weight = sdp_weight * 10 ** pst.sdp_decimal_diff
-
-            if len(sdp_epoch_balances) > 0: # MODIFIED: was originally new_sdp_voters
-                pst.enabled_voters.update(update_voters(pst.enabled_voters, sdp_epoch_balances, weight=sdp_weight, debug=pst.debug, dec_diff=pst.sdp_decimal_diff))
-
-        # as card issues can occur any time after the proposal has been voted
-        # we always need ALL valid proposals voted up to this epoch.
-
-        #if pst.debug: print("Get ending proposals ...")
-        #if pst.debug: print("Approved proposals before epoch", pst.epoch, pst.approved_proposals)
-        pst.update_approved_proposals()
-        # if debug: print("Approved proposals after epoch", pst.epoch, pst.approved_proposals)
-        pst.update_valid_ending_proposals()
-        # if debug: print("Valid ending proposals after epoch:", pst.epoch, pst.valid_proposals)
-
-        if (highpos == lowpos) or len(epoch_cards) > 0:
-            valid_epoch_cards = pst.get_valid_epoch_cards(epoch_cards)
-
-        pst.enabled_voters.update(update_voters(voters=pst.enabled_voters, new_cards=valid_epoch_cards, debug=pst.debug))
-        # if debug: print("New voters balances:", pst.enabled_voters)
-
-        pst.valid_cards += valid_epoch_cards
-
-        if (pos == cards_len) and not force_continue: # normally we don't need to continue if there are no cards left
-            break
+    # if no more cards are recorded, we only process the rest if force_continue was set, i.e. for informational purposes.
+    # (e.g. proposal state or get_votes commands)
+    if force_continue:
+        pst.process_cardless_epochs(pst.epoch, pst.end_epoch)
 
     if force_dstates:
         pst.force_dstates()

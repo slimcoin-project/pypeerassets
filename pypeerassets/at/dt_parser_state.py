@@ -404,15 +404,6 @@ class ParserState(object):
         # check B: Does txid correspond to a real donation?
         # We go through the DonationStates per round and search for the dtx_id.
         # When we find it, we get the DonationState for the card issuance.
-        """for rd_states in proposal_state.donation_states:
-            for ds in rd_states.values():
-                if debug: print("Checking donation state:", ds.id, "with donation tx", ds.donation_tx.txid)
-                if (ds.donation_tx is not None) and (ds.donation_tx.txid == dtx_id):
-                    break
-                else:
-                    continue
-            break => this break doesn't work properly!"""
-
         dstates = [d for rd_states in proposal_state.donation_states for d in rd_states.values()]
         for ds in dstates:
 
@@ -441,60 +432,6 @@ class ParserState(object):
         else:
             return True
 
-    def get_valid_epoch_cards(self, epoch_cards):
-
-        # This is the loop which checks all cards in an epoch for validity.
-        # It loops, in each epoch, through the current issuances and checks if they're associated to a valid donation.
-        # CONVENTION: voters' weight is the balance at the start block of current epoch
-
-        debug = self.debug
-        valid_cards = []
-
-        if debug: print("Cards:", [card.txid for card in epoch_cards])
-
-        for card in epoch_cards:
-
-            card_data = card.asset_specific_data
-
-            if card.type == "CardIssue":
-
-                # First step: Look for a matching DonationTransaction.
-                dtx_id = card.donation_txid
-
-                # dtx_vout should currently always be 2. However, the variable is kept for future modifications.
-                dtx_vout_bytes = getfmt(card_data, CARD_ISSUE_DT_FORMAT, "out")
-                dtx_vout = int.from_bytes(dtx_vout_bytes, "big")
-
-                # check 1: filter out duplicates (less expensive, so done first)
-                if (card.sender, dtx_id, dtx_vout) in self.used_issuance_tuples:
-                    if debug: print("Ignoring CardIssue: Duplicate.")
-                    continue
-
-                card_units = sum(card.amount) # MODIFIED: this is already an int value based on the card base units!
-
-                # Is it a proposer or a donation issuance?
-                # Proposers provide ref_txid of their proposal transaction.
-                # If this TX is in proposal_txes, AND they are the sender of the card and fulfill all requirements,
-                # then they get the token to the proposal address.
-
-                if (dtx_id in self.valid_proposals) and self.validate_proposer_issuance(dtx_id, card_units, card.sender, card.blocknum):
-                    if debug: print("DT CardIssue (Proposer):", card.txid)
-                elif self.validate_donation_issuance(dtx_id, dtx_vout, card_units, card.sender):
-                    if debug: print("DT CardIssue (Donation):", card.txid)
-                else:
-                    if debug: print("Ignoring CardIssue: Invalid data.")
-                    continue
-
-                valid_cards.append(card) # Cards of all types are returned chronologically.
-                self.used_issuance_tuples.append((card.sender, dtx_id, dtx_vout))
-
-            else:
-
-                if debug: print("DT CardTransfer:", card.txid)
-                valid_cards.append(card)
-
-        return valid_cards
-
     @staticmethod
     def remove_invalid_cards(cards):
         from pypeerassets.protocol import DeckState
@@ -503,5 +440,105 @@ class ParserState(object):
         return state.valid_cards
 
 
+    def check_card(self, card):
+
+        """Checks a CardIssue for validity. CardTransfers are always valid (they will be later processed by DeckState)."""
+        # NOTE: this replaced get_valid_epoch_cards, as it's also be compatible with a generator-based approach.
+        # CONVENTION: voters' weight is the balance at the start block of current epoch
+
+        debug = self.debug
+        card_data = card.asset_specific_data
+
+        if card.type == "CardIssue":
+
+            # First step: Look for a matching DonationTransaction.
+            dtx_id = card.donation_txid
+
+            # dtx_vout should currently always be 2. However, the variable is kept for future modifications.
+            dtx_vout_bytes = getfmt(card_data, CARD_ISSUE_DT_FORMAT, "out")
+            dtx_vout = int.from_bytes(dtx_vout_bytes, "big")
+
+            # check 1: filter out duplicates (less expensive, so done first)
+            if (card.sender, dtx_id, dtx_vout) in self.used_issuance_tuples:
+                if debug: print("Ignoring CardIssue: Duplicate.")
+                return False
+
+            card_units = sum(card.amount) # MODIFIED: this is already an int value based on the card base units
+
+            # Check if it is a proposer or a donation issuance.
+            # Proposers provide the ref_txid of their proposal transaction.
+            # If this TX is in proposal_txes and they are the sender of the card and fulfill all requirements,
+            # then the token is granted to them at their proposal address.
+
+            if (dtx_id in self.valid_proposals) and self.validate_proposer_issuance(dtx_id, card_units, card.sender, card.blocknum):
+                if debug: print("DT CardIssue (Proposer):", card.txid)
+
+            elif self.validate_donation_issuance(dtx_id, dtx_vout, card_units, card.sender):
+                if debug: print("DT CardIssue (Donation):", card.txid)
+
+            else:
+                if debug: print("Ignoring CardIssue: Invalid data.")
+                return False
+
+            self.used_issuance_tuples.append((card.sender, dtx_id, dtx_vout))
+            return True
+
+        else:
+
+            if debug: print("DT CardTransfer:", card.txid)
+            return True
+
+    def epoch_init(self):
+        # EXPERIMENTAL, new parser structure without position lookup.
+        # This is called when the card loop enters a new epoch.
+        debug = self.debug
+
+        sdp_epochs_remaining = self.deck.sdp_periods - self.epochs_with_completed_proposals
+
+        if debug: print("Epochs with completed proposals:", self.epochs_with_completed_proposals)
+        if debug: print("SDP periods remaining:", sdp_epochs_remaining)
+
+        if (self.deck.sdp_periods > 0) and (sdp_epochs_remaining <= self.deck.sdp_periods): # voters from other tokens
+
+            # We set apart all CardTransfers of SDP voters before the epoch start
+            sdp_epoch_balances = self.get_sdp_balances()
+
+            # Weight is calculated according to the epoch
+            # Weight is reduced only in epochs where proposals were completely approved.
+            sdp_weight = get_sdp_weight(self.epochs_with_completed_proposals, self.deck.sdp_periods)
+
+            # Adjusted weight multiplies the token balance by the difference in decimal places
+            # between the main token and the SDP token.
+            # adjusted_weight = sdp_weight * 10 ** self.sdp_decimal_diff
+
+            if len(sdp_epoch_balances) > 0:
+                self.enabled_voters.update(update_voters(self.enabled_voters, sdp_epoch_balances, weight=sdp_weight, debug=self.debug, dec_diff=self.sdp_decimal_diff))
+
+        # as card issues can occur any time after the proposal has been voted
+        # we always need ALL valid proposals voted up to this epoch.
+
+        #if debug: print("Get ending proposals ...")
+        #if debug: print("Approved proposals before epoch", self.epoch, self.approved_proposals)
+        self.update_approved_proposals()
+        # if debug: print("Approved proposals after epoch", self.epoch, self.approved_proposals)
+
+        self.update_valid_ending_proposals()
+        # if debug: print("Valid ending proposals after epoch:", self.epoch, self.valid_proposals)
+
+
+    def epoch_postprocess(self, valid_epoch_cards):
+        # if debug: print("Valid cards found in this epoch:", len(valid_epoch_cards))
+
+        self.enabled_voters.update(update_voters(voters=self.enabled_voters, new_cards=valid_epoch_cards, debug=self.debug))
+        # if debug: print("New voters balances:", self.enabled_voters)
+
+        self.valid_cards += valid_epoch_cards # we probably don't need this, as we have DeckState.valid_cards
+
+    def process_cardless_epochs(self, start, end):
+        for epoch in range(start, end):
+            self.epoch = epoch
+            self.epoch_init()
+            self.epoch == epoch
+            # the postprocess step can be skipped, as there are no cards.
 
 
