@@ -42,12 +42,10 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
     pst.init_parser()
 
     if debug: print("Starting epoch count at deck spawn block", pst.startblock)
-
     cards_len = len(pst.initial_cards)
     if debug: print("Total number of cards:", cards_len)
-
     if debug: print("Starting epoch loop ...")
-    # oldtxid = "" # probably obsolete
+
     pos = 0 # card position
     highpos = 0
 
@@ -58,7 +56,6 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
 
     ### MODIFIED: Loop changed from here, with new epoch_init and epoch_postprocess methods.
     ### Loop goes through now and provides identic results for Proposal A.
-    ### TODO: re-check all commands for equivalency!
     ### TODO: maybe integrate into ParserState.
     # first_epochs_processed = False
     valid_epoch_cards = []

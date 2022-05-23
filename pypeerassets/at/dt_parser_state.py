@@ -446,10 +446,14 @@ class ParserState(object):
 
 
     def check_card(self, card):
-
         """Checks a CardIssue for validity. CardTransfers are always valid (they will be later processed by DeckState)."""
+
         # NOTE: this replaced get_valid_epoch_cards, as it's also be compatible with a generator-based approach.
+        # NOTE: should be a general (not DT-specific) function, also applying to the DEX.
+        # => but then what do do with epochs?
+        # => we could make a base class and then extend it for each token type
         # CONVENTION: voters' weight is the balance at the start block of current epoch
+
 
         debug = self.debug
         card_data = card.asset_specific_data
@@ -537,7 +541,9 @@ class ParserState(object):
         self.enabled_voters.update(update_voters(voters=self.enabled_voters, new_cards=valid_epoch_cards, debug=self.debug))
         # if debug: print("New voters balances:", self.enabled_voters)
 
-        self.valid_cards += valid_epoch_cards # we probably don't need this, as we have DeckState.valid_cards
+        # if it's integrated into DeckState we probably don't need this, as we have DeckState.valid_cards
+        self.valid_cards += valid_epoch_cards
+
 
     def process_cardless_epochs(self, start, end):
 
