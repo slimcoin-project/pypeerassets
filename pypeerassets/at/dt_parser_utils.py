@@ -50,7 +50,6 @@ def get_proposal_states(provider, deck, current_blockheight=None, all_signalling
     for rawtx in get_marked_txes(provider, deck.derived_p2th_address("proposal")):
         try:
             tx = ProposalTransaction.from_json(tx_json=rawtx, provider=provider, deck=deck)
-            print(tx)
 
             if tx.txid not in used_firsttxids: # filters out duplicates
                 if (tx.first_ptx_txid in (None, tx.txid)) or len(tx.first_ptx_txid) != 64: # case 1: new proposal transaction # TODO: extra condition added for invalid proposals!

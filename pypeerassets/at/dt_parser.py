@@ -14,17 +14,14 @@ from pypeerassets.at.transaction_formats import *
 from pypeerassets.at.dt_parser_utils import *
 from pypeerassets.at.dt_parser_state import ParserState
 
-def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, initial_parser_state=None, force_dstates=False, force_continue=False, start_epoch=None, end_epoch=None):
+def dt_parser(cards: list, provider: object, deck: object, current_blockheight: int=None, initial_parser_state: object=None, force_dstates: bool=False, force_continue: bool=False, start_epoch: int=None, end_epoch: int=None, debug: bool=False, debug_voting: bool=False, debug_donations: bool=False):
     """Basic parser loop. Loops through all cards, and processes epochs."""
-
-    # debug = True # uncomment for testing
-    # print([(c.txid, c.sender, c.receiver, c.amount, c.blocknum) for c in cards])
 
     # TODO: Transactions in the same block must also be ordered by block position.
     # Modified: added blockseq and cardseq.
     cards.sort(key=lambda x: (x.blocknum, x.blockseq, x.cardseq))
 
-    if debug: print("Starting parser.")
+
     if current_blockheight is None:
         current_blockheight = provider.getblockcount()
 
@@ -37,9 +34,10 @@ def dt_parser(cards, provider, deck, current_blockheight=None, debug=False, init
         if pst.start_epoch is None: # workaround, should be done more elegant. Better move the whole section to ParserState.__init__.
             pst.start_epoch = start_epoch # normally start when the deck was spawned.
     else:
-        pst = ParserState(deck, cards, provider, current_blockheight=current_blockheight, start_epoch=start_epoch, end_epoch=end_epoch, debug=debug)
+        pst = ParserState(deck, cards, provider, current_blockheight=current_blockheight, start_epoch=start_epoch, end_epoch=end_epoch, debug=debug, debug_voting=debug_voting, debug_donations=debug_donations)
 
     pst.init_parser()
+    if debug: print("Starting parser.")
 
     if debug: print("Starting epoch count at deck spawn block", pst.startblock)
     cards_len = len(pst.initial_cards)

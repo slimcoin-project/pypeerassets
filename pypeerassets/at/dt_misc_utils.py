@@ -47,7 +47,7 @@ def min_p2th_fee(network) -> int:
 def get_votestate(provider, proposal_txid, debug=False):
     """Get the state of the votes of a Proposal without calling the parser completely."""
 
-    proposal = get_proposal_state(provider, proposal_txid, debug=debug) # Modified: eliminated phase=1 parameter.
+    proposal = get_proposal_state(provider, proposal_txid, debug_voting=debug)
     decimals = proposal.deck.number_of_decimals
     # We use the main deck's decimals as a base, and adjust its weight in the parser according to the
     # difference in number of decimals between main deck and SDP deck.
@@ -110,7 +110,7 @@ def get_donation_states(provider, proposal_id=None, proposal_tx=None, tx_txid=No
 
     # NOTE: phase is set as a default to 1.
     # NOTE: we give the option to call this function already with the full proposal_tx if already available.
-    proposal_state = get_proposal_state(provider, proposal_id=proposal_id, proposal_tx=proposal_tx, debug=debug)
+    proposal_state = get_proposal_state(provider, proposal_id=proposal_id, proposal_tx=proposal_tx, debug_donations=debug)
 
     if tx_txid is not None:
         # MODIFIED: gives now a list, because it can have two results if the tx includes a reserved amount.
@@ -138,7 +138,7 @@ def proposal_from_tx(proposal_id, provider):
     deck = deck_from_tx(deckid, provider)
     return ProposalTransaction.from_txid(proposal_id, provider, deck=deck, basicdata=basicdata)
 
-def get_parser_state(provider, deck=None, deckid=None, lastblock=None, debug=False, force_continue=False, force_dstates=False):
+def get_parser_state(provider, deck=None, deckid=None, lastblock=None, force_continue=False, force_dstates=False, debug=False, debug_voting=False, debug_donations=False):
 
     if not deck:
         if not deckid:
@@ -147,14 +147,15 @@ def get_parser_state(provider, deck=None, deckid=None, lastblock=None, debug=Fal
 
     unfiltered_cards = list((card for batch in get_card_bundles(provider, deck) for card in batch))
 
-    pst = ParserState(deck, unfiltered_cards, provider, current_blockheight=lastblock, debug=debug)
+    pst = ParserState(deck, unfiltered_cards, provider, current_blockheight=lastblock, debug=debug, debug_voting=debug_voting, debug_donations=debug_donations)
 
-    valid_cards = dt_parser(unfiltered_cards, provider, deck, current_blockheight=lastblock, debug=debug, initial_parser_state=pst, force_continue=force_continue, force_dstates=force_dstates) # later add: force_dstates=True
+    # MODIFIED: we now only provide debug info to ParserState; dt_parser will take it from there.
+    valid_cards = dt_parser(unfiltered_cards, provider, deck, current_blockheight=lastblock, initial_parser_state=pst, force_continue=force_continue, force_dstates=force_dstates)
 
     # NOTE: we don't need to return valid_cards as it is saved in pst.
     return pst
 
-def get_proposal_state(provider, proposal_id=None, proposal_tx=None, debug=False, deck=None):
+def get_proposal_state(provider, proposal_id=None, proposal_tx=None, deck=None, debug=False, debug_donations=False, debug_voting=False):
     # version 2: does not create an additional proposal state and always does the complete check (phase=1).
     # MODIFIED: parameter phase eliminated. If we needed it, we could also derive it from the ptx values.
 
@@ -167,14 +168,7 @@ def get_proposal_state(provider, proposal_id=None, proposal_tx=None, debug=False
 
     if debug: print("Deck:", ptx.deck.id)
 
-    #if phase == 0:
-    #    lastblock = min(current_blockheight, pstate.dist_start + pstate.deck.epoch_length)
-    #elif phase == 1:
-    #    lastblock = min(current_blockheight, (pstate.end_epoch + 1) * pstate.deck.epoch_length)
-    #else:
-    #    raise ValueError("No correct phase number entered. Please enter 0 or 1.")
-
-    pst = get_parser_state(provider, deck=ptx.deck, lastblock=current_blockheight, debug=debug, force_continue=True, force_dstates=True)
+    pst = get_parser_state(provider, deck=ptx.deck, lastblock=current_blockheight, force_continue=True, force_dstates=True, debug=debug, debug_voting=debug_voting, debug_donations=debug_donations)
 
     for p in pst.proposal_states.values():
         if debug: print("Checking proposal:", p.id)
@@ -218,19 +212,14 @@ def deck_p2th_from_id(network: str, deck_id: str) -> str:
 ### Unsigned transactions and P2SH
 
 def create_p2pkh_txout(value: int, address: str, n: int, network: namedtuple):
-    #address = Address.from_string(addr_string)
-    #script = P2pkhScript(address)
+
     script = p2pkh_script(network.shortname, address) # we need the shortname here
     return TxOut(value=value, n=n, script_pubkey=script, network=network)
 
 def create_p2sh_txout(value: int, redeem_script: DonationTimeLockScript, n: int, network: namedtuple):
+
     p2sh_script = P2shScript(redeem_script)
     out = TxOut(value=value, n=n, script_pubkey=p2sh_script, network=network)
-    #print("=========== P2SH TEST ============")
-    #print("P2SH output:", out)
-    #print("P2SH output pubkey:", out.script_pubkey)
-    #print("P2SH script:", p2sh_script)
-    #print("Redeem script:", redeem_script)
     return out
 
 def create_redeem_script(address: str, timelock: int, network: namedtuple):
@@ -367,19 +356,14 @@ def sign_p2sh_transaction(provider: Provider, unsigned: MutableTransaction, rede
 
     txins = [find_parent_outputs(provider, i) for i in unsigned.ins]
     inner_solver = P2pkhSolver(key._private_key)
-
     redeem_script_solver = AbsoluteTimelockSolver(redeem_script.locktime, inner_solver)
     solver = P2shSolver(redeem_script, redeem_script_solver)
-    # print("solver for all txins:", [solver for i in txins])
-    #for i in txins: ## TEST ##
-    #    print("txin:", i.__str__())
-    #    #print("solver result:", solver.solve([i])[0].__str__())
-    #    #print("inner_solver result:", inner_solver.solve(i)[0].__str__())
-    #    print("solver locktime:", solver.get_absolute_locktime(), "redeem locktime", redeem_script.locktime)
+
     return unsigned.spend(txins, [solver for i in txins])
 
 
 def sign_p2pk_transaction(provider: Provider, unsigned: MutableTransaction, key: Kutil):
+
     txins = [find_parent_outputs(provider, i) for i in unsigned.ins]
     solver = P2pkSolver(key._private_key)
     return unsigned.spend(txins, [solver for i in txins])
@@ -387,6 +371,7 @@ def sign_p2pk_transaction(provider: Provider, unsigned: MutableTransaction, key:
 def sign_mixed_transaction(provider: Provider, unsigned: MutableTransaction, key: Kutil, input_types: list):
     # this one can sign P2PK and P2PKH inputs
     # should be extended later to allow segwit etc.
+
     txins = [find_parent_outputs(provider, i) for i in unsigned.ins]
     solver_list = []
     for index, inp in enumerate(txins):
