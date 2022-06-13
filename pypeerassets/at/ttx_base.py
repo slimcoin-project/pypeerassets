@@ -28,11 +28,14 @@ class BaseTrackedTransaction(Transaction):
             if blockhash is not None:
 
                 try:
-                    blockheight = provider.getblock(blockhash, True)["height"]
+                    block = provider.getblock(blockhash, True)
+                    blockheight = block["height"]
+                    blockseq = block["tx"].index(txid)
                 except KeyError:
-                    blockheight = None # unconfirmed transaction
+                    blockheight, blockseq = None, None # unconfirmed transaction
 
         object.__setattr__(self, 'blockheight', blockheight)
+        object.__setattr__(self, 'blockseq', blockseq)
 
         # Inputs and outputs must always be provided by constructors.
 
@@ -52,7 +55,7 @@ class BaseTrackedTransaction(Transaction):
             raise InvalidTrackedTransactionError("No OP_RETURN data.")
 
         object.__setattr__(self, 'datastr', datastr) # OP_RETURN data byte string
-        object.__setattr__(self, 'deck', deck)
+        object.__setattr__(self, 'deck', deck) # TODO: repetition! shouldn't this be deckid?
 
 
     def __str__(self):
@@ -72,6 +75,10 @@ class BaseTrackedTransaction(Transaction):
     @property
     def txid(self):
         return self._txid # only getter.
+
+    @property
+    def deckid(self):
+        return self.deck.id # TODO: remove if deckid is stored!
 
     @classmethod
     def get_basicdata(cls, txid, provider):

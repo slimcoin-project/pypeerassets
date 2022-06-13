@@ -295,6 +295,7 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, network_nam
             reserved_amount = 0
 
         complete_amount = amount + reserved_amount + p2th_output.value + data_output.value + tx_fee
+
         if network_name in ("slm", "tslm") and input_redeem_script is not None:
             #load P2SH preimage in Slimcoin donation, as SLM cannot use normal solvers
             pre_scriptsig = input_redeem_script.serialize()
@@ -327,6 +328,7 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, network_nam
                     change_address = input_tx["vout"][input_vout]['scriptPubKey']['addresses'][0]
                 else:
                     change_address = input_address
+
             change_output = create_p2pkh_txout(change_value, change_address, len(outputs), network) # this just gives the correct one
             outputs.append(change_output)
         elif change_value < 0:

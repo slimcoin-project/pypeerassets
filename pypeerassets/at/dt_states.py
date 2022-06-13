@@ -613,18 +613,16 @@ class DonationState(object):
         self.state = state
         self.child_state_ids = [] # this will only be filled if there are child states
 
-        if signalling_tx:
-            self.donor_address = signalling_tx.address
-            self.signalled_amount = signalling_tx.amount
-            self.id = self.signalling_tx.txid
-
-        elif reserve_tx:
-            self.donor_address = reserve_tx.reserve_address
-            self.reserved_amount = reserve_tx.reserved_amount
-            self.id = self.reserve_tx.txid
-
+        if signalling_tx is not None:
+            self.origin_tx = signalling_tx
+        elif reserve_tx is not None:
+            self.origin_tx = reserve_tx
         else:
             raise InvalidDonationStateError("A DonationState must be initialized with a signalling or reserve address.")
+
+        self.donor_address = self.origin_tx.address
+        self.signalled_amount = self.origin_tx.amount
+        self.id = self.origin_tx.txid
 
     def set_reward(self, proposal_state):
         if (self.effective_slot is not None) and (self.effective_slot > 0):
