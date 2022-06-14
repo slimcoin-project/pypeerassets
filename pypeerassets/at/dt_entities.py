@@ -80,6 +80,7 @@ class TrackedTransaction(BaseTrackedTransaction):
 
         phase = dist_round // 4
         reserve = False
+        direct_successors, indirect_successors = [], []
 
         try:
 
@@ -96,53 +97,66 @@ class TrackedTransaction(BaseTrackedTransaction):
             if mode != "locking":
                 reserve = True
 
-        for tx in tx_list:
+        # MODIFIED. This list had no proper sorting, so it could led to inconsistent behaviour.
+        for tx in sorted(tx_list, key=lambda x: (x.blockheight, x.blockseq)):
             if not proposal_state.check_donor_address(tx, dist_round, addr, reserve=reserve, debug=debug):
                 continue
 
             if debug: print("Input addresses of tx", tx.txid, ":", tx.input_addresses)
-            if addr in tx.input_addresses:
+            # first priority has the direct successor
+            if self.txid in [t.txid for t in tx.ins]:
+                if debug: print("Added direct successor:", tx.txid)
+                direct_successors.append(tx)
 
-                # in locking mode, we check the block height of the donation release transaction.
-                if mode == "locking":
-                    startblock = proposal_state.release_period[0]
-                    endblock = proposal_state.release_period[1]
+            # second priority is the first one of the list which is matching.
+            # TODO: It may be needed that first ALL txes are checked for direct successors, then for indirect ones.
+            # This would need a rewrite, as then get_output_tx would have to be called twice per tx.
+            elif addr in tx.input_addresses:
+                if debug: print("Added indirect successor:", tx.txid)
+                indirect_successors.append(tx)
 
-                else:
-                    startblock = proposal_state.rounds[dist_round][1][0]
-                    endblock = proposal_state.rounds[dist_round][1][1] # last valid block
+        for tx in direct_successors + indirect_successors:
+            # in locking mode, we check the block height of the donation release transaction.
+            # print("Checking tx", tx)
+            if mode == "locking":
+                startblock = proposal_state.release_period[0]
+                endblock = proposal_state.release_period[1]
 
-                if not (startblock <= tx.blockheight <= endblock):
-                    continue
+            else:
+                startblock = proposal_state.rounds[dist_round][1][0]
+                endblock = proposal_state.rounds[dist_round][1][1] # last valid block
 
-                proposal_state.add_donor_address(addr, type(tx), phase)
-                return tx
+            if not (startblock <= tx.blockheight <= endblock):
+                continue
+
+            proposal_state.add_donor_address(addr, type(tx), phase)
+            return tx
 
         return None
 
-    """def get_input_address(self, pubkey_hexstr):
-        # calculates input address from pubkey from scriptsig.
+    def get_direct_successors(self, tx_list):
+        """all TrackedTransactions of a list which have one of the outputs of the current tx as input."""
 
-        pubkey = PublicKey(bytearray.fromhex(pubkey_hexstr))
-        return P2pkhAddress(pubkey.hash(), network=self.network).__str__()
+        successors = []
+        for tx in tx_list:
+            if self.txid in [t.txid for t in tx.ins]:
+                successors.append(tx)
+        return successors
 
-    def get_input_address_from_txid(self, txid, txout, provider):
-        # mainly for P2PK transactions, where no public key is given in the input.
+    def get_indirect_successors(self, tx_list, reserve_mode=False):
+        """all TrackedTransactions of a list, where one output address is used as one of the input addresses."""
 
-        inp_txjson = provider.getrawtransaction(txid, 1)
-        addr = inp_txjson["vout"][txout]["scriptPubKey"]["addresses"][0]
-        return addr
+        successors = []
+        address = self.reserve_address if reserve_mode else self.address
 
-    def set_input_addresses(self, provider=None):
-        input_addresses = []
-        for inp in self.ins:
-            try:
-                pubkey_str = inp.script_sig.__str__().split()[1]
-                inp_address = self.get_input_address(pubkey_str)
-            except IndexError:
-                inp_address = self.get_input_address_from_txid(inp.txid, inp.txout, provider)
-            input_addresses.append(inp_address)
-        return input_addresses"""
+        for tx in tx_list:
+            if address in tx.input_addresses:
+                successors.append(tx)
+        return successors
+
+    def set_successor(self, tx):
+        # defines a transaction to be the successor (e.g. signalling => locking, locking => donation) tx.
+        object.__setattr__(self, 'successor', tx)
 
 
 class LockingTransaction(TrackedTransaction):
@@ -354,13 +368,4 @@ class DonationTimeLockScript(AbsoluteTimelockScript):
         locktime = Locktime(raw_locktime)
         locked_script = P2pkhScript(dest_address)
         super().__init__(locktime, locked_script)
-
-
-"""class InvalidTrackedTransactionError(ValueError):
-    # raised anytime when a transacion is not following the intended format.
-    pass"""
-
-
-
-
 
