@@ -55,6 +55,8 @@ class TrackedTransaction(BaseTrackedTransaction):
         elif type(self) == VotingTransaction:
             tx_type = "voting"
 
+        object.__setattr__(self, 'ttx_type', tx_type) # ttx_type simplifies the donor_address algo.
+
         if type(self) != ProposalTransaction:
 
             # refactored; proposal_txid and proposal no longer arguments.
@@ -86,6 +88,7 @@ class TrackedTransaction(BaseTrackedTransaction):
 
             assert mode != "locking"
             addr = self.reserve_address
+            tx_type = tx.ttx_type
 
         except (AttributeError, AssertionError):
 
@@ -100,6 +103,7 @@ class TrackedTransaction(BaseTrackedTransaction):
         # MODIFIED. This list had no proper sorting, so it could led to inconsistent behaviour.
         for tx in sorted(tx_list, key=lambda x: (x.blockheight, x.blockseq)):
             if not proposal_state.check_donor_address(tx, dist_round, addr, reserve=reserve, debug=debug):
+                if debug: print("Donor address rejected, already used:", addr)
                 continue
 
             if debug: print("Input addresses of tx", tx.txid, ":", tx.input_addresses)
@@ -129,9 +133,10 @@ class TrackedTransaction(BaseTrackedTransaction):
             if not (startblock <= tx.blockheight <= endblock):
                 continue
 
-            proposal_state.add_donor_address(addr, type(tx), phase)
+            proposal_state.add_donor_address(addr, tx.ttx_type, phase, reserve=reserve)
             return tx
 
+        if debug: print("Nothing found.")
         return None
 
     def get_direct_successors(self, tx_list):

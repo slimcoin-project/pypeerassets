@@ -267,6 +267,7 @@ class ProposalState(object):
         donation_tx, locking_tx, effective_locking_slot, effective_slot = None, None, None, None
         round_stxes = [stx for stx in self.all_signalling_txes if self.get_stx_dist_round(stx) == rd]
 
+        if debug: print("Checking signallign and reserve transactions of round", rd)
         if rd in (0, 3, 6, 7):
 
              valid_stxes = [stx for stx in round_stxes if self.check_donor_address(stx, rd, stx.address, add_address=True, debug=debug)]
@@ -281,7 +282,7 @@ class ProposalState(object):
              else:
                  base_txes = self.donation_txes[rd - 1]
 
-             round_rtxes = [tx for tx in base_txes if tx.reserved_amount]
+             round_rtxes = [rtx for rtx in base_txes if (rtx.reserved_amount) and (self.check_donor_address(rtx, rd, rtx.reserve_address, add_address=True, debug=debug, reserve=True))]
              if debug: print("All possible reserve TXes in round:", rd, ":", [(t.txid, t.reserved_amount) for t in round_rtxes])
 
              # Reserve Transactions are validated first, as they have higher priority.
@@ -345,6 +346,9 @@ class ProposalState(object):
             # Maybe refactor it as a method of ProposalState.
             slot = self.get_slot(tx, rd)
             if debug: print("Slot for tx", tx.txid, ":", slot)
+            if slot == 0:
+                if debug: print("Donation state without positive slot not created.")
+                continue
 
             if rd < 4:
                 try:
@@ -368,18 +372,28 @@ class ProposalState(object):
                     self.locking_txes = ltxes
                     # print("adding locking tx", locking_tx.txid, "in round", rd)
                     #print("locking_txes after", [t.txid for rd in self.locking_txes for t in rd])
-                    # TODO: There are amounts at round 4 which should not be there. => Re-check if solved!
                     self.locked_amounts[rd] += locking_tx.amount
                     effective_locking_slot = min(slot, locking_tx.amount)
 
-                    # print("Searching successors of locking tx", locking_tx.txid)
                     # TODO: do we need to priorize direct successors here too?
-                    donation_tx = locking_tx.get_output_tx(sorted_dtxes, self, rd, mode="locking")
+                    if debug: print("Lookup Successor for locking tx:", locking_tx.txid)
+                    donation_tx = locking_tx.get_output_tx(sorted_dtxes, self, rd, mode="locking", debug=debug)
                     if debug and donation_tx: print("Donation tx added in locking mode", donation_tx.txid, rd)
 
             else:
-                # print("Searching child txes of tx", tx.txid, "of type", type(tx))
-                donation_tx = tx.get_output_tx(sorted_dtxes, self, rd)
+                # TODO: this is still a copy of the earlier indirect suc. algorithm, try to bundle it into a function!
+                if debug: print("Lookup Successor for reserve/signalling tx:", tx.txid)
+                # donation_tx = tx.get_output_tx(sorted_dtxes, self, rd, debug=debug)
+                try:
+                    donation_tx = tx.successor
+                except AttributeError: # successor still not existing
+                    reserve_mode = False if type(tx) == SignallingTransaction else True
+                    indirect_successors = tx.get_indirect_successors(sorted_dtxes, reserve_mode=reserve_mode)
+                    if debug: print("Indirect Successors of tx", tx.txid, ":" ,[t.txid for t in indirect_successors])
+                    for dtx in indirect_successors:
+                        if dtx not in selected_successors and (self.validate_round(dtx, rd)):
+                            donation_tx = dtx
+                            break
                 if debug and donation_tx: print("Donation tx added in donation mode", donation_tx.txid, rd)
 
             if donation_tx:
@@ -435,10 +449,14 @@ class ProposalState(object):
         # due to the reserve transaction question in rd. 4/5. => TODO: is this still true with unique donor addresses?
         # TODO: Can this be improved? adr, type(tx), phase should give the same value for many
         # txes of the list, so "continue" isn't the best option.
+        # TODO: BUG: it seems if you create a donation state with a signalling tx and one with a reserve tx, with the
+        # same donor address, it is accepted. This should not be the case!
         phase = rd // 4
         if debug: print("Checking tx", tx.txid, "with address", tx.address)
 
-        tx_type = "reserve" if reserve else type(tx)
+        # tx_type = "reserve" if reserve else type(tx)
+        tx_type = "signalling" if reserve else tx.ttx_type
+
         if (addr, tx_type, phase) in self.donor_addresses:
 
             if debug: print("TX {} rejected, donor address {} already used in this phase for this transaction type.".format(tx.txid, addr))
@@ -447,10 +465,12 @@ class ProposalState(object):
         else:
 
             if add_address:
-                self.add_donor_address(addr, tx_type, phase)
+                self.add_donor_address(addr, tx_type, phase, reserve=reserve)
             return True
 
-    def add_donor_address(self, addr, tx_type, phase):
+    def add_donor_address(self, addr, tx_type, phase, reserve=False):
+        if reserve:
+            tx_type = "signalling"
         self.donor_addresses.append((addr, tx_type, phase))
 
     def get_stx_dist_round(self, stx):
@@ -560,7 +580,7 @@ class ProposalState(object):
                     if dstate.donor_address in tx.input_addresses:
 
                         parent_dstate = dstate
-                        self.add_donor_address(tx.address, type(tx), (dist_round // 4))
+                        self.add_donor_address(tx.address, tx.ttx_type, (dist_round // 4))
                         break
                 else:
                     if debug: print("Transaction rejected by priority check:", tx.txid)
