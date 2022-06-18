@@ -525,7 +525,6 @@ class ProposalState(object):
 
         # tx_type = "reserve" if reserve else type(tx)
         tx_type = "signalling" if reserve else tx.ttx_type
-        print("DONOR ADDR:", self.donor_addresses)
         if (addr, tx_type, phase) in self.donor_addresses:
 
             if debug: print("TX {} rejected, donor address {} already used in this phase for this transaction type.".format(tx.txid, addr))
