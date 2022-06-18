@@ -159,9 +159,13 @@ class TrackedTransaction(BaseTrackedTransaction):
                 successors.append(tx)
         return successors
 
-    def set_successor(self, tx):
-        # defines a transaction to be the successor (e.g. signalling => locking, locking => donation) tx.
-        object.__setattr__(self, 'successor', tx)
+    def set_direct_successor(self, tx_list: list, reserve_mode: bool=False):
+        # the direct successor is a Locking/Donation transaction that spends the input 2.
+        (output, attribute) = (3, "reserve_successor") if reserve_mode else (2, "direct_successor")
+        for tx in tx_list:
+            if (self.txid == tx.ins[0].txid) and (tx.ins[0].txout == output):
+                object.__setattr__(self, attribute, tx)
+                break
 
 
 class LockingTransaction(TrackedTransaction):

@@ -266,7 +266,7 @@ class ParserState(object):
             return 0
 
     def get_votes(self, proposal, phase, formatted_result=False):
-        # TODO if it works it should be integrated in the ProposalState class.
+        # TODO should be integrated in the ProposalState class.
         # returns a dictionary with two keys: "positive" and "negative",
         # containing the amounts of the tokens with whose address a proposal was voted.
         # NOTE: The balances are valid for the epoch of the ParserState. So this cannot be called
@@ -529,10 +529,10 @@ class ParserState(object):
         if debug: print("Get ending proposals ...")
 
         self.update_approved_proposals()
-        if debug: print("Approved proposals after epoch", self.epoch, self.approved_proposals)
+        if debug: print("Approved proposals after epoch", self.epoch, list(self.approved_proposals.keys()))
 
         self.update_valid_ending_proposals()
-        if debug: print("Valid ending proposals after epoch:", self.epoch, self.valid_proposals)
+        if debug: print("Valid ending proposals after epoch:", self.epoch, list(self.valid_proposals.keys()))
 
 
     def epoch_postprocess(self, valid_epoch_cards):

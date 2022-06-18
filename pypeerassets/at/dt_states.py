@@ -223,8 +223,40 @@ class ProposalState(object):
         set_reward = True if self.dist_factor is not None else False
 
         rounds = (range(8), range(4), range(4,8))
-        sorted_ltxes = sorted(self.all_locking_txes, key = lambda x: (x.blockheight, x.blockseq))
-        sorted_dtxes = sorted(self.all_donation_txes, key = lambda x: (x.blockheight, x.blockseq))
+
+        # Sort all transactions
+        self.all_signalling_txes.sort(key = lambda x: (x.blockheight, x.blockseq))
+        self.all_locking_txes.sort(key = lambda x: (x.blockheight, x.blockseq))
+        self.all_donation_txes.sort(key = lambda x: (x.blockheight, x.blockseq))
+        #sorted_stxes = sorted(self.all_signalling_txes, key = lambda x: (x.blockheight, x.blockseq))
+        #sorted_ltxes = sorted(self.all_locking_txes, key = lambda x: (x.blockheight, x.blockseq))
+        #sorted_dtxes = sorted(self.all_donation_txes, key = lambda x: (x.blockheight, x.blockseq))
+
+        # set direct successors
+        # TODO: this way it will be very slow, see if we can optimize it, segregating it per phase/round already here.
+        for stx in self.all_signalling_txes:
+            stx.set_direct_successor(self.all_locking_txes)
+        for stx in self.all_signalling_txes:
+            stx.set_direct_successor(self.all_donation_txes)
+        for ltx in self.all_locking_txes:
+            ltx.set_direct_successor(self.all_locking_txes, reserve_mode=True)
+        for ltx in self.all_locking_txes:
+            ltx.set_direct_successor(self.all_donation_txes)
+        for dtx in self.all_donation_txes:
+            dtx.set_direct_successor(self.all_donation_txes, reserve_mode=True)
+
+        all_tracked_txes = self.all_signalling_txes + self.all_locking_txes + self.all_donation_txes
+
+        direct_successors = [ tx.direct_successor.txid for tx in all_tracked_txes if "direct_successor" in tx.__dict__ ]
+        reserve_successors = [ tx.reserve_successor.txid for tx in all_tracked_txes if "reserve_successor" in tx.__dict__ ]
+        selected_successors = direct_successors + reserve_successors
+
+        if debug:
+            for tx in all_tracked_txes:
+                if "direct_successor" in tx.__dict__:
+                    print("Direct successor for", tx.txid, type(tx), tx.direct_successor.txid, type(tx.direct_successor))
+                if "reserve_successor" in tx.__dict__:
+                    print("Reserve successor for", tx.txid, type(tx), tx.reserve_successor.txid, type(tx.reserve_successor))
 
         #if debug: print("All signalling txes:", self.all_signalling_txes)
         for rd in rounds[phase]:
@@ -236,7 +268,8 @@ class ProposalState(object):
                 self.available_slot_amount[rd] = self.available_slot_amount[rd - 1] - self.effective_locking_slots[rd - 1]
             # print("av. slot amount rd", rd, self.id, self.available_slot_amount[rd])
 
-            dstates[rd] = self._process_donation_states(rd, sorted_ltxes, sorted_dtxes, debug=debug, set_reward=set_reward, abandon_until=abandon_until)
+            # dstates[rd] = self._process_donation_states(rd, sorted_stxes, sorted_ltxes, sorted_dtxes, debug=debug, set_reward=set_reward, abandon_until=abandon_until)
+            dstates[rd] = self._process_donation_states(rd, selected_successors, debug=debug, set_reward=set_reward, abandon_until=abandon_until)
             # if debug: print("Donation states of round", rd, ":", dstates[rd])
 
         if phase in (0, 1):
@@ -257,20 +290,38 @@ class ProposalState(object):
             self.processed[2] = True # complete # TODO after implementing the periods cleanly this is no longer necessary
 
 
-    def _process_donation_states(self, rd, sorted_ltxes, sorted_dtxes, set_reward=False, abandon_until=0, debug=False):
+    def _process_donation_states(self, rd, selected_successors, set_reward=False, abandon_until=0, debug=False):
         # This function always must run chronologically, with previous rounds already completed.
         # It can, however, be run to redefine phase 2 (rd 4-7).
         # It sets also the attributes that are necessary for the next round and its slot calculation.
+        # MODIFIED: we sort signalling, locking and donation txes in situ now, no more "sorted_stxes ..." etc lists.
+        # MODIFIED 2: direct successors are now selected at the start, then selected_successsors track the rest.
 
         # 1. determinate the valid signalling txes (include reserve/locking txes).
         dstates = {}
         donation_tx, locking_tx, effective_locking_slot, effective_slot = None, None, None, None
         round_stxes = [stx for stx in self.all_signalling_txes if self.get_stx_dist_round(stx) == rd]
+        # NOTE: sorting is now done before in set_donation_states.
+        # raw_round_stxes = [stx for stx in sorted_stxes if self.get_stx_dist_round(stx) == rd]
+        # round_stxes = sorted(raw_round_stxes, key = lambda x: (x.blockheight, x.blockseq))
 
-        if debug: print("Checking signallign and reserve transactions of round", rd)
+        if debug: print("Checking signalling and reserve transactions of round", rd)
         if rd in (0, 3, 6, 7):
 
-             valid_stxes = [stx for stx in round_stxes if self.check_donor_address(stx, rd, stx.address, add_address=True, debug=debug)]
+             #valid_stxes = [stx for stx in round_stxes if self.check_donor_address(stx, rd, stx.address, add_address=True, debug=debug)]
+
+             valid_stxes = []
+             # this is ugly, but seemingly necessary, because otherwise a direct successor of an invalid transaction
+             # can block an indirect successor of a correct transaction.
+             for stx in round_stxes:
+                 if self.check_donor_address(stx, rd, stx.address, add_address=True, debug=debug):
+                     valid_stxes.append(stx)
+                 elif "direct_successor" in stx.__dict__:
+                     if stx.direct_successor.txid in selected_successors:
+                         txid_index = selected_successors.index(stx.direct_successor.txid)
+                         del selected_successors[txid_index]
+
+
              valid_rtxes = [] # No RTXes in these rounds.
              total_reserved_amount = 0
         else:
@@ -282,7 +333,9 @@ class ProposalState(object):
              else:
                  base_txes = self.donation_txes[rd - 1]
 
-             round_rtxes = [rtx for rtx in base_txes if (rtx.reserved_amount) and (self.check_donor_address(rtx, rd, rtx.reserve_address, add_address=True, debug=debug, reserve=True))]
+             # NOTE: additional sorting here was kept as there were slight inconsistencies otherwise
+             raw_round_rtxes = sorted(base_txes, key = lambda x: (x.blockheight, x.blockseq))
+             round_rtxes = [rtx for rtx in raw_round_rtxes if (rtx.reserved_amount) and (self.check_donor_address(rtx, rd, rtx.reserve_address, add_address=True, debug=debug, reserve=True))]
              if debug: print("All possible reserve TXes in round:", rd, ":", [(t.txid, t.reserved_amount) for t in round_rtxes])
 
              # Reserve Transactions are validated first, as they have higher priority.
@@ -317,24 +370,8 @@ class ProposalState(object):
         # 3. Generate DonationState and add locking/donation txes:
         # TODO maybe this could go into DonationState.init()
 
-        # additional step: give direct successors of transaction a higher priority, and prevent double tx usage with
-        # selected_successors.
-        selected_successors = []
+        # sort origin transactions, as they're here not in chronologic order due to be of 2 distinct types.
         all_origin_txes = sorted(valid_stxes + valid_rtxes, key = lambda x: (x.blockheight, x.blockseq))
-
-        for tx in all_origin_txes:
-            direct_successors = tx.get_direct_successors(sorted_ltxes)
-            if debug: print("Direct Successors of tx", tx.txid, ":" ,[t.txid for t in direct_successors])
-            for ltx in direct_successors:
-                # first priority has the locking_tx using output 2.
-                if (ltx.ins[0].txout == 2) and (self.validate_round(ltx, rd)):
-                    tx.set_successor(ltx)
-                    selected_successors.append(ltx)
-            # TODO: would it make sense to return to the first loop hierarchy here, to give all vout-2-successors highest priority? Can it happen that one tx is direct successor of 2 txes? => only if some non-standard software is used.
-            for ltx in direct_successors:
-                if ltx not in selected_successors and (self.validate_round(ltx, rd)):
-                    tx.set_successor(ltx)
-                    selected_successors.append(ltx)
 
         # We need 2 loops here, because the priority of the first group (direct successors) is higher.
         #for tx in (valid_stxes + valid_rtxes):
@@ -343,7 +380,6 @@ class ProposalState(object):
             donation_tx, locking_tx, effective_locking_slot, effective_slot = None, None, None, None
             state = "incomplete"
             # Initial slot: based on signalled amount.
-            # Maybe refactor it as a method of ProposalState.
             slot = self.get_slot(tx, rd)
             if debug: print("Slot for tx", tx.txid, ":", slot)
             if slot == 0:
@@ -351,49 +387,32 @@ class ProposalState(object):
                 continue
 
             if rd < 4:
-                try:
-                    locking_tx = tx.successor
-                except AttributeError: # successor still not existing
-                    reserve_mode = False if type(tx) == SignallingTransaction else True
-                    indirect_successors = tx.get_indirect_successors(sorted_ltxes, reserve_mode=reserve_mode)
-                    if debug: print("Indirect Successors of tx", tx.txid, ":" ,[t.txid for t in indirect_successors])
-                    for ltx in indirect_successors:
-                        if ltx not in selected_successors and (self.validate_round(ltx, rd)):
-                            locking_tx = ltx
-                            break
-                # locking_tx = tx.get_output_tx(self.all_locking_txes, self, rd)
+                locking_tx = self._get_ttx_successor(rd, tx, self.all_locking_txes, selected_successors, debug=debug, mode="origin")
+
                 # If the timelock is not correct, locking_tx is not added, and no donation tx is taken into account.
                 # The DonationState will be incomplete in this case. Only the SignallingTx is being added.
+                # if debug and locking_tx is not None: print("TX", tx.txid, "Locking tx:", locking_tx.txid, type(locking_tx))
                 if (locking_tx is not None) and self.validate_timelock(locking_tx):
-                    #print("locking txes before", [t.txid for rd in self.locking_txes for t in rd])
+
                     # TODO is this really the most efficient way?
                     ltxes = deepcopy(self.locking_txes)
                     ltxes[rd].append(locking_tx)
                     self.locking_txes = ltxes
-                    # print("adding locking tx", locking_tx.txid, "in round", rd)
-                    #print("locking_txes after", [t.txid for rd in self.locking_txes for t in rd])
+
                     self.locked_amounts[rd] += locking_tx.amount
                     effective_locking_slot = min(slot, locking_tx.amount)
 
                     # TODO: do we need to priorize direct successors here too?
                     if debug: print("Lookup Successor for locking tx:", locking_tx.txid)
-                    donation_tx = locking_tx.get_output_tx(sorted_dtxes, self, rd, mode="locking", debug=debug)
+                    # donation_tx = locking_tx.get_output_tx(self.all_donation_txes, self, rd, mode="locking", debug=debug)
+                    # ltx_successors = self._search_direct_successors(rd, [locking_tx], self.all_donation_txes, debug=debug)
+                    donation_tx = self._get_ttx_successor(rd, locking_tx, self.all_donation_txes, selected_successors, debug=debug)
                     if debug and donation_tx: print("Donation tx added in locking mode", donation_tx.txid, rd)
 
             else:
-                # TODO: this is still a copy of the earlier indirect suc. algorithm, try to bundle it into a function!
                 if debug: print("Lookup Successor for reserve/signalling tx:", tx.txid)
                 # donation_tx = tx.get_output_tx(sorted_dtxes, self, rd, debug=debug)
-                try:
-                    donation_tx = tx.successor
-                except AttributeError: # successor still not existing
-                    reserve_mode = False if type(tx) == SignallingTransaction else True
-                    indirect_successors = tx.get_indirect_successors(sorted_dtxes, reserve_mode=reserve_mode)
-                    if debug: print("Indirect Successors of tx", tx.txid, ":" ,[t.txid for t in indirect_successors])
-                    for dtx in indirect_successors:
-                        if dtx not in selected_successors and (self.validate_round(dtx, rd)):
-                            donation_tx = dtx
-                            break
+                donation_tx = self._get_ttx_successor(rd, tx, self.all_donation_txes, selected_successors, debug=debug, mode="origin")
                 if debug and donation_tx: print("Donation tx added in donation mode", donation_tx.txid, rd)
 
             if donation_tx:
@@ -440,6 +459,58 @@ class ProposalState(object):
 
         return dstates
 
+    """def _search_direct_successors(self, rd: int, txes: list, potential_successors: list, debug=False) -> list:
+
+        # Searches for direct successors for a list of TrackedTransactions.
+        # It also adds the successor to the transaction via tx.set_successor().
+        selected_successors = {}
+
+        for tx in txes:
+            direct_successors = tx.get_direct_successors(potential_successors)
+            if debug: print("Direct Successors of tx", tx.txid, ":" ,[t.txid for t in direct_successors])
+            for suc_tx in direct_successors:
+                # first priority has the locking_tx using output 2.
+                if (suc_tx.ins[0].txout == 2) and (self.validate_round(suc_tx, rd)):
+                    # tx.set_successor(suc_tx)
+                    selected_successors.update({ tx.txid : suc_tx })
+                    break
+            # we don't recognize anymore "direct" successors with txout != 2. We need them to have highest priority.
+            else:
+                for suc_tx in direct_successors:
+                    if self.validate_round(suc_tx, rd):
+                    # if suc_tx not in selected_successors.values() and (self.validate_round(suc_tx, rd)):
+                        # tx.set_successor(suc_tx)
+                        selected_successors.update({ tx.txid : suc_tx })
+
+        return selected_successors"""
+
+    def _get_ttx_successor(self, rd: int, tx: TrackedTransaction, potential_successors: list, selected_successors: list, mode: str=None, debug: bool=False) -> TrackedTransaction:
+        # used: we need to ensure there are no duplicates
+        # used_txids = [t.txid for rd in used for t in rd] if used is not None else []
+        try:
+            if mode == "origin" and type(tx) != SignallingTransaction:
+                reserve_mode = True
+                # origin mode: we test for the reserve successor if we are checking a reserve transaction
+                selected_tx = tx.reserve_successor
+            else:
+                reserve_mode = False
+                selected_tx = tx.direct_successor
+            # selected_tx = selected_successors[tx.txid]
+        except AttributeError: # successor still not existing
+            # reserve_mode = False if type(tx) == SignallingTransaction else True
+            indirect_successors = tx.get_indirect_successors(potential_successors, reserve_mode=reserve_mode)
+            if debug: print("Indirect Successors of tx", tx.txid, ":" ,[t.txid for t in indirect_successors])
+            for suc_tx in indirect_successors:
+                if (suc_tx.txid not in selected_successors) and (self.validate_round(suc_tx, rd)):
+                # if suc_tx not in selected_successors.values() and (self.validate_round(suc_tx, rd)):
+                    selected_tx = suc_tx
+                    selected_successors.append(selected_tx.txid)
+                    break
+            else:
+                selected_tx = None
+
+        return selected_tx
+
     def check_donor_address(self, tx, rd, addr, reserve=False, add_address=False, debug=False):
         # checks if a donor address of a transaction was already used in the same phase for the same tx type.
         # Donor address can be found by the preceding phase (for reserve txes).
@@ -449,14 +520,12 @@ class ProposalState(object):
         # due to the reserve transaction question in rd. 4/5. => TODO: is this still true with unique donor addresses?
         # TODO: Can this be improved? adr, type(tx), phase should give the same value for many
         # txes of the list, so "continue" isn't the best option.
-        # TODO: BUG: it seems if you create a donation state with a signalling tx and one with a reserve tx, with the
-        # same donor address, it is accepted. This should not be the case!
         phase = rd // 4
         if debug: print("Checking tx", tx.txid, "with address", tx.address)
 
         # tx_type = "reserve" if reserve else type(tx)
         tx_type = "signalling" if reserve else tx.ttx_type
-
+        print("DONOR ADDR:", self.donor_addresses)
         if (addr, tx_type, phase) in self.donor_addresses:
 
             if debug: print("TX {} rejected, donor address {} already used in this phase for this transaction type.".format(tx.txid, addr))
@@ -619,10 +688,10 @@ class ProposalState(object):
         else:
             return False
 
-    def validate_round(self, tx: TrackedTransaction, dist_round: int, mode: str="donation") -> bool:
+    def validate_round(self, tx: TrackedTransaction, dist_round: int) -> bool:
         # checks successors of a transaction for correct round.
         # formerly in TrackedTransaction.get_output_tx.
-        if mode == "locking":
+        if type(tx) == DonationTransaction and dist_round < 4: # replaced "locking mode"
             startblock = self.release_period[0]
             endblock = self.release_period[1]
         else:
