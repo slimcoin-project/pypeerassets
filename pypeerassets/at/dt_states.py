@@ -478,7 +478,7 @@ class ProposalState(object):
                 successor_tx = tx.direct_successor if "direct_successor" in tx.__dict__ else None
                 address = tx.address
 
-            if self.check_donor_address(tx, rd, address, add_address=add_address, debug=debug):
+            if self.check_donor_address(tx, rd, address, add_address=add_address, reserve=reserve_mode, debug=debug):
                 result.append(tx)
 
             elif successor_tx is not None:
