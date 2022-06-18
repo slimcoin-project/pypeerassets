@@ -301,6 +301,7 @@ class ProposalState(object):
         dstates = {}
         donation_tx, locking_tx, effective_locking_slot, effective_slot = None, None, None, None
         round_stxes = [stx for stx in self.all_signalling_txes if self.get_stx_dist_round(stx) == rd]
+
         # NOTE: sorting is now done before in set_donation_states.
         # raw_round_stxes = [stx for stx in sorted_stxes if self.get_stx_dist_round(stx) == rd]
         # round_stxes = sorted(raw_round_stxes, key = lambda x: (x.blockheight, x.blockseq))
@@ -310,17 +311,9 @@ class ProposalState(object):
 
              #valid_stxes = [stx for stx in round_stxes if self.check_donor_address(stx, rd, stx.address, add_address=True, debug=debug)]
 
-             valid_stxes = []
+             valid_stxes = self._validate_basic(round_stxes, rd, selected_successors, reserve_mode=False, debug=debug)
              # this is ugly, but seemingly necessary, because otherwise a direct successor of an invalid transaction
              # can block an indirect successor of a correct transaction.
-             for stx in round_stxes:
-                 if self.check_donor_address(stx, rd, stx.address, add_address=True, debug=debug):
-                     valid_stxes.append(stx)
-                 elif "direct_successor" in stx.__dict__:
-                     if stx.direct_successor.txid in selected_successors:
-                         txid_index = selected_successors.index(stx.direct_successor.txid)
-                         del selected_successors[txid_index]
-
 
              valid_rtxes = [] # No RTXes in these rounds.
              total_reserved_amount = 0
@@ -335,11 +328,13 @@ class ProposalState(object):
 
              # NOTE: additional sorting here was kept as there were slight inconsistencies otherwise
              raw_round_rtxes = sorted(base_txes, key = lambda x: (x.blockheight, x.blockseq))
-             round_rtxes = [rtx for rtx in raw_round_rtxes if (rtx.reserved_amount) and (self.check_donor_address(rtx, rd, rtx.reserve_address, add_address=True, debug=debug, reserve=True))]
+             round_rtxes = self._validate_basic(raw_round_rtxes, rd, selected_successors, debug=debug, reserve_mode=True)
+
+             #round_rtxes = [rtx for rtx in raw_round_rtxes if (rtx.reserved_amount) and (self.check_donor_address(rtx, rd, rtx.reserve_address, add_address=True, debug=debug, reserve=True))]
              if debug: print("All possible reserve TXes in round:", rd, ":", [(t.txid, t.reserved_amount) for t in round_rtxes])
 
              # Reserve Transactions are validated first, as they have higher priority.
-             valid_rtxes = self.validate_priority(round_rtxes, rd, debug=debug) if len(round_rtxes) > 0 else []
+             valid_rtxes = self._validate_priority(round_rtxes, rd, selected_successors, reserve_mode=True, debug=debug) if len(round_rtxes) > 0 else []
              total_reserved_amount = sum([tx.reserved_amount for tx in valid_rtxes])
 
              # If the reserved amount exceeds the total available slots, do not process signalling transactions,
@@ -347,9 +342,13 @@ class ProposalState(object):
              if debug: print("Total reserved in round {}: {} - Available slot amount: {}".format(rd, total_reserved_amount, self.available_slot_amount[rd]))
 
              if total_reserved_amount > self.available_slot_amount[rd]:
+                 # MODIFIED: we need to delete the successors here too
+                 for stx in round_stxes:
+                     if "direct_successor" in stx.__dict__:
+                         self._delete_invalid_successor(stx.direct_successor.txid, selected_successors)
                  valid_stxes = []
              else:
-                 valid_stxes = self.validate_priority(round_stxes, rd, debug=debug) if len(round_stxes) > 0 else []
+                 valid_stxes = self._validate_priority(round_stxes, rd, selected_successors, debug=debug) if len(round_stxes) > 0 else []
 
         if debug: print("Valid Signalling TXes in round:", rd, ":", [(t.txid, t.amount) for t in valid_stxes])
         if debug: print("Valid Reserve TXes in round:", rd, ":", [(t.txid, t.reserved_amount) for t in valid_rtxes])
@@ -459,30 +458,33 @@ class ProposalState(object):
 
         return dstates
 
-    """def _search_direct_successors(self, rd: int, txes: list, potential_successors: list, debug=False) -> list:
+    def _delete_invalid_successor(self, txid, selected_successors):
+        if txid in selected_successors:
+            txid_index = selected_successors.index(txid)
+            del selected_successors[txid_index]
 
-        # Searches for direct successors for a list of TrackedTransactions.
-        # It also adds the successor to the transaction via tx.set_successor().
-        selected_successors = {}
+    def _validate_basic(self, tx_list, rd, selected_successors, reserve_mode=False, debug=False, add_address=True):
+        # basic validation steps: donor address duplication and reserve address existence.
+        result = []
 
-        for tx in txes:
-            direct_successors = tx.get_direct_successors(potential_successors)
-            if debug: print("Direct Successors of tx", tx.txid, ":" ,[t.txid for t in direct_successors])
-            for suc_tx in direct_successors:
-                # first priority has the locking_tx using output 2.
-                if (suc_tx.ins[0].txout == 2) and (self.validate_round(suc_tx, rd)):
-                    # tx.set_successor(suc_tx)
-                    selected_successors.update({ tx.txid : suc_tx })
-                    break
-            # we don't recognize anymore "direct" successors with txout != 2. We need them to have highest priority.
+        for tx in tx_list:
+            if reserve_mode:
+                successor_tx = tx.reserve_successor if "reserve_successor" in tx.__dict__ else None
+                address = tx.reserve_address
+                if not tx.reserved_amount:
+                    if debug: print("Potential reserve transaction", tx.txid, "rejected, no reserve amount.")
+                    continue
             else:
-                for suc_tx in direct_successors:
-                    if self.validate_round(suc_tx, rd):
-                    # if suc_tx not in selected_successors.values() and (self.validate_round(suc_tx, rd)):
-                        # tx.set_successor(suc_tx)
-                        selected_successors.update({ tx.txid : suc_tx })
+                successor_tx = tx.direct_successor if "direct_successor" in tx.__dict__ else None
+                address = tx.address
 
-        return selected_successors"""
+            if self.check_donor_address(tx, rd, address, add_address=add_address, debug=debug):
+                result.append(tx)
+
+            elif successor_tx is not None:
+                self._delete_invalid_successor(successor_tx.txid, selected_successors)
+
+        return result
 
     def _get_ttx_successor(self, rd: int, tx: TrackedTransaction, potential_successors: list, selected_successors: list, mode: str=None, debug: bool=False) -> TrackedTransaction:
         # used: we need to ensure there are no duplicates
@@ -506,8 +508,15 @@ class ProposalState(object):
                     selected_tx = suc_tx
                     selected_successors.append(selected_tx.txid)
                     break
+
+                elif debug:
+                    if suc_tx.txid in selected_successors:
+                        print("Successor", suc_tx.txid, "rejected: is already a successor of a valid earlier transaction.")
+                    if not self.validate_round(suc_tx, rd):
+                        print("Successor", suc_tx.txid, "rejected: blockheight out of round", rd)
             else:
                 selected_tx = None
+
 
         return selected_tx
 
@@ -547,8 +556,8 @@ class ProposalState(object):
            start = self.rounds[rd][0][0]
            end = self.rounds[rd][1][0]
 
-           # print("Start/bh/end:", start, stx.blockheight, end, "txid:", stx.txid)
            if start <= stx.blockheight <= end:
+               # print("Start/bh/end:", start, stx.blockheight, end, "txid:", stx.txid)
                return rd
        else:
            # raise InvalidTrackedTransactionError("Incorrect blockheight for a signalling transaction.")
@@ -578,7 +587,7 @@ class ProposalState(object):
         else:
             self.proposer_reward = 0
 
-    def validate_priority(self, tx_list: list, dist_round: int, debug: bool=False):
+    def _validate_priority(self, tx_list: list, dist_round: int, selected_successors: list, reserve_mode: bool=False, debug: bool=False):
         """Validates the priority of signalling and reserve transactions in round 2, 3, 5 and 6."""
         # New version with DonationStates, modified to validate a whole round list at once (more efficient).
         # Should be optimized in the beta/release version.
@@ -622,6 +631,15 @@ class ProposalState(object):
         # If it's not in any of the valid states, it can't be valid.
 
         for tx in tx_list:
+            # successor:
+            try:
+                if reserve_mode:
+                    successor_txid = tx.reserve_successor.txid
+                else:
+                    successor_txid = tx.direct_successor.txid
+            except AttributeError:
+                successor_txid = None
+
             if debug: print("Checking tx:", tx.txid, type(tx))
             if type(tx) in (LockingTransaction, DonationTransaction):
 
@@ -632,6 +650,7 @@ class ProposalState(object):
                         break
                 else:
                     if debug: print("Transaction rejected by priority check:", tx.txid)
+                    self._delete_invalid_successor(successor_txid, selected_successors)
                     continue
                 parent_dstate = dstate
 
@@ -642,6 +661,7 @@ class ProposalState(object):
                 # Donor address check is done first, but without adding addresses; we do this at the end of validation.
                 # We don't check donor addresses for Locking/Donation txes, they are checked in tx.get_output_addresses().
                 if not self.check_donor_address(tx, dist_round, tx.address, add_address=False, debug=debug):
+                    self._delete_invalid_successor(successor_txid, selected_successors)
                     continue
                 for dstate in valid_dstates:
                     #if debug: print("Donation state checked:", dstate.id, "for tx", tx.txid, "with input addresses", tx.input_addresses)
@@ -652,6 +672,7 @@ class ProposalState(object):
                         break
                 else:
                     if debug: print("Transaction rejected by priority check:", tx.txid)
+                    self._delete_invalid_successor(successor_txid, selected_successors)
                     continue
 
             try:
@@ -665,6 +686,7 @@ class ProposalState(object):
 
                 else:
                     if debug: print("Reserve transaction rejected due to incomplete slot of parent donation state:", tx.txid, "\nSlot:", parent_dstate.slot, "Effective Slot (donated amount): {} Locking Slot: {}".format(parent_dstate.effective_slot, parent_dstate.effective_locking_slot))
+                    self._delete_invalid_successor(successor_txid, selected_successors)
                     continue
             except AttributeError as e:
                 if debug: print("Required transaction (donation or locking) of parent donation state missing:", tx.txid)
