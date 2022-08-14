@@ -1,4 +1,4 @@
-from pypeerassets.at.dt_entities import ProposalTransaction, DonationTimeLockScript
+from pypeerassets.at.dt_entities import ProposalTransaction, SignallingTransaction, DonationTimeLockScript
 from pypeerassets.at.dt_states import ProposalState
 from pypeerassets.at.dt_parser import ParserState, dt_parser
 from pypeerassets.at.dt_parser_utils import deck_from_tx
@@ -81,32 +81,56 @@ def get_dstates_from_txid(txid: str, proposal_state: ProposalState, only_signall
 
 
 def get_dstates_from_address(address: str, proposal_state: ProposalState, dist_round: int=None):
+    # returns donation state from an address used in a signalling, locking or donation transaction.
+    # Not identic to get_dstates_from_donor_address, which only includes states matching the "official" donor address.
+
+    states = []
+    # print("Donation states:", proposal_state.donation_states)
+    for rd, rd_states in enumerate(proposal_state.donation_states):
+
+        if dist_round is not None and (rd != dist_round):
+            continue
+
+        for ds in rd_states.values():
+            used_addresses = []
+            if ds.signalling_tx is not None:
+                used_addresses.append(ds.signalling_tx.address)
+                used_addresses += ds.signalling_tx.input_addresses
+            if ds.reserve_tx is not None:
+                used_addresses.append(ds.reserve_tx.address)
+                used_addresses += ds.reserve_tx.input_addresses
+            if ds.locking_tx is not None:
+                used_addresses.append(ds.locking_tx.address)
+                used_addresses.append(ds.locking_tx.reserve_address)
+                used_addresses += ds.locking_tx.input_addresses
+            if ds.donation_tx is not None:
+               # donation_tx.address is the Proposer's address, so not needed here.
+               used_addresses.append(ds.donation_tx.reserve_address)
+               used_addresses += ds.donation_tx.input_addresses
+
+            if address in used_addresses:
+                   states.append(ds)
+
+    return states
+
+def get_dstates_from_donor_address(address: str, proposal_state: ProposalState, dist_round: int=None):
     # returns donation state from a signalling, locking or donation transaction.
-    # Uses the destination address, which is the address from which the donor will do locking/donation.
+    # This uses the donor address which is stored in the DonationState, not the "destination" address.
 
     states = []
     # print("Donation states:", proposal_state.donation_states)
     for rd, rd_states in enumerate(proposal_state.donation_states):
 
 
-        if dist_round and (rd != dist_round):
+        if dist_round is not None and (rd != dist_round):
             continue
 
         for ds in rd_states.values():
-            for tx in [ ds.signalling_tx, ds.locking_tx, ds.reserve_tx ]:
-               if tx is None:
-                   continue
-               try:
-                   tx_addr = tx.reserve_address.__str__()
-               except AttributeError: # SignallingTX
-                   tx_addr = tx.address.__str__()
-                   # print(tx_addr, address)
-               if tx_addr == address:
-                   states.append(ds)
-
+           if ds.donor_address == address:
+               states.append(ds)
     return states
 
-def get_donation_states(provider, proposal_id=None, proposal_tx=None, tx_txid=None, address=None, phase=1, debug=False, dist_round=None, pos=None):
+def get_donation_states(provider, proposal_id=None, proposal_tx=None, tx_txid=None, address=None, donor_address=None, phase=1, debug=False, dist_round=None, pos=None):
 
     # NOTE: phase is set as a default to 1.
     # NOTE: we give the option to call this function already with the full proposal_tx if already available.
@@ -116,7 +140,10 @@ def get_donation_states(provider, proposal_id=None, proposal_tx=None, tx_txid=No
         # MODIFIED: gives now a list, because it can have two results if the tx includes a reserved amount.
         # result = get_dstate_from_txid(txid, proposal_state)
         result = get_dstates_from_txid(tx_txid, proposal_state)
+    elif donor_address is not None:
+        result = get_dstates_from_donor_address(address, proposal_state, dist_round=dist_round)
     elif address is not None:
+        # MODIFIED: we now only use get_dstates_from_address in my_donation_states
         states = get_dstates_from_address(address, proposal_state, dist_round=dist_round)
         if debug: print("All donation states for address {}:".format(address), states)
         if pos is not None:
