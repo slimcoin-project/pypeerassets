@@ -141,7 +141,8 @@ def get_donation_states(provider, proposal_id=None, proposal_tx=None, tx_txid=No
         # result = get_dstate_from_txid(txid, proposal_state)
         result = get_dstates_from_txid(tx_txid, proposal_state)
     elif donor_address is not None:
-        result = get_dstates_from_donor_address(address, proposal_state, dist_round=dist_round)
+        result = get_dstates_from_donor_address(donor_address, proposal_state, dist_round=dist_round)
+
     elif address is not None:
         # MODIFIED: we now only use get_dstates_from_address in my_donation_states
         states = get_dstates_from_address(address, proposal_state, dist_round=dist_round)
@@ -156,6 +157,8 @@ def get_donation_states(provider, proposal_id=None, proposal_tx=None, tx_txid=No
 
     else:
         result = [s for rddict in proposal_state.donation_states for s in rddict.values()]
+
+    if debug: print(len(result), "donation states found.")
 
     return result
 
