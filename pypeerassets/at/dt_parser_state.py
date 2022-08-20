@@ -417,7 +417,7 @@ class ParserState(object):
         dstates = [d for rd_states in proposal_state.donation_states for d in rd_states.values()]
         for ds in dstates:
             if ds.donation_tx is not None:
-                if debug: print("PARSER: Checking donation state:", ds.id, "with donation tx", ds.donation_tx.txid)
+                # if debug: print("PARSER: Checking donation state:", ds.id, "with donation tx", ds.donation_tx.txid)
                 if ds.donation_tx.txid == dtx_id:
                     break
             #else:

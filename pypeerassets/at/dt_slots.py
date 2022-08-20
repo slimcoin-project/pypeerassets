@@ -38,7 +38,7 @@ def get_first_serve_slot(stx: SignallingTransaction, round_txes: list, slot_rest
     except IndexError:
         return 0
 
-def get_priority_slot(tx: TrackedTransaction, rtxes: list, stxes: list, av_amount: int, ramount: int=None, samount: int=None) -> int:
+def get_priority_slot(tx: TrackedTransaction, rtxes: list, stxes: list, av_amount: int, ramount: int=None, samount: int=None, debug: bool=False) -> int:
     """Calculates the slot in rounds with two groups of transactions with  different priority (rd 2, 3, 5 and 6).
     Reserve transactions in these rounds have a higher priority than signalling txes."""
 
@@ -47,14 +47,25 @@ def get_priority_slot(tx: TrackedTransaction, rtxes: list, stxes: list, av_amoun
     if not samount:
         samount = sum([t.amount for t in stxes])
 
+    if debug:
+        print("SLOT: tx txid:", tx.txid)
+        print("SLOT: reserved amount: {}, signalled amount: {}, total available_amount: {}".format(ramount, samount, av_amount))
 
     if tx.txid in [r.txid for r in rtxes]:
-        return get_raw_slot(tx.reserved_amount, av_amount, total_amount=ramount)
+        slot = get_raw_slot(tx.reserved_amount, av_amount, total_amount=ramount)
+        if debug: print("SLOT: tx reserved amount:", tx.reserved_amount)
 
     elif tx.txid in [s.txid for s in stxes]:
 
         slot_rest = max(0, av_amount - ramount)
         if slot_rest > 0:
-            return get_raw_slot(tx.amount, slot_rest, total_amount=samount)
+            slot = get_raw_slot(tx.amount, slot_rest, total_amount=samount)
 
-    return 0
+        if debug: print("SLOT: tx amount: {}, slot rest: {}".format(tx.amount, slot_rest))
+
+    else:
+        slot = 0
+        if debug: print("Transaction not found.")
+    if debug: print("SLOT: Calculated slot", slot)
+
+    return slot
