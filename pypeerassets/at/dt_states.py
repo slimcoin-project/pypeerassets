@@ -267,6 +267,7 @@ class ProposalState(object):
             # print("av. slot amount rd", rd, self.id, self.available_slot_amount[rd])
 
             # MODIF: selected successors now is segregated by round (EXPERIMENTAL!)
+            # TODO: should be optimized (list of successors by round), so not the whole search has to be done in each rd.
             selected_successors = []
             for tx in all_tracked_txes:
                 if self.validate_round(tx, rd):

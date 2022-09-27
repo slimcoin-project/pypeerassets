@@ -11,7 +11,7 @@ from pypeerassets.networks import net_query
 from pypeerassets.provider.rpcnode import Sequence
 from btcpy.structs.address import P2shAddress
 from btcpy.structs.script import P2shScript, AbsoluteTimelockScript
-from btcpy.structs.sig import P2shSolver, AbsoluteTimelockSolver, P2pkhSolver, P2pkSolver
+from btcpy.structs.sig import P2shSolver, AbsoluteTimelockSolver, P2pkhSolver, P2pkSolver, Sighash
 from decimal import Decimal
 from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
 from pypeerassets.at.transaction_formats import getfmt, PROPOSAL_FORMAT
@@ -400,7 +400,7 @@ def sign_p2pk_transaction(provider: Provider, unsigned: MutableTransaction, key:
     solver = P2pkSolver(key._private_key)
     return unsigned.spend(txins, [solver for i in txins])
 
-def sign_mixed_transaction(provider: Provider, unsigned: MutableTransaction, key: Kutil, input_types: list):
+def sign_mixed_transaction(provider: Provider, unsigned: MutableTransaction, key: Kutil, input_types: list, sighash: Sighash=Sighash('ALL')):
     # this one can sign P2PK and P2PKH inputs
     # should be extended later to allow segwit etc.
 
@@ -408,9 +408,9 @@ def sign_mixed_transaction(provider: Provider, unsigned: MutableTransaction, key
     solver_list = []
     for index, inp in enumerate(txins):
         if input_types[index] == "pubkey":
-            solver = P2pkSolver(key._private_key)
+            solver = P2pkSolver(key._private_key, sighash=sighash)
         elif input_types[index] == "pubkeyhash":
-            solver = P2pkhSolver(key._private_key)
+            solver = P2pkhSolver(key._private_key, sighash=sighash)
         else:
             raise ValueError("TX type unknown or not implemented.")
         solver_list.append(solver)
