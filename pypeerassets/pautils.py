@@ -26,7 +26,9 @@ from pypeerassets.paproto_pb2 import DeckSpawn as DeckSpawnProto
 from pypeerassets.paproto_pb2 import CardTransfer as CardTransferProto
 from pypeerassets.protocol import Deck, CardTransfer, CardBundle
 from pypeerassets.kutil import Kutil ### ADDRESSTRACK ###
-from btcpy.structs.address import Address ### find_tx_sender coinbase bugfix ###
+from btcpy.structs.address import Address ### find_tx_sender coinbase bugfix ### ### LOCK ###
+from btcpy.lib.base58 import b58encode_check ### LOCK ###
+from pypeerassets.networks import net_query
 
 
 def load_p2th_privkey_into_local_node(provider: RpcNode, prod: bool=True) -> None:
@@ -262,11 +264,29 @@ def parse_card_transfer_metainfo(protobuf: bytes, deck_version: int) -> dict:
     if not card.version == deck_version:
         raise CardVersionMismatch({'error': 'card version does not match deck version.'})
 
+
+    ### LOCK: modified for locktime
+    # to not overcomplicate things, the CardTransfer object receives the lock_address
+    # in the hashed form.
+    if card.lock_address:
+        lock_address = b58encode_check(card.lock_address)
+    else:
+        lock_address = None
+    """print("card lock address hash:", card.lock_address, type(card.lock_address))
+    try:
+        lock_address = Address(card.lock_address, network=net_query(card.network))
+    except Exception as e:
+        # if the address is not correctly formatted we ignore it
+        print("ERROR", e)
+        lock_address = None"""
+
     return {
         "version": card.version,
         "number_of_decimals": card.number_of_decimals,
         "amount": list(card.amount),
-        "asset_specific_data": card.asset_specific_data
+        "asset_specific_data": card.asset_specific_data,
+        "locktime" : card.locktime,
+        "lock_address" : lock_address
     }
 
 

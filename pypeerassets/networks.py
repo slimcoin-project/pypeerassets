@@ -16,6 +16,13 @@ class PeercoinTxOut(TxOut):
 
         return 0.01
 
+class SlimcoinTxOut(TxOut): ### ADDED ###
+    # minimum for OP_RETURN in SLM is also 0.01.
+
+    def get_dust_threshold(self, size_to_relay_fee) -> float:
+
+        return 0.01
+
 
 # constants to be consumed by the backend
 Constants = namedtuple('Constants', [
@@ -61,7 +68,7 @@ PeercoinMainnet = Constants(
     wif_prefix=0xb7,
     from_unit=Decimal('1e-6'),
     to_unit=Decimal('1e6'),
-    min_tx_fee=Decimal(0.001),
+    min_tx_fee=Decimal('0.001'),
     tx_timestamp=True,
     tx_out_cls=PeercoinTxOut,
     op_return_max_bytes=256
@@ -87,7 +94,7 @@ PeercoinTestnet = Constants(
     wif_prefix=0xef,
     from_unit=Decimal('1e-6'),
     to_unit=Decimal('1e6'),
-    min_tx_fee=Decimal(0.01),
+    min_tx_fee=Decimal('0.01'),
     tx_timestamp=True,
     tx_out_cls=PeercoinTxOut,
     op_return_max_bytes=256
@@ -112,9 +119,9 @@ SlimcoinMainnet = Constants(
     wif_prefix=0xbf, ## according to own research, prefix in base58check is 'V'
     from_unit=Decimal('1e-6'), ## should be similar to PPC
     to_unit=Decimal('1e6'), ## should be similar to PPC
-    min_tx_fee=Decimal(0.01),
+    min_tx_fee=Decimal('0.01'),
     tx_timestamp=True, ## should be True
-    tx_out_cls=PeercoinTxOut, ## should be similar to PPC
+    tx_out_cls=SlimcoinTxOut,
     op_return_max_bytes=100 ## should be 80, maybe incremented to 100
 )
 
@@ -141,9 +148,9 @@ SlimcoinTestnet = Constants(
     wif_prefix=0xef, ## own research, seems to be unchanged from PPC
     from_unit=Decimal('1e-6'), ## should be similar
     to_unit=Decimal('1e6'), ## should be similar
-    min_tx_fee=Decimal(0.01),
+    min_tx_fee=Decimal('0.01'),
     tx_timestamp=True, ## should be True
-    tx_out_cls=PeercoinTxOut, ## see above
+    tx_out_cls=SlimcoinTxOut,
     op_return_max_bytes=100 ## should be 80 or 100
 )
 

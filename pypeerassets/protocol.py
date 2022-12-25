@@ -1,6 +1,7 @@
 """all things PeerAssets protocol."""
 
 # EXPERIMENTAL: All code changes related to "address tracking" assets are marked with ADDRESSTRACK
+# EXPERIMENTAL: This is the version with locktime and lock_address.
 
 from enum import Enum
 from operator import itemgetter
@@ -22,6 +23,9 @@ from pypeerassets.provider import Provider
 from pypeerassets.at.transaction_formats import getfmt, DECK_SPAWN_AT_FORMAT, DECK_SPAWN_DT_FORMAT, CARD_ISSUE_DT_FORMAT, P2TH_MODIFIER
 from pypeerassets.at.identify import is_at_deck, is_at_cardissue
 from pypeerassets.at.dt_parser import dt_parser
+### LOCK ###
+from btcpy.structs.address import Address
+from btcpy.lib.base58 import b58decode_check
 
 
 class IssueMode(Enum):
@@ -348,6 +352,8 @@ class CardTransfer:
                  timestamp: int=None,
                  tx_confirmations: int=None,
                  type: str=None,
+                 locktime: int=None,
+                 lock_address: str=None,
                  move_txid: str=None,
                  donation_txid: str=None) -> None:
 
@@ -386,6 +392,41 @@ class CardTransfer:
 
         self.receiver = receiver
         self.amount = amount
+        ### LOCK ###
+        self.locktime = locktime
+        if lock_address and locktime and Address.is_valid(lock_address, network=net_query(self.network)):
+            self.lock_address = lock_address
+        else:
+            self.lock_address = None
+        """ ### old test version ###
+        if lock_address: # "is not None" doesn't work here due to 0-size bytes obj returned by protobuf
+            print(lock_address)
+            # print("card lock address hash:", lock_address, type(lock_address))
+            # try:
+            #network_params = net_query(self.network)
+            #lock_addr_obj = Address.__init__(lock_address, network=network_params)
+            #self.lock_address = lock_addr_obj.__str__
+            try:
+                self.lock_address = b58encode_check(lock_address)
+                print("lock address", self.lock_address)
+            except Exception as e:
+                # if the address is not correctly formatted we ignore it
+                print("ERROR", e)
+                self.lock_address = None"""
+
+        """# in this test version, locktime and lock_address are stored in asset_specific_data
+        # later it will be added to protobuf
+        # this test version would not accept asset_specific_data other than locktime and lock_address in L txes
+        self.locktime, self.lock_address = None, None
+        #if deck.issue_mode == IssueMode.CUSTOM.value:
+        if asset_specific_data and (asset_specific_data[0] == 76): # b'L'
+            self.locktime = int.from_bytes(asset_specific_data[1:5], "big") # 4 bytes, up to ~4 bn
+            rest_data = asset_specific_data[5:]
+            if len(rest_data) >= 26: # identifies address in test version, should be in final version converted to base58
+                self.lock_address = rest_data.decode("utf-8")
+            else:
+                self.asset_specific_data = rest_data"""
+
         ### ADDRESSTRACK workaround ###
         self.deck_data = deck.asset_specific_data
 
@@ -461,6 +502,16 @@ class CardTransfer:
         card.version = self.version
         card.amount.extend(self.amount)
         card.number_of_decimals = self.number_of_decimals
+        if self.locktime: ### LOCK addition (we don't use a version here, because of the deck version problem)
+            card.locktime = self.locktime
+            # card.lock_address = self.lock_address.encode()
+            # lock_address = Address.from_string(string=self.lock_address, network=net_query(self.network))
+            # print(bytes(lock_address.hash))
+            # card.lock_address = bytes(lock_address.hash)
+            if self.lock_address:
+                print("lock address", self.lock_address, type(self.lock_address))
+                card.lock_address = b58decode_check(self.lock_address)
+                print("B58 encoding lock address to:", card.lock_address)
         if self.asset_specific_data:
             if not isinstance(self.asset_specific_data, bytes):
                 card.asset_specific_data = self.asset_specific_data.encode()
@@ -487,6 +538,11 @@ class CardTransfer:
 
         if self.asset_specific_data:
             r.update({'asset_specific_data': self.asset_specific_data})
+        ### LOCK
+        if self.locktime:
+            r.update({'locktime': self.locktime})
+        if self.lock_address:
+            r.update({'lock_address': self.lock_address})
 
         return r
 
@@ -550,6 +606,7 @@ def validate_card_issue_modes(issue_mode: int, cards: list, provider: Provider=N
 
 class DeckState:
     ### ADDRESSTRACK: added attribute valid_cards to be able to process only the valid cards.
+    ### LOCK: self.lock is dict of senders, with dicts including locktime and amount.
 
     def __init__(self, cards: Generator) -> None:
 
@@ -557,6 +614,7 @@ class DeckState:
         self.total = 0
         self.burned = 0
         self.balances = cast(dict, {})
+        self.locks = cast(dict, {}) ### LOCK
         self.processed_issues = set()
         self.processed_transfers = set()
         self.processed_burns = set()
@@ -572,16 +630,32 @@ class DeckState:
         amount = card["amount"][0]
 
         if ctype != 'CardIssue':
-            balance_check = sender in self.balances and self.balances[sender] >= amount
+
+            ### LOCKS: adding current_locks here prevents locked cards to be transfered.
+            ### They will be simply invalid, the rest would also not be transfered.
+            locked_amount = self._check_locks(sender, receiver, amount, card["blocknum"])
+            # DEBUG information
+            if card["locktime"]:
+                print("CardLock:     blocknum {} sender {} amount {} locktime {} lock addr {}".format(card["blocknum"], sender, amount, card["locktime"], card["lock_address"]))
+            else:
+                print("CardTransfer: blocknum {} sender {} receiver {} amount {}".format(card["blocknum"], sender, receiver, amount))
+            print("locked amount:", locked_amount)
+            balance_check = sender in self.balances and (self.balances[sender] - locked_amount) >= amount
 
             if balance_check:
+
                 self.balances[sender] -= amount
 
                 if 'CardBurn' not in ctype:
                     self._append_balance(amount, receiver)
 
+                    if card["locktime"]:
+                        # we add the lock to the receiver's address.
+                        self._add_lock(receiver, amount, card["locktime"], card["lock_address"])
+
                 return True
 
+            print("Not valid: balance: {}, locked amount: {}, card amount: {}".format(self.balances.get(sender), locked_amount, amount))
             return False
 
         if 'CardIssue' in ctype:
@@ -624,6 +698,9 @@ class DeckState:
                 validate = self._process(card, ctype) ### changed from here
                 if validate:
                     self.valid_cards.append(card_from_dict(card))
+                    # subtract the amount of the card from locks.
+                    if card["sender"] in self.locks:
+                        self._unlock_amount(card["sender"], card["receiver"][0], amount)
 
                 self.processed_transfers |= {cid}
 
@@ -635,6 +712,67 @@ class DeckState:
                 self.processed_burns |= {cid}
                 if validate: ### changed from here
                     self.valid_cards.append(card_from_dict(card))
+
+    def _check_locks(self, sender: str, receiver: str, amount: int, blocknum: int) -> int:
+        print("================================")
+        ### LOCKS: we unset locks at the first card of the sender where the lock has expired.
+        # Unlocking after a transfer done to lock_address is only done after validating.
+        locked_amount = 0
+        if sender in self.locks:
+            for index, lock in enumerate(self.locks[sender]):
+                if lock["locktime"] < blocknum:
+                    # case 1: when the lock expires, the complete lock is reverted.
+                    self._modify_lock(sender, lock["amount"], index)
+
+                else:
+                    if lock["address"] != receiver:
+                        # if lock_address is not defined, or not equal to receiver, then locked amount is increased.
+                        print("Active lock: +", lock["amount"], "lock address", lock["address"])
+                        locked_amount += self.locks[sender][index]["amount"]
+
+        return locked_amount
+
+    def _unlock_amount(self, sender: str, lock_address: str, amount: int) -> None:
+        # checks if the card was transfered to an address in self.locks.
+        # If yes, it unlocks an amount transferred to lock_address. Various locks can be affected.
+        unlocked_amount = amount
+        for index, lock in enumerate(self.locks[sender]):
+            if lock["address"] != lock_address:
+
+                continue
+            if unlocked_amount > lock["amount"]:
+                # if the unlocked amount is bigger than the amount of the particular lock,
+                # then the loop continues through the locks with the same lock_address.
+                self._modify_lock(sender, lock["amount"], index)
+                unlocked_amount -= lock["amount"]
+                print("Unlocking amount", lock["amount"], "for lock address", lock_address)
+            else:
+                self._modify_lock(sender, unlocked_amount, index)
+                print("Unlocking amount", unlocked_amount, "for lock address", lock_address)
+                break
+
+    def _add_lock(self, address: str, amount: int, locktime: int, lock_address: str=None) -> None:
+        lock_dict = {"locktime": locktime, "amount" : amount, "address" : lock_address}
+        if address not in self.locks:
+           self.locks.update({address : [lock_dict] })
+        else:
+           self.locks[address].append(lock_dict)
+
+    def _modify_lock(self, address: str, unlocked_amount: int, index: int) -> None:
+        # modifies (i.e. lowers amount) or deletes a lock.
+        lock = self.locks[address][index]
+        if lock["amount"] > unlocked_amount:
+            self.locks[address][index]["amount"] -= unlocked_amount
+            print("Modified lock: lowered by", unlocked_amount)
+        else:
+            # Delete locks with amount zero.
+            if len(self.locks[address]) > 1:
+                del self.locks[address][index]
+                print("Modified lock: deleted lock of", unlocked_amount)
+            else:
+                del self.locks[address]
+                print("Modified lock: deleted sender of lock list, unlocked", unlocked_amount)
+
 
 def card_from_dict(d): ### WORKAROUND. TODO: Look for a more elegant solution!
     c = CardTransfer.__new__(CardTransfer)

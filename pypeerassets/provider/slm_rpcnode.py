@@ -5,6 +5,9 @@ from .rpcnode import RpcNode
 
 class SlmRpcNode(RpcNode):
 
+    def userpass(self):
+        return super().userpass(dir="slimcoin")
+
     @property
     def network(self) -> str:
         '''return which network is the node operating on.'''
@@ -48,10 +51,9 @@ class SlmRpcNode(RpcNode):
     def getrawtransaction(self, txid, decode=False):
         # in SLM, the decode option is an "int" value, not bool.
         # TODO: as this may change in future versions this should be a legacy function
+        # TODO: strange. in peercoin_rpc it's also with int, not bool. So it should fallback to there and not be necessary?
         decode_int = 1 if decode == True else 0
         return self.req("getrawtransaction", [txid, decode_int])
-
-
 
 class SlmTransaction(object):
     # this is only to mimic the behavior of the btcpy Transaction object in pacli! only for proof-of-concept usage!

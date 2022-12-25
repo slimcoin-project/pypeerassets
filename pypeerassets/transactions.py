@@ -52,6 +52,7 @@ class Transaction(BtcPyTx):
         object.__setattr__(self, '_txid', txid)
         object.__setattr__(self, 'network', network)
         object.__setattr__(self, 'timestamp', timestamp)
+
         if txid != self.txid and txid is not None:
             raise ValueError('txid {} does not match transaction data {}'.format(txid, self.hexlify()))
 
@@ -70,11 +71,11 @@ class Transaction(BtcPyTx):
         return result
 
     @classmethod
-    def from_json(cls, tx_json, network=PeercoinMainnet):
+    def from_json(cls, tx_json, network=PeercoinMainnet): ### BUGFIX? added network as param to TxOut.from_json
         return cls(
             version=tx_json['version'],
             ins=[TxIn.from_json(txin_json) for txin_json in tx_json['vin']],
-            outs=[TxOut.from_json(txout_json) for txout_json in tx_json['vout']],
+            outs=[TxOut.from_json(txout_json, network=network) for txout_json in tx_json['vout']],
             locktime=Locktime(tx_json['locktime']),
             txid=tx_json['txid'],
             network=network,
