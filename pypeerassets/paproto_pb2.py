@@ -19,7 +19,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   syntax='proto3',
   serialized_options=None,
   create_key=_descriptor._internal_create_key,
-  serialized_pb=b'\n80001-peerassets-transaction-specification-locktime.proto\"\xf1\x01\n\tDeckSpawn\x12\x0f\n\x07version\x18\x01 \x01(\r\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\x1a\n\x12number_of_decimals\x18\x03 \x01(\r\x12\x12\n\nissue_mode\x18\x04 \x01(\r\x12\x1b\n\x13\x61sset_specific_data\x18\x05 \x01(\x0c\x12\x0b\n\x03\x66\x65\x65\x18\x06 \x01(\r\"k\n\x04MODE\x12\x08\n\x04NONE\x10\x00\x12\n\n\x06\x43USTOM\x10\x01\x12\x08\n\x04ONCE\x10\x02\x12\t\n\x05MULTI\x10\x04\x12\x08\n\x04MONO\x10\x08\x12\x0f\n\x0bUNFLUSHABLE\x10\x10\x12\x10\n\x0cSUBSCRIPTION\x10\x34\x12\x0b\n\x07SINGLET\x10\n\"\xa3\x01\n\x0c\x43\x61rdTransfer\x12\x0f\n\x07version\x18\x01 \x01(\r\x12\x0e\n\x06\x61mount\x18\x02 \x03(\x04\x12\x1a\n\x12number_of_decimals\x18\x03 \x01(\r\x12\x1b\n\x13\x61sset_specific_data\x18\x04 \x01(\x0c\x12\x10\n\x08locktime\x18\x0e \x01(\r\x12\x14\n\x0clock_address\x18\x0f \x01(\x0c\x12\x11\n\tlock_hash\x18\x10 \x01(\x0c\x62\x06proto3'
+  serialized_pb=b'\n80001-peerassets-transaction-specification-locktime.proto\"\xf1\x01\n\tDeckSpawn\x12\x0f\n\x07version\x18\x01 \x01(\r\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\x1a\n\x12number_of_decimals\x18\x03 \x01(\r\x12\x12\n\nissue_mode\x18\x04 \x01(\r\x12\x1b\n\x13\x61sset_specific_data\x18\x05 \x01(\x0c\x12\x0b\n\x03\x66\x65\x65\x18\x06 \x01(\r\"k\n\x04MODE\x12\x08\n\x04NONE\x10\x00\x12\n\n\x06\x43USTOM\x10\x01\x12\x08\n\x04ONCE\x10\x02\x12\t\n\x05MULTI\x10\x04\x12\x08\n\x04MONO\x10\x08\x12\x0f\n\x0bUNFLUSHABLE\x10\x10\x12\x10\n\x0cSUBSCRIPTION\x10\x34\x12\x0b\n\x07SINGLET\x10\n\"\xa3\x01\n\x0c\x43\x61rdTransfer\x12\x0f\n\x07version\x18\x01 \x01(\r\x12\x0e\n\x06\x61mount\x18\x02 \x03(\x04\x12\x1a\n\x12number_of_decimals\x18\x03 \x01(\r\x12\x1b\n\x13\x61sset_specific_data\x18\x04 \x01(\x0c\x12\x10\n\x08locktime\x18\x0e \x01(\r\x12\x10\n\x08lockhash\x18\x0f \x01(\x0c\x12\x15\n\rlockhash_type\x18\x10 \x01(\rb\x06proto3'
 )
 
 
@@ -192,16 +192,16 @@ _CARDTRANSFER = _descriptor.Descriptor(
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
     _descriptor.FieldDescriptor(
-      name='lock_address', full_name='CardTransfer.lock_address', index=5,
+      name='lockhash', full_name='CardTransfer.lockhash', index=5,
       number=15, type=12, cpp_type=9, label=1,
       has_default_value=False, default_value=b"",
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
     _descriptor.FieldDescriptor(
-      name='lock_hash', full_name='CardTransfer.lock_hash', index=6,
-      number=16, type=12, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"",
+      name='lockhash_type', full_name='CardTransfer.lockhash_type', index=6,
+      number=16, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
