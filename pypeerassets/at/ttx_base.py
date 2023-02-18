@@ -3,6 +3,7 @@ from btcpy.structs.crypto import PublicKey
 
 from pypeerassets.transactions import Transaction, TxIn, TxOut, Locktime
 from pypeerassets.networks import net_query
+from pypeerassets.at.ttx_asd_pb2 import parse_ttx_metadata
 
 DATASTR_OUTPUT = 1
 
@@ -55,6 +56,8 @@ class BaseTrackedTransaction(Transaction):
             raise InvalidTrackedTransactionError("No OP_RETURN data.")
 
         object.__setattr__(self, 'datastr', datastr) # OP_RETURN data byte string
+        ### CHANGED TO PROTOBUF. TODO: we'll try to replace datastr completely with "metadata".
+        object.__setattr__(self, 'metadata', parse_ttx_metadata(datastr))
         object.__setattr__(self, 'deck', deck) # TODO: repetition! shouldn't this be deckid?
 
 

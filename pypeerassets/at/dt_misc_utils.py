@@ -14,7 +14,8 @@ from btcpy.structs.script import P2shScript, AbsoluteTimelockScript
 from btcpy.structs.sig import P2shSolver, AbsoluteTimelockSolver, P2pkhSolver, P2pkSolver, Sighash
 from decimal import Decimal
 from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
-from pypeerassets.at.transaction_formats import getfmt, PROPOSAL_FORMAT
+#from pypeerassets.at.transaction_formats import getfmt, PROPOSAL_FORMAT
+from pypeerassets.at.protobuf_utils import parse_ttx_metadata
 from pypeerassets.legacy import is_legacy_blockchain
 from collections import namedtuple
 
@@ -164,7 +165,8 @@ def get_donation_states(provider, proposal_id=None, proposal_tx=None, tx_txid=No
 
 def proposal_from_tx(proposal_id, provider):
     basicdata = ProposalTransaction.get_basicdata(proposal_id, provider)
-    deckid = getfmt(basicdata["data"], PROPOSAL_FORMAT, "dck").hex()
+    deckid = parse_ttx_metadata(basicdata["data"]).txid.hex() ## PROTOBUF # TODO: the basicdata call could be refactored, to give directly the protobuf object.
+    # deckid = getfmt(basicdata["data"], PROPOSAL_FORMAT, "dck").hex()
     deck = deck_from_tx(deckid, provider)
     return ProposalTransaction.from_txid(proposal_id, provider, deck=deck, basicdata=basicdata)
 

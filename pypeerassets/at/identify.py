@@ -1,4 +1,6 @@
-from pypeerassets.at.transaction_formats import DECK_SPAWN_AT_FORMAT, DECK_SPAWN_DT_FORMAT, CARD_ISSUE_AT_FORMAT, CARD_ISSUE_DT_FORMAT, getfmt
+# from pypeerassets.at.transaction_formats import DECK_SPAWN_AT_FORMAT, DECK_SPAWN_DT_FORMAT, CARD_ISSUE_AT_FORMAT, CARD_ISSUE_DT_FORMAT, getfmt
+from pypeerassets.hash_encoding import hash_to_address
+## changed to protobuf.
 
 """This script bundles the functions to identify Address-Tracker transactions (above all CardIssues) without needing a Provider, so it can be called from protocol.py without having to integrate new attributes to CardTransfer.
 It only allows a very basic identification of CardIssues and DeckIssues, but that is enough because anyway bogus transactions could be inserted until the parser is called.
@@ -18,45 +20,50 @@ PEERCOIN_BEGINNINGS = ("m", "n", "P", "p")
 SLIMCOIN_BEGINNINGS = ("m", "n", "S", "s")
 ADDRESS_BEGINNINGS = PEERCOIN_BEGINNINGS # for preliminary tests. This should be replaced with a mechanism which retrieves the "network" parameter.
 
-def is_at_deck(datastring: bytes) -> bool:
+def is_at_deck(data: object, network: tuple) -> bool: ### changed from datastring to data, bytes to object. Added network param.
     # this needs the identification as addresstrack deck.
     try:
 
-        ident = datastring[:2] # always first 2 bytes, either AT or DT
+        # ident = datastring[:2] # always first 2 bytes, either AT or DT
+        ident = data.id
 
         if ident == AT_IDENTIFIER:
-            address = getfmt(datastring, DECK_SPAWN_AT_FORMAT, "adr")
-            address = address.decode("utf-8") # this can be perhaps made without decoding, as full validation isn't needed.
+            # address = getfmt(datastring, DECK_SPAWN_AT_FORMAT, "adr")
+            try:
+                address = hash_to_address(data.hash, data.hash_type, network)
+                address = address.decode("utf-8") # this can be perhaps made without decoding, as full validation isn't needed.
 
             if is_valid_address(address):
                 return True
 
         elif ident == DT_IDENTIFIER:
-            if len(datastring) >= DECK_SPAWN_DT_FORMAT["sdq"][0]: # last mandatory item
-                return True
+            return True
+            #if len(datastring) >= DECK_SPAWN_DT_FORMAT["sdq"][0]: # last mandatory item
+            #    return True
+            # TODO: Protobuf: we probably do not need a check here if all data is complete. Re-check.
 
     except (IndexError, TypeError): # datastring not existing or too short
         return False
     return False
 
-def is_at_cardissue(datastring: bytes) -> bool:
+def is_at_cardissue(data: object) -> bool:
     # addresstrack (AT and DT) issuance transactions reference the txid of the donation in "card.asset_specific_data"
 
     try:
+        ident = data.id
+        #ident = datastring[:2]
 
-        ident = datastring[:2]
+        #if ident == AT_IDENTIFIER:
+        #    fmt = CARD_ISSUE_AT_FORMAT
+        #elif ident == DT_IDENTIFIER:
+        #    fmt = CARD_ISSUE_DT_FORMAT
 
-        if ident == AT_IDENTIFIER:
-            fmt = CARD_ISSUE_AT_FORMAT
-        elif ident == DT_IDENTIFIER:
-            fmt = CARD_ISSUE_DT_FORMAT
-
-        txid = getfmt(datastring, fmt, "dtx")
-
-        assert len(getfmt(datastring, fmt, "out")) > 0
+        # txid = getfmt(datastring, fmt, "dtx")
+        txid = data.txid
+        # assert len(getfmt(datastring, fmt, "out")) > 0 # this check is probably NOT needed with protobuf.
         assert len(txid) == 32
 
-    except (IndexError, UnboundLocalError, TypeError, AssertionError) as e:
+    except (UnboundLocalError, AssertionError): # with protobuf we don't need IndexError, TypeError "as e" not needed here?
         return False
 
     return True

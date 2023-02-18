@@ -457,14 +457,10 @@ class ParserState(object):
         """Checks a CardIssue for validity. CardTransfers are always valid (they will be later processed by DeckState)."""
 
         # NOTE: this replaced get_valid_epoch_cards, as it's also be compatible with a generator-based approach.
-        # NOTE: should be a general (not DT-specific) function, also applying to the DEX.
-        # => but then what do do with epochs?
-        # => we could make a base class and then extend it for each token type
         # CONVENTION: voters' weight is the balance at the start block of current epoch
 
-
         debug = self.debug_donations
-        card_data = card.asset_specific_data
+        # card_data = card.asset_specific_data # not needed anymore due to PROTOBUF
 
         if card.type == "CardIssue":
             if debug: print("PARSER: Checking validity of CardIssue", card.txid, "based on txid:", card.donation_txid)
@@ -473,8 +469,9 @@ class ParserState(object):
             dtx_id = card.donation_txid
 
             # dtx_vout should currently always be 2. However, the variable is kept for future modifications.
-            dtx_vout_bytes = getfmt(card_data, CARD_ISSUE_DT_FORMAT, "out")
-            dtx_vout = int.from_bytes(dtx_vout_bytes, "big")
+            # dtx_vout_bytes = getfmt(card_data, CARD_ISSUE_DT_FORMAT, "out")
+            # dtx_vout = int.from_bytes(dtx_vout_bytes, "big")
+            dtx_vout = card.extended_data.vout ### PROTOBUF
 
             # check 1: filter out duplicates (less expensive, so done first)
             if (card.sender, dtx_id, dtx_vout) in self.used_issuance_tuples:

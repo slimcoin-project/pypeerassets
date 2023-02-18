@@ -20,7 +20,8 @@ from pypeerassets.networks import net_query
 
 ### ADDRESSTRACK ###
 from pypeerassets.provider import Provider
-from pypeerassets.at.transaction_formats import getfmt, DECK_SPAWN_AT_FORMAT, DECK_SPAWN_DT_FORMAT, CARD_ISSUE_DT_FORMAT, P2TH_MODIFIER
+# from pypeerassets.at.transaction_formats import getfmt, DECK_SPAWN_AT_FORMAT, DECK_SPAWN_DT_FORMAT, CARD_ISSUE_DT_FORMAT, P2TH_MODIFIER
+from pypeerassets.at.protobuf_utils import parse_card_extended_data, parse_deck_extended_data
 from pypeerassets.at.identify import is_at_deck, is_at_cardissue
 from pypeerassets.at.dt_parser import dt_parser
 ### LOCK ###
@@ -105,36 +106,52 @@ class Deck:
         self.production = production
 
 
-        ### additional Deck attributes for AT/DT types:
-        if self.asset_specific_data and self.issue_mode == IssueMode.CUSTOM.value:
+        ### additional Deck attributes for AT/DT types: ### PROTOBUF: changed structure a little bit
+        # if self.asset_specific_data and self.issue_mode == IssueMode.CUSTOM.value:
+        if self.issue_mode = IssueMode.CUSTOM.value:
+            ### PROTOBUF changes
+            try:
+                data = parse_deck_extended_data(self.asset_specific_data)
+                if is_at_deck(data, network): # MODIF: this check should be only done once per deck, not in CardTransfer.
+                    self.at_type = data.id
+                if self.at_type == "DT":
+                    self.epoch_length = epoch_length if epoch_length else data.epoch_len
+                    self.epoch_quantity = epoch_quantity if epoch_quantity else data.reward # shouldn't this better be called "epoch_reward" ?? # TODO
+                    self.min_vote = min_vote if min_vote else data.min_vote
+                    self.sdp_periods = sdp_periods if sdp_periods else data.special_periods
+                    self.sdp_deckid = sdp_deckid if sdp_deckid else data.voting_token_deckid
+                elif self.at_type == "AT":
+                    self.multiplier = multiplier if multiplier else data.multiplier
+                    self.at_address = at_address if at_address else hash_to_address(data.hash, data.hash_type, network)
+                    self.addr_type = data.hash_type ### new. needed for hash_encoding.
 
-            at_fmt = DECK_SPAWN_AT_FORMAT
-            dt_fmt = DECK_SPAWN_DT_FORMAT
-            data = self.asset_specific_data
+            #at_fmt = DECK_SPAWN_AT_FORMAT
+            #dt_fmt = DECK_SPAWN_DT_FORMAT
+            #data = self.asset_specific_data
 
-            identifier = data[:2].decode()
+            #identifier = data[:2].decode()
 
-            if identifier in ("AT", "DT"): # common to both formats
-                self.at_type = identifier
+            #if identifier in ("AT", "DT"): # common to both formats
+            #    self.at_type = identifier
 
-            if identifier == "DT":
-                if not epoch_length:
-                    self.epoch_length = int.from_bytes(getfmt(data, dt_fmt, "dpl"), "big")
-                if not epoch_quantity:
-                    self.epoch_quantity = int.from_bytes(getfmt(data, dt_fmt, "tq"), "big")
-                if not min_vote:
-                    self.min_vote = int.from_bytes(getfmt(data, dt_fmt, "mnv"), "big")
-                if not sdp_periods:
-                    try:
-                        self.sdp_periods = int.from_bytes(getfmt(data, dt_fmt, "sdq"), "big")
-                        self.sdp_deckid = getfmt(data, dt_fmt, "sdd").hex()
-                    except IndexError:
-                        pass # these 2 parameters are optional.
+            #if identifier == "DT":
+            #    if not epoch_length:
+            #        self.epoch_length = int.from_bytes(getfmt(data, dt_fmt, "dpl"), "big")
+            #    if not epoch_quantity:
+            #        self.epoch_quantity = int.from_bytes(getfmt(data, dt_fmt, "tq"), "big")
+            #    if not min_vote:
+            #        self.min_vote = int.from_bytes(getfmt(data, dt_fmt, "mnv"), "big")
+            #    if not sdp_periods:
+            #        try:
+            #            self.sdp_periods = int.from_bytes(getfmt(data, dt_fmt, "sdq"), "big")
+            #            self.sdp_deckid = getfmt(data, dt_fmt, "sdd").hex()
+            #        except IndexError:
+            #            pass # these 2 parameters are optional.
 
-            elif identifier == "AT":
-                self.multiplier = int.from_bytes(getfmt(data, at_fmt, "mlt"), "big")
-                if not at_address:
-                    self.at_address = getfmt(data, at_fmt, "adr").decode()
+            #elif identifier == "AT":
+            #    self.multiplier = int.from_bytes(getfmt(data, at_fmt, "mlt"), "big")
+            #    if not at_address:
+            #        self.at_address = getfmt(data, at_fmt, "adr").decode()
 
     @property ### MODIFIED VERSION TO OPTIMIZE SPEED ###
     def p2th_address(self) -> Optional[str]:
@@ -356,7 +373,6 @@ class CardTransfer:
                  locktime: int=None,
                  lockhash: str=None,
                  lockhash_type: str=None,
-                 move_txid: str=None,
                  donation_txid: str=None) -> None:
 
         '''CardTransfer object, used when parsing card_transfers from the blockchain
@@ -399,40 +415,6 @@ class CardTransfer:
         if lockhash and lockhash_type and locktime:
             self.lockhash = lockhash
             self.lockhash_type = lockhash_type
-        """
-        ### lock_address version ###
-        if lock_address and locktime and Address.is_valid(lock_address, network=net_query(self.network)):
-            self.lock_address = lock_address
-        else:
-            self.lock_address = None
-         ### old test version ###
-        if lock_address: # "is not None" doesn't work here due to 0-size bytes obj returned by protobuf
-            print(lock_address)
-            # print("card lock address hash:", lock_address, type(lock_address))
-            # try:
-            #network_params = net_query(self.network)
-            #lock_addr_obj = Address.__init__(lock_address, network=network_params)
-            #self.lock_address = lock_addr_obj.__str__
-            try:
-                self.lock_address = b58encode_check(lock_address)
-                print("lock address", self.lock_address)
-            except Exception as e:
-                # if the address is not correctly formatted we ignore it
-                print("ERROR", e)
-                self.lock_address = None"""
-
-        """# in this test version, locktime and lock_address are stored in asset_specific_data
-        # later it will be added to protobuf
-        # this test version would not accept asset_specific_data other than locktime and lock_address in L txes
-        self.locktime, self.lock_address = None, None
-        #if deck.issue_mode == IssueMode.CUSTOM.value:
-        if asset_specific_data and (asset_specific_data[0] == 76): # b'L'
-            self.locktime = int.from_bytes(asset_specific_data[1:5], "big") # 4 bytes, up to ~4 bn
-            rest_data = asset_specific_data[5:]
-            if len(rest_data) >= 26: # identifies address in test version, should be in final version converted to base58
-                self.lock_address = rest_data.decode("utf-8")
-            else:
-                self.asset_specific_data = rest_data"""
 
         ### ADDRESSTRACK workaround ###
         self.deck_data = deck.asset_specific_data
@@ -461,18 +443,21 @@ class CardTransfer:
         # be burnt sending them to unspendable addresses.
 
         if deck.issue_mode == IssueMode.CUSTOM.value:
+            self.extended_data = parse_card_extended_data(self.asset_specific_data)
 
-            if is_at_deck(deck.asset_specific_data) == True:
-
-                dt_fmt = CARD_ISSUE_DT_FORMAT
-                if is_at_cardissue(self.asset_specific_data) == True:
+            # MODIF: the is_at_deck check is expensive and thus will not be done here again.
+            # if is_at_deck(data, network) == True:
+            if at_type in deck.__dict__ and deck.at_type in ("AT", "DT"):
+                # dt_fmt = CARD_ISSUE_DT_FORMAT
+                if is_at_cardissue(self.extended_data) == True:
 
                     self.type = "CardIssue"
 
-                    if not donation_txid:
-                        self.donation_txid = getfmt(self.asset_specific_data, dt_fmt, "dtx").hex()
-                    else:
-                        self.donation_txid = donation_txid
+                    self.donation_txid = donation_txid if donation_txid else self.extended_data.txid.hex()
+                    #if not donation_txid:
+                    #    self.donation_txid = getfmt(self.asset_specific_data, dt_fmt, "dtx").hex()
+                    #else:
+                    #    self.donation_txid = donation_txid
                 else:
 
                     self.type = "CardTransfer" # includes, for now, issuance attempts with completely invalid data
@@ -607,8 +592,10 @@ def validate_card_issue_modes(issue_mode: int, cards: list, provider: Provider=N
             except ValueError:
                 continue
 
-            if is_at_deck(cards[0].deck_data): ### ADDRESSTRACK modification ###
-                parsed_cards = parser_fn(cards, dt_parser, provider, deck) # was at_parser before
+            if cards[0].extended_data.id == "DT": ### ADDRESSTRACK modification ### MODIF:
+                parsed_cards = parser_fn(cards, dt_parser, provider, deck)
+            else cards[0].extended_data.id == "AT":
+                parsed_cards = parser_fn(cards, at_parser, provider, deck) ## TODO: re-check.
             else:
                 parsed_cards = parser_fn(cards)
 
