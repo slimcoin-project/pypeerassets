@@ -191,13 +191,16 @@ class LockingTransaction(TrackedTransaction):
             try:
                 p2sh_script = locked_out.script_pubkey
                 #print("TX P2SH script", p2sh_script)
-                fmt = LOCKING_FORMAT
+                # fmt = LOCKING_FORMAT
 
                 ### CHANGED TO PROTOBUF
                 # public_timelock = int.from_bytes(getfmt(self.datastr, fmt, "lck"), "big")
                 # public_dest_address = getfmt(self.datastr, fmt, "adr").decode("utf-8") # this is the address of the pubkey needed to unlock
                 public_timelock = self.metadata.locktime
-                public_dest_address = hash_to_address(self.metadata.lockhash, self.metadata.lockhash_type, network)
+                try:
+                    public_dest_address = hash_to_address(self.metadata.lockhash, self.metadata.lockhash_type, network)
+                except (ValueError, NotImplementedError):
+                    raise InvalidTrackedTransactionError("Unsupported hash type.")
 
                 redeem_script = DonationTimeLockScript(raw_locktime=public_timelock, dest_address_string=public_dest_address, network=network)
                 redeem_script_p2sh = P2shScript(redeem_script)
@@ -302,7 +305,7 @@ class ProposalTransaction(TrackedTransaction):
 
         TrackedTransaction.__init__(self, deck, txid=txid, version=version, ins=ins, outs=outs, locktime=locktime, network=network, timestamp=timestamp, provider=provider, blockheight=blockheight, blockhash=blockhash)
 
-        fmt = PROPOSAL_FORMAT
+        # fmt = PROPOSAL_FORMAT
 
         # this deck_id storage is redundant. It is however perhaps better to do this here.
         # deck_id = getfmt(self.datastr, fmt, "dck").hex() # MODIFIED to hex. check if it does harm.
@@ -313,9 +316,13 @@ class ProposalTransaction(TrackedTransaction):
         #req_amount = int.from_bytes(getfmt(self.datastr, fmt, "amt"), "big") * self.coin_multiplier()
         epoch_number = self.metadata.epochs
         round_length = self.metadata.sla
-        req_amount = self.metadata.amount * self.coin_multiplier()
-        if txid2 in metadata.__dict__ and not first_ptx_txid:
-            first_ptx_txid = self.metadata.txid2.hex()
+        # NOTE: req_amount was before a small int number, now it can be a number of up to the max amount of decimal places
+        req_amount = self.metadata.amount
+        if first_ptx_txid is None:
+            try:
+                first_ptx_txid = self.metadata.txid2.hex()
+            except AttributeError:
+                pass
 
         #if len(self.datastr) > fmt["ptx"][0] and not first_ptx_txid:
             #first_ptx_txid_raw = getfmt(self.datastr, fmt, "ptx")
@@ -350,7 +357,7 @@ class VotingTransaction(TrackedTransaction):
     # 1. it requires an extra transaction to be sent (which would have to be sent by the Proposer => more fees)
     # 2. it requires too many addresses to be generated and imported into the client (1 per vote option).
     # This one only requires one P2TH output and a (relatively small) OP_RETURN output per voting transaction.
-    # For the vote value, we use b'+' and b'-', so the vote can be seen in the datastring.
+    # For the vote value, we use b'+' and b'-', so the vote can be seen in the datastring. # TODO reconsider this!
     # TODO: Implement that a vote in start epoch is not needed to be repeated in end epoch.
     # This need some additional considerations: what if a start epoch voter sells his tokens before end epoch?
     # So it would need to update the vote by the balance in round 2? This would be perhaps even better.
@@ -361,11 +368,12 @@ class VotingTransaction(TrackedTransaction):
 
         TrackedTransaction.__init__(self, deck, txid=txid, version=version, ins=ins, outs=outs, locktime=locktime, network=network, timestamp=timestamp, provider=provider, blockheight=blockheight, blockhash=blockhash)
 
-        if not vote:
+        if vote is None:
             ### CHANGED TO PROTOBUF
             # vote = getfmt(self.datastr, VOTING_FORMAT, "vot")
             vote = self.metadata.vote
-        object.__setattr__(self, "vote", vote)
+            votechar = b"+" if vote == True else b"-"
+        object.__setattr__(self, "vote", votechar)
 
         if not sender:
             input_tx = self.ins[0].txid
@@ -385,7 +393,7 @@ class VotingTransaction(TrackedTransaction):
 
 class DonationTimeLockScript(AbsoluteTimelockScript):
 
-    def __init__(self, raw_locktime, dest_address_string, network=None):
+    def __init__(self, raw_locktime, dest_address_string, network):
         """
         :param args: if one arg is provided it is interpreted as a script, which is in turn
         verified and `locktime` and `locked_script` are extracted. If two args are provided,

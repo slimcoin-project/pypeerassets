@@ -10,7 +10,7 @@ HASHTYPE = ( "hashlock", "p2pk", "p2pkh", "p2sh", "p2wpkh", "p2wsh", "p2tr" )
 
 def hash_to_address(h: bytes, hash_type: int, network: object):
     if hash_type == 0:
-        return None # hashlocks can't be encoded into addresses.
+        raise ValueError("Hashlocks of secrets can't be encoded as addresses.")
     elif hash_type > 3:
         raise NotImplementedError
     elif hash_type == 1:
@@ -24,7 +24,7 @@ def hash_to_address(h: bytes, hash_type: int, network: object):
 
 def address_to_hash(a: str, hash_type: int, network: object):
     if hash_type == 0:
-        return None
+        raise ValueError("Hashlocks of secrets can't be encoded as addresses.")
     elif hash_type > 3:
         raise NotImplementedError
     elif hash_type == 1:

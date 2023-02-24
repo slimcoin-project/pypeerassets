@@ -170,4 +170,6 @@ def deck_from_tx(txid: str, provider: Provider, deck_version: int=1, prod: bool=
     p2th = params.P2TH_addr
     raw_tx = provider.getrawtransaction(txid, 1)
     deck = deck_parser((provider, raw_tx, deck_version, p2th), prod)
+    #if deck is None:
+    #    raise ValueError("No correct deck information provided.")
     return deck

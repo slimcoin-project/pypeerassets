@@ -29,6 +29,7 @@ from pypeerassets.hash_encoding import hash_to_address
 from btcpy.structs.address import Address
 from btcpy.lib.base58 import b58decode_check
 
+P2TH_MODIFIER = { "proposal" : 1, "voting" : 2, "donation" : 3, "signalling" : 4, "locking" : 5 }
 
 class IssueMode(Enum):
 
@@ -108,22 +109,27 @@ class Deck:
 
         ### additional Deck attributes for AT/DT types: ### PROTOBUF: changed structure a little bit
         # if self.asset_specific_data and self.issue_mode == IssueMode.CUSTOM.value:
-        if self.issue_mode = IssueMode.CUSTOM.value:
+        if self.issue_mode == IssueMode.CUSTOM.value:
             ### PROTOBUF changes
             try:
                 data = parse_deck_extended_data(self.asset_specific_data)
                 if is_at_deck(data, network): # MODIF: this check should be only done once per deck, not in CardTransfer.
                     self.at_type = data.id
-                if self.at_type == "DT":
+                if self.at_type == b"DT":
                     self.epoch_length = epoch_length if epoch_length else data.epoch_len
+                    self.standard_round_length = self.epoch_length // 16
                     self.epoch_quantity = epoch_quantity if epoch_quantity else data.reward # shouldn't this better be called "epoch_reward" ?? # TODO
                     self.min_vote = min_vote if min_vote else data.min_vote
                     self.sdp_periods = sdp_periods if sdp_periods else data.special_periods
-                    self.sdp_deckid = sdp_deckid if sdp_deckid else data.voting_token_deckid
-                elif self.at_type == "AT":
+                    self.sdp_deckid = sdp_deck.hex() if sdp_deck else data.voting_token_deckid.hex()
+                    # print("LEN", self.epoch_length, "REWARD", self.epoch_quantity, "MINVOTE", self.min_vote, "SDPPERIODS", self.sdp_periods, "SDPDECKID", self.sdp_deckid)
+                elif self.at_type == b"AT":
                     self.multiplier = multiplier if multiplier else data.multiplier
                     self.at_address = at_address if at_address else hash_to_address(data.hash, data.hash_type, network)
                     self.addr_type = data.hash_type ### new. needed for hash_encoding.
+            except ValueError:
+                # print(self.id)
+                print("Non-Standard asset-specific data. Not adding special parameters.")
 
             #at_fmt = DECK_SPAWN_AT_FORMAT
             #dt_fmt = DECK_SPAWN_DT_FORMAT
@@ -443,24 +449,33 @@ class CardTransfer:
         # be burnt sending them to unspendable addresses.
 
         if deck.issue_mode == IssueMode.CUSTOM.value:
-            self.extended_data = parse_card_extended_data(self.asset_specific_data)
-
             # MODIF: the is_at_deck check is expensive and thus will not be done here again.
-            # if is_at_deck(data, network) == True:
-            if at_type in deck.__dict__ and deck.at_type in ("AT", "DT"):
-                # dt_fmt = CARD_ISSUE_DT_FORMAT
-                if is_at_cardissue(self.extended_data) == True:
+            if "at_type" in deck.__dict__ and deck.at_type in (b"AT", b"DT"):
 
-                    self.type = "CardIssue"
+                try:
+                    self.extended_data = parse_card_extended_data(self.asset_specific_data)
+                    # dt_fmt = CARD_ISSUE_DT_FORMAT
+                    if is_at_cardissue(self.extended_data) == True:
 
-                    self.donation_txid = donation_txid if donation_txid else self.extended_data.txid.hex()
-                    #if not donation_txid:
-                    #    self.donation_txid = getfmt(self.asset_specific_data, dt_fmt, "dtx").hex()
-                    #else:
-                    #    self.donation_txid = donation_txid
-                else:
+                        self.type = "CardIssue"
 
-                    self.type = "CardTransfer" # includes, for now, issuance attempts with completely invalid data
+                        self.donation_txid = donation_txid if donation_txid else self.extended_data.txid.hex()
+                        #if not donation_txid:
+                        #    self.donation_txid = getfmt(self.asset_specific_data, dt_fmt, "dtx").hex()
+                        #else:
+                        #    self.donation_txid = donation_txid
+                    else:
+
+                        self.type = "CardTransfer" # includes, for now, issuance attempts with completely invalid data
+                    self.at_type = deck.at_type # # MODIF: replaces the obsolete card.extended_data.id
+                except ValueError:
+                    # this happens with data not protobuf formatted.
+                    # TODO: maybe this should raise an error better, but if asset_specific_data in deck
+                    # starts with AT or DT, it should not be necessarily be invalid.
+                    self.type = "CardTransfer"
+            else:
+                self.type = "CardTransfer" # TODO this is not very elegant.
+
 
         elif self.sender == deck.issuer:
             # if deck issuer is issuing cards to the deck issuing address,
@@ -505,8 +520,8 @@ class CardTransfer:
             #    card.lock_address = b58decode_check(self.lock_address)
             #    print("B58 encoding lock address to:", card.lock_address)
             if self.lockhash:
-                 print("lock_hash", self.lockhash, type(self.lockhash))
-                 print("lock_hash address", hash_to_address(self.lockhash, self.lockhash_type, net_query(self.network)))
+                 # print("lock_hash", self.lockhash, type(self.lockhash))
+                 # print("lock_hash address", hash_to_address(self.lockhash, self.lockhash_type, net_query(self.network)))
                  card.lockhash = self.lockhash
                  card.lockhash_type = self.lockhash_type
         if self.asset_specific_data:
@@ -592,12 +607,16 @@ def validate_card_issue_modes(issue_mode: int, cards: list, provider: Provider=N
             except ValueError:
                 continue
 
-            if cards[0].extended_data.id == "DT": ### ADDRESSTRACK modification ### MODIF:
-                parsed_cards = parser_fn(cards, dt_parser, provider, deck)
-            else cards[0].extended_data.id == "AT":
-                parsed_cards = parser_fn(cards, at_parser, provider, deck) ## TODO: re-check.
-            else:
+            try: ### added. the AttributeError is thrown when no Protobuf data is found.
+                # at_type replaces extended_data.id, see above.
+                if cards[0].at_type == b"DT": ### ADDRESSTRACK modification ### MODIF:
+                    parsed_cards = parser_fn(cards, dt_parser, provider, deck)
+                elif cards[0].at_type == b"AT":
+                    parsed_cards = parser_fn(cards, at_parser, provider, deck) ## TODO: re-check.
+            except AttributeError:
                 parsed_cards = parser_fn(cards)
+            #else:
+            #    parsed_cards = parser_fn(cards)
 
             if not parsed_cards:
                 return []

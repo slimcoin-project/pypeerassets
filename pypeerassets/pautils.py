@@ -60,7 +60,6 @@ def find_tx_sender(provider: Provider, raw_tx: dict) -> str:
 
 
 
-
 def find_deck_spawns(provider: Provider, prod: bool=True) -> Iterable[str]:
     '''find deck spawn transactions via Provider,
     it requires that Deck spawn P2TH were imported in local node or

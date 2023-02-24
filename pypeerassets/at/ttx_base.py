@@ -3,7 +3,7 @@ from btcpy.structs.crypto import PublicKey
 
 from pypeerassets.transactions import Transaction, TxIn, TxOut, Locktime
 from pypeerassets.networks import net_query
-from pypeerassets.at.ttx_asd_pb2 import parse_ttx_metadata
+from pypeerassets.at.protobuf_utils import parse_ttx_metadata
 
 DATASTR_OUTPUT = 1
 
@@ -59,6 +59,7 @@ class BaseTrackedTransaction(Transaction):
         ### CHANGED TO PROTOBUF. TODO: we'll try to replace datastr completely with "metadata".
         object.__setattr__(self, 'metadata', parse_ttx_metadata(datastr))
         object.__setattr__(self, 'deck', deck) # TODO: repetition! shouldn't this be deckid?
+        object.__setattr__(self, 'ttx_version', self.metadata.version) # NEW. For future upgradeability.
 
 
     def __str__(self):
@@ -85,6 +86,7 @@ class BaseTrackedTransaction(Transaction):
 
     @classmethod
     def get_basicdata(cls, txid, provider):
+        print(txid)
         json = provider.getrawtransaction(txid, True)
         try:
             import pypeerassets.pautils as pu
@@ -125,7 +127,7 @@ class BaseTrackedTransaction(Transaction):
 
     def coin_multiplier(self):
 
-        network_params = net_query(self.network.shortname)
+        network_params = self.network # net_query(self.network.shortname)
 
         return int(1 / network_params.from_unit) # perhaps to_unit can be used without the division, but it's not sure.
 

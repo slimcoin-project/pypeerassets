@@ -279,10 +279,6 @@ def create_opreturn_txout(tx_type: str, data: bytes, network: namedtuple, positi
 
 def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, network_name: str, amount: int=None, proposal_txid: str=None, data: bytes=None, address: str=None, version: int=1, change_address: str=None, tx_fee: int=None, p2th_fee: int=None, input_txid: str=None, input_vout: int=None, input_address: str=None, locktime: int=0, cltv_timelock: int=0, reserved_amount: int=None, reserve_address: str=None, input_redeem_script: AbsoluteTimelockScript=None, debug: bool=False):
 
-    if tx_type != "proposal":
-        if data and (not proposal_txid):
-            proposal_txid = str(data[2:34].hex())
-
     try:
         network = net_query(network_name)
         if not tx_fee:
