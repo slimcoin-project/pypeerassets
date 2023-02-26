@@ -117,7 +117,7 @@ class Deck:
                     self.at_type = data.id
                 if self.at_type == b"DT":
                     self.epoch_length = epoch_length if epoch_length else data.epoch_len
-                    self.standard_round_length = self.epoch_length // 16
+                    self.standard_round_length = (self.epoch_length // 32) * 2 # a round value is better
                     self.epoch_quantity = epoch_quantity if epoch_quantity else data.reward # shouldn't this better be called "epoch_reward" ?? # TODO
                     self.min_vote = min_vote if min_vote else data.min_vote
                     self.sdp_periods = sdp_periods if sdp_periods else data.special_periods

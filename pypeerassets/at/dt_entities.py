@@ -31,7 +31,6 @@ class TrackedTransaction(BaseTrackedTransaction):
 
     def __init__(self, deck, provider=None, txid=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, blockheight=None, blockhash=None):
 
-        # EXPERIMENTAL: BaseTrackedTransaction: comment out
         # For security, should later perhaps be replaced by Transaction.__init__()
         # The difference is that here we don't use self.txid, which results in a (relatively expensive) hashing operation.
         # TODO: recheck MODIFICATIONS during cleanup:
@@ -62,8 +61,6 @@ class TrackedTransaction(BaseTrackedTransaction):
         if type(self) != ProposalTransaction:
 
             # refactored; proposal_txid and proposal no longer arguments.
-            ### CHANGED TO PROTOBUF
-            # proposal_txid = getfmt(self.datastr, DONATION_FORMAT, "prp").hex()
             proposal_txid = self.metadata.txid.hex()
             object.__setattr__(self, 'proposal_txid', proposal_txid)
 
@@ -315,12 +312,19 @@ class ProposalTransaction(TrackedTransaction):
         #round_length = int.from_bytes(getfmt(self.datastr, fmt, "sla"), "big")
         #req_amount = int.from_bytes(getfmt(self.datastr, fmt, "amt"), "big") * self.coin_multiplier()
         epoch_number = self.metadata.epochs
-        round_length = self.metadata.sla
+        # MODIF: standard round length implementation.
+        if self.metadata.sla > 0:
+            round_length = self.metadata.sla
+        else:
+            round_length = self.deck.standard_round_length
         # NOTE: req_amount was before a small int number, now it can be a number of up to the max amount of decimal places
         req_amount = self.metadata.amount
+
+        # print("METADATA", self.metadata)
         if first_ptx_txid is None:
             try:
                 first_ptx_txid = self.metadata.txid2.hex()
+                # print("FIRSTPTX", first_ptx_txid)
             except AttributeError:
                 pass
 
