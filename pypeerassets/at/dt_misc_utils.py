@@ -177,14 +177,6 @@ def get_parser_state(provider, deck=None, deckid=None, lastblock=None, force_con
             raise ValueError("No deck id provided.")
         deck = deck_from_tx(deckid, provider)
 
-    unfiltered_cards = []
-    """for batch in get_card_bundles(provider, deck): # this doesn't seem to help in the KeyError case.
-        for card in batch:
-            try:
-                unfiltered_cards.append(card)
-            except KeyError:
-                if True in (debug, debug_voting, debug_donations):
-                    print("Card without txid.")"""
     unfiltered_cards = list((card for batch in get_card_bundles(provider, deck) for card in batch))
 
     pst = ParserState(deck, unfiltered_cards, provider, current_blockheight=lastblock, debug=debug, debug_voting=debug_voting, debug_donations=debug_donations)
@@ -198,6 +190,7 @@ def get_parser_state(provider, deck=None, deckid=None, lastblock=None, force_con
 def get_proposal_state(provider, proposal_id=None, proposal_tx=None, deck=None, debug=False, debug_donations=False, debug_voting=False):
     # version 2: does not create an additional proposal state and always does the complete check (phase=1).
     # MODIFIED: parameter phase eliminated. If we needed it, we could also derive it from the ptx values.
+
 
     current_blockheight = provider.getblockcount()
     if not proposal_tx:

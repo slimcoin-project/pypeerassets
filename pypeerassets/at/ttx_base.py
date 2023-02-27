@@ -1,5 +1,6 @@
 from btcpy.structs.address import P2pkhAddress
 from btcpy.structs.crypto import PublicKey
+from btcpy.structs.script import NulldataScript, UnknownScript, StackData
 
 from pypeerassets.transactions import Transaction, TxIn, TxOut, Locktime
 from pypeerassets.networks import net_query
@@ -47,17 +48,29 @@ class BaseTrackedTransaction(Transaction):
         # CONVENTION: datastr is always in SECOND output (outs[1]) like in PeerAssets tx.
 
         try:
-
             scriptpubkey = self.outs[DATASTR_OUTPUT].script_pubkey
-            datastr = bytes(scriptpubkey.data.data)
+            # btcpy doesn't automatically create a NulldataScript of the sitze is over 83 bytes.
+            if type(scriptpubkey) == NulldataScript:
+                datastr = bytes(scriptpubkey.data.data)
+            elif type(scriptpubkey) == UnknownScript:
+                datastr = scriptpubkey.body[3:] # this is a bit of a hack, but btcpy is very unflexible here.
+
 
         except Exception as e: # if no op_return it throws InvalidNulldataOutput
 
+            print("ERROR", e)
             raise InvalidTrackedTransactionError("No OP_RETURN data.")
 
         object.__setattr__(self, 'datastr', datastr) # OP_RETURN data byte string
         ### CHANGED TO PROTOBUF. TODO: we'll try to replace datastr completely with "metadata".
-        object.__setattr__(self, 'metadata', parse_ttx_metadata(datastr))
+        try:
+            object.__setattr__(self, 'metadata', parse_ttx_metadata(datastr))
+            #d = protobuf_to_dict(self.metadata)
+            #print(d)
+            #print("TXID", d.get("txid")).hex()
+            #print("TXID2", d.get("txid2")).hex()
+        except:
+            print("Error, metadata not correctly formatted for protobuf.")
         object.__setattr__(self, 'deck', deck) # TODO: repetition! shouldn't this be deckid?
         object.__setattr__(self, 'ttx_version', self.metadata.version) # NEW. For future upgradeability.
 
@@ -86,7 +99,6 @@ class BaseTrackedTransaction(Transaction):
 
     @classmethod
     def get_basicdata(cls, txid, provider):
-        print(txid)
         json = provider.getrawtransaction(txid, True)
         try:
             import pypeerassets.pautils as pu
@@ -129,7 +141,7 @@ class BaseTrackedTransaction(Transaction):
 
         network_params = self.network # net_query(self.network.shortname)
 
-        return int(1 / network_params.from_unit) # perhaps to_unit can be used without the division, but it's not sure.
+        return int(1 / network_params.from_unit) # perhaps to_unit can be used without the division
 
     def get_input_address(self, pubkey_hexstr):
         # calculates input address from pubkey from scriptsig.
@@ -157,5 +169,5 @@ class BaseTrackedTransaction(Transaction):
 
 
 class InvalidTrackedTransactionError(ValueError):
-    # raised anytime when a transacion is not following the intended format.
+    # raised anytime when a (Base)TrackedTransaction is not following the intended format.
     pass

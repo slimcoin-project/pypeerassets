@@ -307,10 +307,6 @@ class ProposalTransaction(TrackedTransaction):
         # this deck_id storage is redundant. It is however perhaps better to do this here.
         # deck_id = getfmt(self.datastr, fmt, "dck").hex() # MODIFIED to hex. check if it does harm.
 
-        ### CHANGED TO PROTOBUF
-        #epoch_number = int.from_bytes(getfmt(self.datastr, fmt, "eps"), "big")
-        #round_length = int.from_bytes(getfmt(self.datastr, fmt, "sla"), "big")
-        #req_amount = int.from_bytes(getfmt(self.datastr, fmt, "amt"), "big") * self.coin_multiplier()
         epoch_number = self.metadata.epochs
         # MODIF: standard round length implementation.
         if self.metadata.sla > 0:
@@ -320,19 +316,17 @@ class ProposalTransaction(TrackedTransaction):
         # NOTE: req_amount was before a small int number, now it can be a number of up to the max amount of decimal places
         req_amount = self.metadata.amount
 
-        # print("METADATA", self.metadata)
         if first_ptx_txid is None:
             try:
+                assert len(self.metadata.txid2) == 32
                 first_ptx_txid = self.metadata.txid2.hex()
-                # print("FIRSTPTX", first_ptx_txid)
+
             except AttributeError:
                 pass
+            except AssertionError:
+                if len(self.metadata.txid2) > 0:
+                     raise InvalidTrackedTransactionError("TXID of modified proposal is in wrong format.")
 
-        #if len(self.datastr) > fmt["ptx"][0] and not first_ptx_txid:
-            #first_ptx_txid_raw = getfmt(self.datastr, fmt, "ptx")
-            # TODO: the following should be uncommented once this testing round is ready, as this check makes sense.
-            #if len(first_ptx_txid_raw) != 32: ## TODO: as now it is hex value, probably it's len 64.
-            #     raise InvalidTrackedTransactionError("TXID of first transaction is in wrong format.")
 
         # Donation Address. This one must be one from which the ProposalTransaction was signed.
         # Otherwise spammers could confuse the system.

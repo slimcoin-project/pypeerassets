@@ -95,7 +95,7 @@ class ParserState(object):
             self.sdp_cards = None
 
         if self.debug: print("PARSER: Get proposal states ...", )
-        self.proposal_states = get_proposal_states(self.provider, self.deck, self.current_blockheight)
+        self.proposal_states = get_proposal_states(self.provider, self.deck, self.current_blockheight, debug=self.debug)
         if self.debug: print(len(self.proposal_states), "found.")
 
         # We don't store the txes anymore in the ParserState, as they're already stored in the ProposalStates.
@@ -178,7 +178,7 @@ class ParserState(object):
             # Set rounds, req_amount etc. again if a Proposal Modification was recorded.
             # When this method is called, we already know the last (and thus valid) Proposal Modification.
             if pstate.first_ptx.txid != pstate.valid_ptx.txid:
-                pstate.modify()
+                pstate.modify(debug=self.debug_donations)
 
             self.approved_proposals.update({pstate.id : pstate})
 

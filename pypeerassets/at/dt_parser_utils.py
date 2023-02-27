@@ -44,35 +44,41 @@ def get_proposal_states(provider, deck, current_blockheight=None, all_signalling
     # If a new Proposal Transaction referencing an earlier one is found, the ProposalState is modified.
     # If provided, then donation/signalling txes are calculated
     # Modified: force_dstates option (for pacli commands) calculates all phases/rounds and DonationStates, even if no card was issued.
-    debug=True
     statedict = {}
     used_firsttxids = []
 
     for rawtx in get_marked_txes(provider, deck.derived_p2th_address("proposal")):
         try:
+            if debug:
+                print("PARSER: Found ProposalTransaction", rawtx["txid"])
             tx = ProposalTransaction.from_json(tx_json=rawtx, provider=provider, deck=deck)
 
             if tx.txid not in used_firsttxids: # filters out duplicates
                 if debug:
-                    print(tx.txid, "found, first ptx:", tx.first_ptx_txid)
-                if (tx.first_ptx_txid in (None, tx.txid)) or len(tx.first_ptx_txid) != 64: # case 1: new proposal transaction # TODO: extra condition added for invalid proposals!
+                    print("PARSER: Basic validity/duplicate check passed. First ptx: >{}<".format(tx.txid, tx.first_ptx_txid))
+                if (tx.first_ptx_txid in ("", None, tx.txid)): # case 1: new proposal transaction # MODIF: old legacy support condition removed.
                     state = ProposalState(first_ptx=tx, valid_ptx=tx, all_signalling_txes=all_signalling_txes, all_donation_txes=all_donation_txes, all_locking_txes=all_locking_txes)
+
+
+                    # added this here:
+                    statedict.update({ tx.txid : state })
+
                 elif tx.first_ptx_txid in statedict: # case 2: proposal modification
                     state = statedict[tx.first_ptx_txid]
 
                     if state.first_ptx.donation_address == tx.donation_address:
                         state.valid_ptx = tx
                         if debug:
-                            print("Proposal modification: added to proposal state {}".format(tx.first_ptx_txid))
+                            print("PARSER: Proposal modification: added to proposal state {}".format(tx.first_ptx_txid))
                     else:
                         # NOTE: this case was added 02/23.
                         if debug:
-                            print("Invalid modification: different donation address.")
-                            print("First ptx: {}, modification: {}".format(state.first_ptx.donation_address, tx.donation_address))
+                            print("PARSER: Invalid modification: different donation address.")
+                            print("PARSER: First ptx: {}, modification: {}".format(state.first_ptx.donation_address, tx.donation_address))
                         continue
                 else: # case 3: invalid first ptx
                     if debug:
-                        print("Invalid modification, invalid transaction format or non-existing proposal.")
+                        print("PARSER: Invalid modification, invalid transaction format or non-existing proposal.")
                     continue
             else: # case 4: duplicate
                 if debug:
@@ -83,7 +89,8 @@ def get_proposal_states(provider, deck, current_blockheight=None, all_signalling
             print(e)
             continue
 
-        statedict.update({ tx.txid : state })
+        # this was probably wrong here, as it would create a new proposal state also for modifications
+        # statedict.update({ tx.txid : state })
         used_firsttxids.append(tx.txid)
         # print("updated state", tx.txid)
 

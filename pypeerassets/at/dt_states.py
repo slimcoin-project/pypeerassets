@@ -98,17 +98,18 @@ class ProposalState(object):
 
         # 1. Calculate round starts
         epoch_length = self.deck.epoch_length
-
         round_starts = [None] * 8 # all changed from 9 to 8
         round_halfway = [None] * 8
-        self.rounds = [None] * 8
-        self.security_periods = [None] * 2
-        self.voting_periods = [None] * 2
+
+        if phase != 2: # BUGFIX: Modifications should not get rounds set to None.
+
+            self.rounds = [None] * 8
+            self.security_periods = [None] * 2
+            self.voting_periods = [None] * 2
         security_period_lengths = [max(l // 2, 2) for l in self.round_lengths] # minimum 2 blocks
         voting_period_lengths = [l * 4 for l in self.round_lengths]
-        release_period_length = voting_period_lengths[0] # TODO: isn't it better to use voting_period_lengths[1] here?
+        release_period_length = voting_period_lengths[1] # MODIF: changed from voting_period_lengths[0].
 
-        # halfway = self.first_ptx.round_length // 2 # modified: this would lead to problems when only the second phase is processed.
         halfways = [l // 2 for l in self.round_lengths]
 
         pre_allocation_period_phase1 = security_period_lengths[0] + voting_period_lengths[0]
@@ -168,7 +169,7 @@ class ProposalState(object):
                 round_halfway[rd] = round_starts[rd] + halfways[1] # MODIF: instead of "halfway"
                 self.rounds[rd] = [[round_starts[rd], round_halfway[rd] - 1], [round_halfway[rd], round_starts[rd] + self.round_lengths[1] - 1]]
 
-    def modify(self):
+    def modify(self, debug=False):
         # This function bundles the modifications needed when a valid Proposal Modification was recorded.
         # It does not reprocess set_donation_states, because this is only done after end_epoch
         # when a card is detected or when the parser loop ends before end_epoch.
@@ -182,6 +183,9 @@ class ProposalState(object):
         # 2. Re-setting required coin amount and derivative attributes
         if self.first_ptx.req_amount != self.valid_ptx.req_amount:
             self.req_amount = self.valid_ptx.req_amount
+
+        if debug:
+            print("PROPOSAL: Valid modification of proposal {} by transaction {}.\nreq_amount: {}, end_epoch: {}, rounds: {}".format(self.first_ptx.txid, self.valid_ptx.txid, self.req_amount, self.end_epoch, self.rounds))
 
     def set_donation_states(self, phase=0, current_blockheight=None, debug=False):
         # Phase 0 means both phases are calculated.
