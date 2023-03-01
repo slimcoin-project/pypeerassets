@@ -2,7 +2,7 @@ from pypeerassets.at.dt_entities import ProposalTransaction, SignallingTransacti
 from pypeerassets.at.dt_states import ProposalState
 from pypeerassets.at.dt_parser import ParserState, dt_parser
 from pypeerassets.at.dt_parser_utils import deck_from_tx
-from pypeerassets.__main__ import get_card_bundles
+from pypeerassets.__main__ import get_card_bundles, find_all_valid_decks
 from pypeerassets.provider import Provider
 from pypeerassets.protocol import Deck
 from pypeerassets.kutil import Kutil
@@ -14,8 +14,6 @@ from btcpy.structs.script import P2shScript, AbsoluteTimelockScript
 from btcpy.structs.sig import P2shSolver, AbsoluteTimelockSolver, P2pkhSolver, P2pkSolver, Sighash
 from decimal import Decimal
 from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
-#from pypeerassets.at.transaction_formats import getfmt, PROPOSAL_FORMAT
-from pypeerassets.at.protobuf_utils import parse_ttx_metadata
 from pypeerassets.legacy import is_legacy_blockchain
 from collections import namedtuple
 
@@ -163,11 +161,15 @@ def get_donation_states(provider, proposal_id=None, proposal_tx=None, tx_txid=No
 
     return result
 
-def proposal_from_tx(proposal_id, provider):
-    basicdata = ProposalTransaction.get_basicdata(proposal_id, provider)
-    deckid = parse_ttx_metadata(basicdata["data"]).txid.hex() ## PROTOBUF # TODO: the basicdata call could be refactored, to give directly the protobuf object.
-    # deckid = getfmt(basicdata["data"], PROPOSAL_FORMAT, "dck").hex()
-    deck = deck_from_tx(deckid, provider)
+def proposal_from_tx(proposal_id, provider, deckid=None, deck=None):
+    # best thing is if we know deckid or deck.
+    if deck is None:
+        if deckid is None:
+            basicdata = ProposalTransaction.get_basicdata(proposal_id, provider)
+            ttx = provider.getrawtransaction(proposal_id, 1)
+            deck = deck_from_p2th(ttx, "proposal", provider)
+        else:
+            deck = deck_from_tx(deckid, provider)
     return ProposalTransaction.from_txid(proposal_id, provider, deck=deck, basicdata=basicdata)
 
 def get_parser_state(provider, deck=None, deckid=None, lastblock=None, force_continue=False, force_dstates=False, debug=False, debug_voting=False, debug_donations=False):
@@ -414,3 +416,29 @@ def sign_mixed_transaction(provider: Provider, unsigned: MutableTransaction, key
             raise ValueError("TX type unknown or not implemented.")
         solver_list.append(solver)
     return unsigned.spend(txins, solver_list)
+
+
+def deck_from_p2th(tx: dict, tx_type: str, provider: Provider): # we could do this also with Transaction object ...
+    # loops through DT decks and checks their P2TH addresses.
+    # this is independent from any deckid in the metadata.
+    try:
+        tx_p2th = tx["vout"][0]["scriptPubKey"]["addresses"][0]
+    except KeyError: # may happen with OP_RETURN
+        raise ValueError("Transaction has no P2TH address in output 1.")
+    for deck in dt_deck_list(provider): # for now there is only DT with this feature ...
+        if deck.derived_p2th_address(tx_type) == tx_p2th:
+            return deck
+    print("No deck for this P2TH address found.")
+
+
+def dt_deck_list(provider: Provider, deck_type: bytes=b'DT', version=1, production=True):
+    decks = find_all_valid_decks(provider, version, production)
+    dt_decklist = []
+    for d in decks:
+        try:
+            if d.at_type == deck_type:
+                yield d
+
+        except AttributeError:
+            continue
+

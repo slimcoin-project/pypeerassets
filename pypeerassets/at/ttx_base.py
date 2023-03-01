@@ -4,7 +4,7 @@ from btcpy.structs.script import NulldataScript, UnknownScript, StackData
 
 from pypeerassets.transactions import Transaction, TxIn, TxOut, Locktime
 from pypeerassets.networks import net_query
-from pypeerassets.at.protobuf_utils import parse_ttx_metadata
+from pypeerassets.at.protobuf_utils import parse_protobuf
 
 DATASTR_OUTPUT = 1
 
@@ -61,18 +61,14 @@ class BaseTrackedTransaction(Transaction):
             print("ERROR", e)
             raise InvalidTrackedTransactionError("No OP_RETURN data.")
 
-        object.__setattr__(self, 'datastr', datastr) # OP_RETURN data byte string
-        ### CHANGED TO PROTOBUF. TODO: we'll try to replace datastr completely with "metadata".
         try:
-            object.__setattr__(self, 'metadata', parse_ttx_metadata(datastr))
-            #d = protobuf_to_dict(self.metadata)
-            #print(d)
-            #print("TXID", d.get("txid")).hex()
-            #print("TXID2", d.get("txid2")).hex()
-        except:
+
+            object.__setattr__(self, 'metadata', parse_protobuf(datastr, "ttx"))
+        except Exception as e:
             print("Error, metadata not correctly formatted for protobuf.")
-        object.__setattr__(self, 'deck', deck) # TODO: repetition! shouldn't this be deckid?
-        object.__setattr__(self, 'ttx_version', self.metadata.version) # NEW. For future upgradeability.
+            print(e)
+        object.__setattr__(self, 'deck', deck)
+        object.__setattr__(self, 'ttx_version', self.metadata["version"]) # NEW. For future upgradeability.
 
 
     def __str__(self):
@@ -95,7 +91,7 @@ class BaseTrackedTransaction(Transaction):
 
     @property
     def deckid(self):
-        return self.deck.id # TODO: remove if deckid is stored!
+        return self.deck.id # this is a good approach, as self.deck always comes from the ParserState.
 
     @classmethod
     def get_basicdata(cls, txid, provider):

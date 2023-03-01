@@ -18,36 +18,36 @@ Also these functions are all very light so they don't compromise resource usage.
 AT_IDENTIFIER = b'AT'
 DT_IDENTIFIER = b'DT'
 
-def is_at_deck(data: object, network: namedtuple) -> bool: ### changed from datastring to data, bytes to object. Added network param.
+def is_at_deck(data: dict, network: namedtuple) -> bool: ### changed from datastring to data, bytes to object. Added network param.
     # this needs the identification as addresstrack deck.
     try:
 
-        ident = data.id
+        ident = data["id"]
 
         if ident == AT_IDENTIFIER:
             # address = getfmt(datastring, DECK_SPAWN_AT_FORMAT, "adr")
             try:
-                address = hash_to_address(data.hash, data.hash_type, network)
+                address = hash_to_address(data["hash"], data["hash_type"], network)
                 address = address.decode("utf-8") # this can be perhaps made without decoding, as full validation isn't needed.
             except NotImplementedError:
                 return False # util not implemented we can't process these hashes.
 
-            if is_valid_address(address, data.hash_type, network):
+            if is_valid_address(address, data["hash_type"], network):
                 return True
 
         elif ident == DT_IDENTIFIER:
             return True
 
-    except (IndexError, TypeError): # datastring not existing or too short
+    except (IndexError, TypeError, KeyError): # datastring not existing or too short
         return False
     return False
 
-def is_at_cardissue(data: object) -> bool:
+def is_at_cardissue(data: dict) -> bool:
     # addresstrack (AT and DT) issuance transactions reference the txid of the donation in "card.asset_specific_data"
 
     try:
-        assert len(data.txid) == 32
-        assert data.vout is not None
+        assert len(data["txid"]) == 32
+        assert data["vout"] is not None
 
     except (UnboundLocalError, AssertionError): # with protobuf we don't need IndexError, TypeError "as e" not needed here?
         return False

@@ -19,7 +19,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   syntax='proto3',
   serialized_options=None,
   create_key=_descriptor._internal_create_key,
-  serialized_pb=b'\n&trackedtransaction-specification.proto\"\xc4\x01\n\x12TrackedTransaction\x12\x0f\n\x07version\x18\x01 \x01(\r\x12\n\n\x02id\x18\x02 \x01(\x0c\x12\x0c\n\x04txid\x18\x03 \x01(\x0c\x12\x0e\n\x06\x65pochs\x18\x04 \x01(\r\x12\x0b\n\x03sla\x18\x05 \x01(\r\x12\x0e\n\x06\x61mount\x18\x06 \x01(\x04\x12\x10\n\x08locktime\x18\x07 \x01(\r\x12\x10\n\x08lockhash\x18\x08 \x01(\x0c\x12\x15\n\rlockhash_type\x18\t \x01(\r\x12\x0c\n\x04vote\x18\n \x01(\x08\x12\r\n\x05txid2\x18\x11 \x01(\x0c\".\n\x10\x43\x61rdExtendedData\x12\x0c\n\x04txid\x18\x01 \x01(\x0c\x12\x0c\n\x04vout\x18\x02 \x01(\r\"\xbe\x01\n\x10\x44\x65\x63kExtendedData\x12\n\n\x02id\x18\x01 \x01(\x0c\x12\x11\n\tepoch_len\x18\x02 \x01(\r\x12\x0e\n\x06reward\x18\x03 \x01(\r\x12\x10\n\x08min_vote\x18\x04 \x01(\r\x12\x17\n\x0fspecial_periods\x18\x05 \x01(\r\x12\x1b\n\x13voting_token_deckid\x18\x06 \x01(\x0c\x12\x12\n\nmultiplier\x18\x07 \x01(\r\x12\x0c\n\x04hash\x18\x08 \x01(\x0c\x12\x11\n\thash_type\x18\t \x01(\rb\x06proto3'
+  serialized_pb=b'\n&trackedtransaction-specification.proto\"\xb5\x01\n\x12TrackedTransaction\x12\x0f\n\x07version\x18\x01 \x01(\r\x12\n\n\x02id\x18\x02 \x01(\x0c\x12\x0c\n\x04txid\x18\x03 \x01(\x0c\x12\x0e\n\x06\x65pochs\x18\x04 \x01(\r\x12\x0b\n\x03sla\x18\x05 \x01(\r\x12\x0e\n\x06\x61mount\x18\x06 \x01(\x04\x12\x10\n\x08locktime\x18\x07 \x01(\r\x12\x10\n\x08lockhash\x18\x08 \x01(\x0c\x12\x15\n\rlockhash_type\x18\t \x01(\r\x12\x0c\n\x04vote\x18\n \x01(\x08\".\n\x10\x43\x61rdExtendedData\x12\x0c\n\x04txid\x18\x01 \x01(\x0c\x12\x0c\n\x04vout\x18\x02 \x01(\r\"\xbe\x01\n\x10\x44\x65\x63kExtendedData\x12\n\n\x02id\x18\x01 \x01(\x0c\x12\x11\n\tepoch_len\x18\x02 \x01(\r\x12\x0e\n\x06reward\x18\x03 \x01(\r\x12\x10\n\x08min_vote\x18\x04 \x01(\r\x12\x17\n\x0fspecial_periods\x18\x05 \x01(\r\x12\x1b\n\x13voting_token_deckid\x18\x06 \x01(\x0c\x12\x12\n\nmultiplier\x18\x07 \x01(\r\x12\x0c\n\x04hash\x18\x08 \x01(\x0c\x12\x11\n\thash_type\x18\t \x01(\rb\x06proto3'
 )
 
 
@@ -103,13 +103,6 @@ _TRACKEDTRANSACTION = _descriptor.Descriptor(
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
-    _descriptor.FieldDescriptor(
-      name='txid2', full_name='TrackedTransaction.txid2', index=10,
-      number=17, type=12, cpp_type=9, label=1,
-      has_default_value=False, default_value=b"",
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
   ],
   extensions=[
   ],
@@ -123,7 +116,7 @@ _TRACKEDTRANSACTION = _descriptor.Descriptor(
   oneofs=[
   ],
   serialized_start=43,
-  serialized_end=239,
+  serialized_end=224,
 )
 
 
@@ -161,8 +154,8 @@ _CARDEXTENDEDDATA = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=241,
-  serialized_end=287,
+  serialized_start=226,
+  serialized_end=272,
 )
 
 
@@ -249,8 +242,8 @@ _DECKEXTENDEDDATA = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=290,
-  serialized_end=480,
+  serialized_start=275,
+  serialized_end=465,
 )
 
 DESCRIPTOR.message_types_by_name['TrackedTransaction'] = _TRACKEDTRANSACTION

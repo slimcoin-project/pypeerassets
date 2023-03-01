@@ -41,11 +41,10 @@ class ParserState(object):
         # SDP voters/balances are stored as CardTransfers, so they can be easily retrieved with PeerAsset standard methods.
         if self.deck.sdp_deckid:
             self.sdp_deck = deck_from_tx(self.deck.sdp_deckid, self.provider)
+            # The SDP Decimal Diff is the difference between the number of decimals of the main token and the voting token.
+            self.sdp_decimal_diff = self.deck.number_of_decimals - self.sdp_deck.number_of_decimals
         else:
             self.sdp_deck = None # we don't need this in sub_state: if the deck has no sdp_deck, then it's not using SDP.
-
-        # The SDP Decimal Diff is the difference between the number of decimals of the main token and the voting token.
-        self.sdp_decimal_diff = self.deck.number_of_decimals - self.sdp_deck.number_of_decimals
 
         self.epoch = epoch
         self.epochs_with_completed_proposals = epochs_with_completed_proposals
@@ -170,6 +169,10 @@ class ParserState(object):
             pstate.initial_votes = self.get_votes(pstate, 0) ### phase added
 
             if self.debug_voting: print("VOTING: Votes round 1 for Proposal", pstate.id, ":", pstate.initial_votes)
+
+            # case added: if voting round has not concluded, we 'll not mark proposal as abandoned.
+            if self.current_blockheight < pstate.voting_periods[0][1]:
+                continue
 
             if pstate.initial_votes["positive"] <= pstate.initial_votes["negative"]:
                 pstate.state = "abandoned"
@@ -471,7 +474,8 @@ class ParserState(object):
             # dtx_vout should currently always be 2. However, the variable is kept for future modifications.
             # dtx_vout_bytes = getfmt(card_data, CARD_ISSUE_DT_FORMAT, "out")
             # dtx_vout = int.from_bytes(dtx_vout_bytes, "big")
-            dtx_vout = card.extended_data.vout ### PROTOBUF
+            # dtx_vout = card.extended_data.vout ### PROTOBUF
+            dtx_vout = card.donation_vout # MODIF: has now a proper attribute.
 
             # check 1: filter out duplicates (less expensive, so done first)
             if (card.sender, dtx_id, dtx_vout) in self.used_issuance_tuples:
@@ -510,27 +514,31 @@ class ParserState(object):
 
         epoch_firstblock, epoch_lastblock = self.epoch * self.deck.epoch_length, (self.epoch + 1) * self.deck.epoch_length - 1
         if debug: print("PARSER: Checking epoch:", self.epoch, ", from block", epoch_firstblock, "to", epoch_lastblock)
-        sdp_epochs_remaining = self.deck.sdp_periods - self.epochs_with_completed_proposals
 
-        if debug: print("VOTING: Epochs with completed proposals:", self.epochs_with_completed_proposals)
-        if debug: print("VOTING: SDP periods remaining:", sdp_epochs_remaining)
+        if self.deck.sdp_periods: # should give true if 0 or None
 
-        if (self.deck.sdp_periods > 0) and (sdp_epochs_remaining <= self.deck.sdp_periods): # voters from other tokens
+            sdp_epochs_remaining = self.deck.sdp_periods - self.epochs_with_completed_proposals
 
-            # We set apart all CardTransfers of SDP voters before the epoch start
-            sdp_epoch_balances = self.get_sdp_balances()
+            if debug: print("VOTING: Epochs with completed proposals:", self.epochs_with_completed_proposals)
+            if debug: print("VOTING: SDP periods remaining:", sdp_epochs_remaining)
 
-            # Weight is calculated according to the epoch
-            # Weight is reduced only in epochs where proposals were completely approved.
-            sdp_weight = get_sdp_weight(self.epochs_with_completed_proposals, self.deck.sdp_periods)
+            #if (self.deck.sdp_periods > 0) and (sdp_epochs_remaining <= self.deck.sdp_periods): # voters from other tokens
+            if sdp_epochs_remaining <= self.deck.sdp_periods:
 
-            # Adjusted weight multiplies the token balance by the difference in decimal places
-            # between the main token and the SDP token.
-            # adjusted_weight = sdp_weight * 10 ** self.sdp_decimal_diff
+                # We set apart all CardTransfers of SDP voters before the epoch start
+                sdp_epoch_balances = self.get_sdp_balances()
 
-            if len(sdp_epoch_balances) > 0:
-                updated_sdp_voters = update_voters(self.enabled_voters, sdp_epoch_balances, weight=sdp_weight, debug=self.debug_voting, dec_diff=self.sdp_decimal_diff)
-                self.enabled_voters.update(updated_sdp_voters)
+                # Weight is calculated according to the epoch
+                # Weight is reduced only in epochs where proposals were completely approved.
+                sdp_weight = get_sdp_weight(self.epochs_with_completed_proposals, self.deck.sdp_periods)
+
+                # Adjusted weight multiplies the token balance by the difference in decimal places
+                # between the main token and the SDP token.
+                # adjusted_weight = sdp_weight * 10 ** self.sdp_decimal_diff
+
+                if len(sdp_epoch_balances) > 0:
+                    updated_sdp_voters = update_voters(self.enabled_voters, sdp_epoch_balances, weight=sdp_weight, debug=self.debug_voting, dec_diff=self.sdp_decimal_diff)
+                    self.enabled_voters.update(updated_sdp_voters)
 
         # As card issues can occur any time after the proposal has been voted
         # we always need to process all valid proposals voted up to this epoch.

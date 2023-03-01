@@ -21,7 +21,7 @@ from pypeerassets.networks import net_query
 ### ADDRESSTRACK ###
 from pypeerassets.provider import Provider
 # from pypeerassets.at.transaction_formats import getfmt, DECK_SPAWN_AT_FORMAT, DECK_SPAWN_DT_FORMAT, CARD_ISSUE_DT_FORMAT, P2TH_MODIFIER
-from pypeerassets.at.protobuf_utils import parse_card_extended_data, parse_deck_extended_data
+from pypeerassets.at.protobuf_utils import parse_protobuf
 from pypeerassets.at.identify import is_at_deck, is_at_cardissue
 from pypeerassets.at.dt_parser import dt_parser
 ### LOCK ###
@@ -112,52 +112,31 @@ class Deck:
         if self.issue_mode == IssueMode.CUSTOM.value:
             ### PROTOBUF changes
             try:
-                data = parse_deck_extended_data(self.asset_specific_data)
+                # data = parse_deck_extended_data(self.asset_specific_data)
+                data = parse_protobuf(self.asset_specific_data, "deck")
                 if is_at_deck(data, network): # MODIF: this check should be only done once per deck, not in CardTransfer.
-                    self.at_type = data.id
-                if self.at_type == b"DT":
-                    self.epoch_length = epoch_length if epoch_length else data.epoch_len
-                    self.standard_round_length = (self.epoch_length // 32) * 2 # a round value is better
-                    self.epoch_quantity = epoch_quantity if epoch_quantity else data.reward # shouldn't this better be called "epoch_reward" ?? # TODO
-                    self.min_vote = min_vote if min_vote else data.min_vote
-                    self.sdp_periods = sdp_periods if sdp_periods else data.special_periods
-                    self.sdp_deckid = sdp_deck.hex() if sdp_deck else data.voting_token_deckid.hex()
-                    # print("LEN", self.epoch_length, "REWARD", self.epoch_quantity, "MINVOTE", self.min_vote, "SDPPERIODS", self.sdp_periods, "SDPDECKID", self.sdp_deckid)
-                elif self.at_type == b"AT":
-                    self.multiplier = multiplier if multiplier else data.multiplier
-                    self.at_address = at_address if at_address else hash_to_address(data.hash, data.hash_type, network)
-                    self.addr_type = data.hash_type ### new. needed for hash_encoding.
+                    self.at_type = data["id"]
+                    if self.at_type == b"DT":
+                        self.epoch_length = epoch_length if epoch_length else data["epoch_len"]
+                        self.standard_round_length = (self.epoch_length // 32) * 2 # a round value is better
+                        self.epoch_quantity = epoch_quantity if epoch_quantity else data["reward"] # shouldn't this better be called "epoch_reward" ?? # TODO
+
+                        # optional attributes
+                        self.min_vote = min_vote if min_vote else data.get("min_vote")
+                        self.sdp_periods = sdp_periods if sdp_periods else data.get("special_periods")
+                        try:
+                            self.sdp_deckid = sdp_deck.hex() if sdp_deck else data.get("voting_token_deckid").hex()
+                        except AttributeError:
+                            self.sdp_deckid = None
+                        # print("LEN", self.epoch_length, "REWARD", self.epoch_quantity, "MINVOTE", self.min_vote, "SDPPERIODS", self.sdp_periods, "SDPDECKID", self.sdp_deckid)
+                    elif self.at_type == b"AT":
+                        self.multiplier = multiplier if multiplier else data["multiplier"]
+                        self.at_address = at_address if at_address else hash_to_address(data["hash"], data["hash_type"], network)
+                        self.addr_type = data["hash_type"] ### new. needed for hash_encoding.
             except ValueError:
                 # print(self.id)
                 print("Non-Standard asset-specific data. Not adding special parameters.")
 
-            #at_fmt = DECK_SPAWN_AT_FORMAT
-            #dt_fmt = DECK_SPAWN_DT_FORMAT
-            #data = self.asset_specific_data
-
-            #identifier = data[:2].decode()
-
-            #if identifier in ("AT", "DT"): # common to both formats
-            #    self.at_type = identifier
-
-            #if identifier == "DT":
-            #    if not epoch_length:
-            #        self.epoch_length = int.from_bytes(getfmt(data, dt_fmt, "dpl"), "big")
-            #    if not epoch_quantity:
-            #        self.epoch_quantity = int.from_bytes(getfmt(data, dt_fmt, "tq"), "big")
-            #    if not min_vote:
-            #        self.min_vote = int.from_bytes(getfmt(data, dt_fmt, "mnv"), "big")
-            #    if not sdp_periods:
-            #        try:
-            #            self.sdp_periods = int.from_bytes(getfmt(data, dt_fmt, "sdq"), "big")
-            #            self.sdp_deckid = getfmt(data, dt_fmt, "sdd").hex()
-            #        except IndexError:
-            #            pass # these 2 parameters are optional.
-
-            #elif identifier == "AT":
-            #    self.multiplier = int.from_bytes(getfmt(data, at_fmt, "mlt"), "big")
-            #    if not at_address:
-            #        self.at_address = getfmt(data, at_fmt, "adr").decode()
 
     @property ### MODIFIED VERSION TO OPTIMIZE SPEED ###
     def p2th_address(self) -> Optional[str]:
@@ -450,31 +429,26 @@ class CardTransfer:
 
         if deck.issue_mode == IssueMode.CUSTOM.value:
             # MODIF: the is_at_deck check is expensive and thus will not be done here again.
-            if "at_type" in deck.__dict__ and deck.at_type in (b"AT", b"DT"):
+            try:
+                assert "at_type" in deck.__dict__ and deck.at_type in (b"AT", b"DT")
+                self.extended_data = parse_protobuf(self.asset_specific_data, "card")
+                if is_at_cardissue(self.extended_data) == True:
 
-                try:
-                    self.extended_data = parse_card_extended_data(self.asset_specific_data)
-                    # dt_fmt = CARD_ISSUE_DT_FORMAT
-                    if is_at_cardissue(self.extended_data) == True:
+                    self.type = "CardIssue"
 
-                        self.type = "CardIssue"
+                    self.donation_txid = donation_txid if donation_txid else self.extended_data["txid"].hex()
+                    self.donation_vout = self.extended_data["vout"] # TODO: re-check if this is really optional.
+                else:
 
-                        self.donation_txid = donation_txid if donation_txid else self.extended_data.txid.hex()
-                        #if not donation_txid:
-                        #    self.donation_txid = getfmt(self.asset_specific_data, dt_fmt, "dtx").hex()
-                        #else:
-                        #    self.donation_txid = donation_txid
-                    else:
+                    self.type = "CardTransfer" # includes, for now, issuance attempts with completely invalid data
 
-                        self.type = "CardTransfer" # includes, for now, issuance attempts with completely invalid data
-                    self.at_type = deck.at_type # # MODIF: replaces the obsolete card.extended_data.id
-                except ValueError:
-                    # this happens with data not protobuf formatted.
-                    # TODO: maybe this should raise an error better, but if asset_specific_data in deck
-                    # starts with AT or DT, it should not be necessarily be invalid.
-                    self.type = "CardTransfer"
-            else:
-                self.type = "CardTransfer" # TODO this is not very elegant.
+                self.at_type = deck.at_type # # MODIF: replaces the obsolete card.extended_data.id
+            except (ValueError, KeyError, AssertionError):
+                # this happens with non-dt tokens using a custom parser,
+                # or with faulty dt tokens with data not protobuf formatted, or one of the txid and vout values missing.
+                # This doesn't raise an error, because if a non-compatible asset_specific_data in deck
+                # by chance gets interpeted as AT or DT, it should not be necessarily be invalid.
+                self.type = "CardTransfer"
 
 
         elif self.sender == deck.issuer:
