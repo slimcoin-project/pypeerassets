@@ -33,7 +33,3 @@ def address_to_hash(a: str, hash_type: int, network: object):
         addr = Address.from_string(a, network)
         return bytes(addr.hash)
 
-
-
-
-

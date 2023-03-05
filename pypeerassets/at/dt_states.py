@@ -3,8 +3,6 @@ from pypeerassets.at.dt_entities import TrackedTransaction, ProposalTransaction,
 from decimal import Decimal
 from copy import deepcopy
 
-# TODO: proposal states before the first voting round are currently marked as abandoned, this should not be so.
-
 class ProposalState(object):
    # A ProposalState unifies all functions from proposals which are mutable.
    # i.e. which can change after the first proposal transaction was sent.
@@ -33,6 +31,7 @@ class ProposalState(object):
         # TODO: disabling it, but re-check well!
         #if not current_blockheight and (not signalling_txes or not donation_txes):
         #    current_blockheight = provider.getblockcount()
+        # NOTE: Should not be necessary, because blockheight-based checks are done in the ParserState class.
 
         self.init_fresh_state()
 
@@ -198,7 +197,6 @@ class ProposalState(object):
         # Mark abandoned donation states:
         # if called from "outside", if the block height > round end, otherwise when the dist_factor is set (ending period).
         # abandon_until marks all incomplete states as abandoned if they're checked in a certain round.
-        print("CURRENT", current_blockheight)
         if current_blockheight is not None:
             for rev_r, r_blocks in enumerate(reversed(self.rounds)):
                 if current_blockheight > r_blocks[1][1]: # last block of each locking/donation round

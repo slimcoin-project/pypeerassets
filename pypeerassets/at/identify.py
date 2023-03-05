@@ -1,6 +1,7 @@
 # from pypeerassets.at.transaction_formats import DECK_SPAWN_AT_FORMAT, DECK_SPAWN_DT_FORMAT, CARD_ISSUE_AT_FORMAT, CARD_ISSUE_DT_FORMAT, getfmt
 from pypeerassets.hash_encoding import HASHTYPE, hash_to_address
 from collections import namedtuple
+from pypeerassets.networks import net_query
 ## changed to protobuf.
 ## changed to neutral address format. The previous one would not have worked with SLM mainnet.
 
@@ -25,14 +26,13 @@ def is_at_deck(data: dict, network: namedtuple) -> bool: ### changed from datast
         ident = data["id"]
 
         if ident == AT_IDENTIFIER:
-            # address = getfmt(datastring, DECK_SPAWN_AT_FORMAT, "adr")
             try:
                 address = hash_to_address(data["hash"], data["hash_type"], network)
-                address = address.decode("utf-8") # this can be perhaps made without decoding, as full validation isn't needed.
             except NotImplementedError:
                 return False # util not implemented we can't process these hashes.
 
             if is_valid_address(address, data["hash_type"], network):
+                data.update({"at_address" : address }) # OPTIMIZATION. Not elegant but saves a hash operation. check for side effects!
                 return True
 
         elif ident == DT_IDENTIFIER:
@@ -45,6 +45,9 @@ def is_at_deck(data: dict, network: namedtuple) -> bool: ### changed from datast
 def is_at_cardissue(data: dict) -> bool:
     # addresstrack (AT and DT) issuance transactions reference the txid of the donation in "card.asset_specific_data"
 
+    # WORKAROUND. vout is not saved in protobuf if it's 0.
+    if "vout" not in data:
+        data.update({ "vout": 0 })
     try:
         assert len(data["txid"]) == 32
         assert data["vout"] is not None
@@ -59,7 +62,7 @@ def is_valid_address(address: str, hash_type: int, network: namedtuple) -> bool:
     # could be replaced with a full regex validator as it's not really heavy
 
     try:
-        b58pref = networks.base58_prefixes
+        b58pref = network.base58_prefixes
         if hash_type in (2, 3): # p2pkh & p2sh => p2pk too?
             address_prefixes = [ key for key in b58pref.keys() if b58pref.get(key) == HASHTYPE[hash_type] ]
             assert address[0] in address_prefixes

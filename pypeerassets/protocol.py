@@ -24,6 +24,7 @@ from pypeerassets.provider import Provider
 from pypeerassets.at.protobuf_utils import parse_protobuf
 from pypeerassets.at.identify import is_at_deck, is_at_cardissue
 from pypeerassets.at.dt_parser import dt_parser
+from pypeerassets.at.at_parser import at_parser
 ### LOCK ###
 from pypeerassets.hash_encoding import hash_to_address
 from btcpy.structs.address import Address
@@ -89,7 +90,8 @@ class Deck:
                  epoch_quantity: int=None,
                  min_vote: int=None,
                  sdp_periods: int=None,
-                 sdp_deck: str=None) -> None:
+                 sdp_deck: str=None,
+                 at_address: str=None) -> None:
         '''
         Initialize deck object, load from dictionary Deck(**dict) or initilize
         with kwargs Deck("deck", 3, "ONCE")'''
@@ -114,7 +116,7 @@ class Deck:
             try:
                 # data = parse_deck_extended_data(self.asset_specific_data)
                 data = parse_protobuf(self.asset_specific_data, "deck")
-                if is_at_deck(data, network): # MODIF: this check should be only done once per deck, not in CardTransfer.
+                if is_at_deck(data, net_query(network)):
                     self.at_type = data["id"]
                     if self.at_type == b"DT":
                         self.epoch_length = epoch_length if epoch_length else data["epoch_len"]
@@ -131,9 +133,10 @@ class Deck:
                         # print("LEN", self.epoch_length, "REWARD", self.epoch_quantity, "MINVOTE", self.min_vote, "SDPPERIODS", self.sdp_periods, "SDPDECKID", self.sdp_deckid)
                     elif self.at_type == b"AT":
                         self.multiplier = multiplier if multiplier else data["multiplier"]
-                        self.at_address = at_address if at_address else hash_to_address(data["hash"], data["hash_type"], network)
+                        self.at_address = at_address if at_address else data["at_address"] # TODO if possible, improve this!
+                        # self.at_address = at_address if at_address else hash_to_address(data["hash"], data["hash_type"], net_query(network)) # TODO: this isn't elegant at all, duplicate hash_to_address with is_at_deck!
                         self.addr_type = data["hash_type"] ### new. needed for hash_encoding.
-            except ValueError:
+            except (ValueError, KeyError):
                 # print(self.id)
                 print("Non-Standard asset-specific data. Not adding special parameters.")
 
@@ -431,9 +434,10 @@ class CardTransfer:
             # MODIF: the is_at_deck check is expensive and thus will not be done here again.
             try:
                 assert "at_type" in deck.__dict__ and deck.at_type in (b"AT", b"DT")
+                # clean must be false here due to vout data. TODO: re-check DT!
                 self.extended_data = parse_protobuf(self.asset_specific_data, "card")
-                if is_at_cardissue(self.extended_data) == True:
 
+                if is_at_cardissue(self.extended_data) == True:
                     self.type = "CardIssue"
 
                     self.donation_txid = donation_txid if donation_txid else self.extended_data["txid"].hex()
@@ -485,17 +489,7 @@ class CardTransfer:
         card.number_of_decimals = self.number_of_decimals
         if self.locktime: ### LOCK addition (we don't use a version here, because of the deck version problem)
             card.locktime = self.locktime
-            # card.lock_address = self.lock_address.encode()
-            # lock_address = Address.from_string(string=self.lock_address, network=net_query(self.network))
-            # print(bytes(lock_address.hash))
-            # card.lock_address = bytes(lock_address.hash)
-            #if self.lock_address:
-            #    print("lock address", self.lock_address, type(self.lock_address))
-            #    card.lock_address = b58decode_check(self.lock_address)
-            #    print("B58 encoding lock address to:", card.lock_address)
             if self.lockhash:
-                 # print("lock_hash", self.lockhash, type(self.lockhash))
-                 # print("lock_hash address", hash_to_address(self.lockhash, self.lockhash_type, net_query(self.network)))
                  card.lockhash = self.lockhash
                  card.lockhash_type = self.lockhash_type
         if self.asset_specific_data:
