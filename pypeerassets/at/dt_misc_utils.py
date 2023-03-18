@@ -9,6 +9,7 @@ from pypeerassets.kutil import Kutil
 from pypeerassets.transactions import make_raw_transaction, p2pkh_script, find_parent_outputs, nulldata_script, MutableTxIn, TxIn, TxOut, Transaction, MutableTransaction, MutableTxIn, ScriptSig, Locktime
 from pypeerassets.networks import net_query
 from pypeerassets.provider.rpcnode import Sequence
+from pypeerassets.at.constants import DT_ID
 from btcpy.structs.address import P2shAddress
 from btcpy.structs.script import P2shScript, AbsoluteTimelockScript
 from btcpy.structs.sig import P2shSolver, AbsoluteTimelockSolver, P2pkhSolver, P2pkSolver, Sighash
@@ -431,7 +432,7 @@ def deck_from_p2th(tx: dict, tx_type: str, provider: Provider): # we could do th
     print("No deck for this P2TH address found.")
 
 
-def dt_deck_list(provider: Provider, deck_type: bytes=b'DT', version=1, production=True):
+def dt_deck_list(provider: Provider, deck_type: bytes=DT_ID, version=1, production=True):
     decks = find_all_valid_decks(provider, version, production)
     dt_decklist = []
     for d in decks:

@@ -195,18 +195,25 @@ class ProposalState(object):
             self.set_rounds(phase)
 
         # Mark abandoned donation states:
-        # if called from "outside", if the block height > round end, otherwise when the dist_factor is set (ending period).
-        # abandon_until marks all incomplete states as abandoned if they're checked in a certain round.
+        # Incomplete donation states are marked as "abandoned" when the current block height has passed
+        # the end block of a round or phase where a required transaction (locking or donation) was not observed,
+        # The "abandon_until" indicator indicates a distribution round. When this round is reached by the parser,
+        # it marks all incomplete states corresponding to this round as abandoned.
+        # The dist-factor method is worse, as it tends to classify too early, so it's only used if no blockheight
+        # data is there (TODO: when is that the case? can't we make current_blockheight mandatory?)
+        # TODO: probably the problem of the bug (abandoned states at the start) is the number 0 of abandon_until.
+
+
         if current_blockheight is not None:
+            # We loop in reverse order through the rounds, to be able to break out of the loop as early as possible.
             for rev_r, r_blocks in enumerate(reversed(self.rounds)):
                 if current_blockheight > r_blocks[1][1]: # last block of each locking/donation round
                     abandon_until = 7 - rev_r # reversed order
                     break
                 else:
                     abandon_until = 0
-
         elif self.dist_factor is not None:
-            abandon_until = 7 # all incomplete are marked as abandoned if the parser sets the dist factor
+            abandon_until = 7 # all incomplete are marked as abandoned if the parser has already set the dist factor
         else:
             abandon_until = 0 # nothing is marked as abandoned
 

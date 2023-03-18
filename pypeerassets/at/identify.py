@@ -2,6 +2,7 @@
 from pypeerassets.hash_encoding import HASHTYPE, hash_to_address
 from collections import namedtuple
 from pypeerassets.networks import net_query
+from pypeerassets.at.constants import AT_ID, DT_ID
 ## changed to protobuf.
 ## changed to neutral address format. The previous one would not have worked with SLM mainnet.
 
@@ -16,16 +17,13 @@ Also these functions are all very light so they don't compromise resource usage.
 
 """
 
-AT_IDENTIFIER = b'AT'
-DT_IDENTIFIER = b'DT'
-
 def is_at_deck(data: dict, network: namedtuple) -> bool: ### changed from datastring to data, bytes to object. Added network param.
     # this needs the identification as addresstrack deck.
     try:
 
         ident = data["id"]
 
-        if ident == AT_IDENTIFIER:
+        if ident == AT_ID:
             try:
                 address = hash_to_address(data["hash"], data["hash_type"], network)
             except NotImplementedError:
@@ -35,7 +33,7 @@ def is_at_deck(data: dict, network: namedtuple) -> bool: ### changed from datast
                 data.update({"at_address" : address }) # OPTIMIZATION. Not elegant but saves a hash operation. check for side effects!
                 return True
 
-        elif ident == DT_IDENTIFIER:
+        elif ident == DT_ID:
             return True
 
     except (IndexError, TypeError, KeyError): # datastring not existing or too short

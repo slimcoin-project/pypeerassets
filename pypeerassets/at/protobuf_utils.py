@@ -3,14 +3,12 @@
 
 from .ttx_asd_pb2 import TrackedTransaction as TrackedTransactionProto, CardExtendedData as CardExtendedDataProto, DeckExtendedData as DeckExtendedDataProto
 
-# from .ttx_base import BaseTrackedTransaction
-# from pypeerassets.protocol import Deck, CardTransfer
 from pypeerassets.hash_encoding import address_to_hash
+import pypeerassets.at.constants as c
 from google.protobuf.message import DecodeError
 from decimal import Decimal
+from enum import Enum
 
-
-# TODO: this can be converted in an ENUM
 MESSAGES = {
            "card" : CardExtendedDataProto(),
            "deck" : DeckExtendedDataProto(),
@@ -43,7 +41,8 @@ def serialize_ttx_metadata(network: tuple, transaction: object=None, params: dic
     tx.version = params["ttx_version"] # for upgradeability.
     tx.id = params["id"] if type(params["id"]) == bytes else params["id"].encode("utf-8") # IDEM. TODO.
 
-    if params["id"] == b"DP":
+    #if params["id"] == b"DP":
+    if params["id"] == c.ID_PROPOSAL:
 
         tx.epochs = params["epoch_number"]
         tx.sla = params["round_length"] # deprecated, but we will still use it for the first protobuf tests.
@@ -62,11 +61,13 @@ def serialize_ttx_metadata(network: tuple, transaction: object=None, params: dic
     else:
         tx.txid = bytes.fromhex(params["proposal_id"])
 
-    if params["id"] == b"DL":
+    #if params["id"] == b"DL":
+    if params["id"] == c.ID_LOCKING:
        tx.locktime = params["timelock"]
        tx.lockhash = address_to_hash(params["address"], params["lockhash_type"], network)
        tx.lockhash_type = params["lockhash_type"]
-    elif params["id"] == b"DV":
+    #elif params["id"] == b"DV":
+    elif params["id"] == c.ID_VOTING:
        tx.vote = params["vote"]
 
     check_size(tx, network)
@@ -82,13 +83,15 @@ def serialize_deck_extended_data(network: tuple, deck: object=None, params: dict
 
     d = DeckExtendedDataProto()
     d.id = params["at_type"]
-    if d.id == b"DT":
+    #if d.id == b"DT":
+    if d.id == c.DT_ID:
         d.epoch_len = params["epoch_length"]
         d.reward = params["epoch_quantity"] # name deprecated
         d.min_vote = params["min_vote"]
         d.special_periods = params["sdp_periods"]
         d.voting_token_deckid = params["sdp_deckid"]
-    elif d.id == b"AT":
+    #elif d.id == b"AT":
+    elif d.id == c.AT_ID:
         d.multiplier = params["multiplier"]
         d.hash = address_to_hash(params["at_address"], params["addr_type"], network)
         d.hash_type = params["addr_type"]

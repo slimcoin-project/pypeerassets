@@ -18,25 +18,26 @@ Workaround: deck_data attribute for CardTransfer. Look later for a more elegant 
 
 
 # TODO: It could be simply defined by protocol that the vin which gets credited is the first one, then this would not be necessary. (See problem with possible "batched" burn/donation transactions.)
+# => done as v3, activated. Final decision still pending.
 def vin_check(tx, address, version, provider, debug=False): # "address" seems to be for v1?
     if version == 1:
-        # v0: Only one vin is permitted.
+        # v1: Only one vin is permitted.
         if len(tx["vin"]) > 1:
             if debug:
                 print("Error: More than one input is not permitted in AT V1.")
             return False
     elif version == 2:
-        # v1: several vins are permitted, but all must be from the same address.
+        # v2: several vins are permitted, but all must be from the same address.
         input_address_set = set(input_addresses(tx, provider))
         if debug:
             print("Input addresses:", input_address_set)
         return (len(input_address_set) == 1)
         # return True
     elif version == 3:
-        # v2: several vins are permitted. If there is a change address, biggest vins get fully credited.
+        # v3: several vins are permitted, but the claim transaction must sign with the same key than vin 1.
+        # We can however just return True here because the check is in is_valid_issuance.
         return True
 
-# def is_valid_issuance(provider, sender, tracked_address, ref_txid, ref_vout, ref_amountsum, multiplier):
 def is_valid_issuance(provider: Provider, card: object, tracked_address: str, multiplier: int, at_version: int=1, debug: bool=False) -> bool:
 
     # MODIF: sender, ref_txid, ref_vout and ref_amountsum are all retrievable from card object:
@@ -49,7 +50,6 @@ def is_valid_issuance(provider: Provider, card: object, tracked_address: str, mu
     # IDEA: those who contribute inputs must all separately issue the card (a card can have only one sender).
     # Only thing we need to add then, is a consistent protocol "division" of the funds.
 
-    # parser_version = 0
     total_issuance_amount = sum(card.amount) / (10**card.number_of_decimals)
 
     # check 1: txid must be valid
@@ -59,9 +59,7 @@ def is_valid_issuance(provider: Provider, card: object, tracked_address: str, mu
         if debug:
             print("Error: Bad or non-existing txid.")
         return False
-    # check 2: amount of the tx to the address must be bigger than issued amount * multiplier
-    # MODIF: must now be exactly EQUAL.
-    # This allows issuance of less cards than the "allowed" amount, but then the txid is "used" and can't be used in other issuance. (Could be restricted to the exact amount, discuss.)
+    # check 2: amount of the tx to the address must be equal to issued amount * multiplier
     try:
         tx_amount = tx["vout"][card.donation_vout]["value"]
     except IndexError: # bad vout
@@ -81,6 +79,7 @@ def is_valid_issuance(provider: Provider, card: object, tracked_address: str, mu
     if not vin_check(tx, card.sender, at_version, provider, debug=debug):
         return False
     # check 5 (most expensive, thus last): Sender must be identical with the transaction sender.
+    # This checks always vin[0], i.e. the card issuer must sign with the same key than the first input is signed.
     tx_vin_tx = provider.getrawtransaction(tx["vin"][0]["txid"], 1)
     tx_vin_vout = tx["vin"][0]["vout"]
     tx_sender = tx_vin_tx["vout"][tx_vin_vout]["scriptPubKey"]["addresses"][0] # allows a tx based on a previous tx with various vouts.
@@ -103,13 +102,14 @@ def at_parser(cards: list, provider: Provider, deck: object, debug: bool=True):
     # oldtxid = ""
 
     #at_version = 1 if "version" not in deck_metadata else deck_metadata["version"]
-    at_version = 2
+    at_version = 3 # v3: all is credited to address of first vin.
     # TODO: version parameter still not handled in deck protobuf.
 
     # first, separate CardIssues from other cards
     # card.amount is a list, the sum must be equal to the amount of the tx * multiplier}
     if debug:
-        print("All cards:", [card.txid for card in cards])
+        print("All cards:\n", [(card.blocknum, card.blockpos, card.txid) for card in cards])
+    # TODO we might have to sort the cards here.
     for card in cards:
         if card.type == "CardIssue":
             if debug:
@@ -141,42 +141,6 @@ def at_parser(cards: list, provider: Provider, deck: object, debug: bool=True):
 
     return valid_cards
 
-def parser_old(cards, provider):
-    valid_issuances = []
-    issuance_attempts = []
-    regular_cards = []
-
-    # first, separate CardIssues from other cards
-    # check 1: check if the txid exist and the amount is correct
-    for i in cards:
-        if i.type == "CardIssue":
-            txid, vout = i.asset_specific_data.split(b":")[1:3]
-            txidstr, voutstr = txid.decode("utf-8"), vout.decode("utf-8")
-            if is_valid_issuance(provider, txidstr, voutstr, i.amount, multiplier(i)):
-                issuance_attempts.append(card)
-        else:
-            regular_cards.append(card)
-
-    # check 2: eliminate all duplicates which reference the same transaction. Only the first of these is valid.
-    for i in issuance_attempts:
-
-        # for each issuance, find other cards from the same deck issued by the same sender
-        sender_issuances = [ j for j in issuance_attempts if j.sender == i.sender ]
-        # look for issuance referencing the same txid
-        for k in [ l for l in sender_issuances if tracked_address(l) == tracked_address(k) ]:
-            txattempts = {}
-            transactions = []
-            for tx in tracked_transactions(k):
-                transactions.append(tx)
-                if [amount_to_address(tracked_address(k), tx) * multiplier(k)] == k.amount:
-                    txattempts.update({"tx" : tx, "card" : k})
-            for tx in set(transactions):
-                first_issue_for_tx = next([ m for m in txattempts if m["tx"] == tx ]) # this works only if all transactions are processed chronologically and this isn't changed by this algo. Otherwise the timestamp has to be checked for validity.
-                # other idea could be that all duplicates are bogus (but would this be accepted?)
-                valid_issuances.append(m["card"])
-
-    return valid_issuances + regular_cards
-
 # NOT NECESSARY. DeckState does this. For a "partial state" a method involving DeckState is better.
 #def update_at_balance(deck, provider, account="", many=999, since=0):
 #    """This function checks if there are new transactions from the addresses from a selected account
@@ -185,11 +149,11 @@ def parser_old(cards, provider):
 #    tracked_address = tracked_address_from_deck(deck)
 #    tx_list = provider.listtransactions(account, many, since)
 
-def burn_address(network): # for tests
-    if network.is_testnet:
-        return mmSLiMCoinTestnetBurnAddress1XU5fu
+def burn_address(network: tuple=None, network_name: str=None): # for tests, TODO: this works only with SLM!
+    if (network is not None and network.is_testnet) or network_name[0] == "t":
+        return "mmSLiMCoinTestnetBurnAddress1XU5fu"
     else:
-        pass # mainnet burn addr.
+        return "SfSLMCoinMainNetworkBurnAddr1DeTK5"
 
 def input_addresses(tx, provider): # taken from dt_entities. Should perhaps be an utility in dt_misc_utils.
     addresses = []

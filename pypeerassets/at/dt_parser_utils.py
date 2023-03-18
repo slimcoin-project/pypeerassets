@@ -187,6 +187,7 @@ def update_voters(voters={}, new_cards=[], weight=1, dec_diff=0, debug=False):
 def deck_from_tx(txid: str, provider: Provider, deck_version: int=1, prod: bool=True):
     '''Wrapper for deck_parser, gets the deck from the TXID.'''
     # NOTE: at a first glance this may fit better in dt_misc_utils, but then it throws a circular import.
+    # TODO replace completely with find_deck.
     from pypeerassets.pautils import deck_parser
 
     params = param_query(provider.network)

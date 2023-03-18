@@ -2,8 +2,7 @@
 
 """Basic classes for coin transactions in DT tokens.
 Note: All coin amounts are expressed in Bitcoin satoshi, not in "coins" (using the "from_unit" in networks)
-This means that the satoshi amounts do not correspond to the minimum unit in currencies like SLM or PPC with less decimal places."""
-# TODO CHANGE TO PROTOBUF: lockhash/address in LockingTransaction, others should be ready.
+This means that the satoshi amounts do not correspond to the minimum unit in currencies like SLM or PPC with less decimal places.""" # TODO this is probably obsolete
 
 from btcpy.structs.script import AbsoluteTimelockScript, P2pkhScript, P2shScript
 from btcpy.structs.address import Address, P2shAddress, P2pkhAddress
@@ -13,15 +12,8 @@ from pypeerassets.transactions import Transaction, TxIn, TxOut, Locktime
 from pypeerassets.at.ttx_base import BaseTrackedTransaction, InvalidTrackedTransactionError
 from pypeerassets.networks import net_query
 from pypeerassets.hash_encoding import hash_to_address
-# from pypeerassets.at.transaction_formats import getfmt, PROPOSAL_FORMAT, DONATION_FORMAT, LOCKING_FORMAT, VOTING_FORMAT
+from pypeerassets.at.constants import P2TH_OUTPUT, DATASTR_OUTPUT, DONATION_OUTPUT, RESERVED_OUTPUT
 
-
-# Constants. All TrackedTransactions must follow this scheme of outputs.
-
-P2TH_OUTPUT=0 # output which goes to P2TH address
-DATASTR_OUTPUT=1 # output with data string (OP_RETURN)
-DONATION_OUTPUT=2 # output with donation/signalling amount
-RESERVED_OUTPUT=3 # output for a reservation for other rounds.
 
 class TrackedTransaction(BaseTrackedTransaction):
     """A TrackedTransaction is a transaction tracked by the AT or DT mechanisms.
@@ -188,13 +180,6 @@ class LockingTransaction(TrackedTransaction):
 
             try:
                 p2sh_script = locked_out.script_pubkey
-                #print("TX P2SH script", p2sh_script)
-                # fmt = LOCKING_FORMAT
-
-                ### CHANGED TO PROTOBUF
-                # public_timelock = int.from_bytes(getfmt(self.datastr, fmt, "lck"), "big")
-                # public_dest_address = getfmt(self.datastr, fmt, "adr").decode("utf-8") # this is the address of the pubkey needed to unlock
-                # public_timelock = self.metadata.locktime
                 public_timelock = self.metadata["locktime"]
                 try:
                     # public_dest_address = hash_to_address(self.metadata.lockhash, self.metadata.lockhash_type, network)

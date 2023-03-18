@@ -20,17 +20,18 @@ from pypeerassets.networks import net_query
 
 ### ADDRESSTRACK ###
 from pypeerassets.provider import Provider
-# from pypeerassets.at.transaction_formats import getfmt, DECK_SPAWN_AT_FORMAT, DECK_SPAWN_DT_FORMAT, CARD_ISSUE_DT_FORMAT, P2TH_MODIFIER
 from pypeerassets.at.protobuf_utils import parse_protobuf
 from pypeerassets.at.identify import is_at_deck, is_at_cardissue
 from pypeerassets.at.dt_parser import dt_parser
 from pypeerassets.at.at_parser import at_parser
+from pypeerassets.at.constants import P2TH_MODIFIER, DT_ID, AT_ID
+import pypeerassets.at.extension_protocol as ep ### EXPERIMENTAL
 ### LOCK ###
 from pypeerassets.hash_encoding import hash_to_address
 from btcpy.structs.address import Address
 from btcpy.lib.base58 import b58decode_check
 
-P2TH_MODIFIER = { "proposal" : 1, "voting" : 2, "donation" : 3, "signalling" : 4, "locking" : 5 }
+# P2TH_MODIFIER = { "proposal" : 1, "voting" : 2, "donation" : 3, "signalling" : 4, "locking" : 5 }
 
 class IssueMode(Enum):
 
@@ -108,37 +109,14 @@ class Deck:
         self.network = network
         self.production = production
 
+        ### ADDRESSTRACK: outsource custom attributes of extensions
+        # TODO: for beta 2: the custom attributes should go into a single dict-style attribute of the deck,
+        # so the ugly self argument isn't necessary.
+        # a class "ExtensionAttributes" or similar would be best.
 
-        ### additional Deck attributes for AT/DT types: ### PROTOBUF: changed structure a little bit
-        # if self.asset_specific_data and self.issue_mode == IssueMode.CUSTOM.value:
         if self.issue_mode == IssueMode.CUSTOM.value:
-            ### PROTOBUF changes
-            try:
-                # data = parse_deck_extended_data(self.asset_specific_data)
-                data = parse_protobuf(self.asset_specific_data, "deck")
-                if is_at_deck(data, net_query(network)):
-                    self.at_type = data["id"]
-                    if self.at_type == b"DT":
-                        self.epoch_length = epoch_length if epoch_length else data["epoch_len"]
-                        self.standard_round_length = (self.epoch_length // 32) * 2 # a round value is better
-                        self.epoch_quantity = epoch_quantity if epoch_quantity else data["reward"] # shouldn't this better be called "epoch_reward" ?? # TODO
 
-                        # optional attributes
-                        self.min_vote = min_vote if min_vote else data.get("min_vote")
-                        self.sdp_periods = sdp_periods if sdp_periods else data.get("special_periods")
-                        try:
-                            self.sdp_deckid = sdp_deck.hex() if sdp_deck else data.get("voting_token_deckid").hex()
-                        except AttributeError:
-                            self.sdp_deckid = None
-                        # print("LEN", self.epoch_length, "REWARD", self.epoch_quantity, "MINVOTE", self.min_vote, "SDPPERIODS", self.sdp_periods, "SDPDECKID", self.sdp_deckid)
-                    elif self.at_type == b"AT":
-                        self.multiplier = multiplier if multiplier else data["multiplier"]
-                        self.at_address = at_address if at_address else data["at_address"] # TODO if possible, improve this!
-                        # self.at_address = at_address if at_address else hash_to_address(data["hash"], data["hash_type"], net_query(network)) # TODO: this isn't elegant at all, duplicate hash_to_address with is_at_deck!
-                        self.addr_type = data["hash_type"] ### new. needed for hash_encoding.
-            except (ValueError, KeyError):
-                # print(self.id)
-                print("Non-Standard asset-specific data. Not adding special parameters.")
+            ep.initialize_custom_deck_attributes(self, network, epoch_length=epoch_length, epoch_quantity=epoch_quantity, min_vote=min_vote, sdp_periods=sdp_periods, sdp_deck=sdp_deck, multiplier=multiplier, at_address=at_address)
 
 
     @property ### MODIFIED VERSION TO OPTIMIZE SPEED ###
@@ -423,6 +401,7 @@ class CardTransfer:
             self.tx_confirmations = 0
 
         ### AT ###
+        # this function defines the type of the CardTransfer and some other attributes.
         # if deck contains correct addresstrack-specific metadata and the card references a txid,
         # the card type is CardIssue. Will be validated later by custom parser.
         # modified order because with AT tokens, deck issuer can be the receiver.
@@ -431,29 +410,7 @@ class CardTransfer:
         # be burnt sending them to unspendable addresses.
 
         if deck.issue_mode == IssueMode.CUSTOM.value:
-            # MODIF: the is_at_deck check is expensive and thus will not be done here again.
-            try:
-                assert "at_type" in deck.__dict__ and deck.at_type in (b"AT", b"DT")
-                # clean must be false here due to vout data. TODO: re-check DT!
-                self.extended_data = parse_protobuf(self.asset_specific_data, "card")
-
-                if is_at_cardissue(self.extended_data) == True:
-                    self.type = "CardIssue"
-
-                    self.donation_txid = donation_txid if donation_txid else self.extended_data["txid"].hex()
-                    self.donation_vout = self.extended_data["vout"] # TODO: re-check if this is really optional.
-                else:
-
-                    self.type = "CardTransfer" # includes, for now, issuance attempts with completely invalid data
-
-                self.at_type = deck.at_type # # MODIF: replaces the obsolete card.extended_data.id
-            except (ValueError, KeyError, AssertionError):
-                # this happens with non-dt tokens using a custom parser,
-                # or with faulty dt tokens with data not protobuf formatted, or one of the txid and vout values missing.
-                # This doesn't raise an error, because if a non-compatible asset_specific_data in deck
-                # by chance gets interpeted as AT or DT, it should not be necessarily be invalid.
-                self.type = "CardTransfer"
-
+            ep.initialize_custom_card_attributes(self, deck, donation_txid=donation_txid)
 
         elif self.sender == deck.issuer:
             # if deck issuer is issuing cards to the deck issuing address,
@@ -576,15 +533,12 @@ def validate_card_issue_modes(issue_mode: int, cards: list, provider: Provider=N
                 continue
 
             try: ### added. the AttributeError is thrown when no Protobuf data is found.
-                # at_type replaces extended_data.id, see above.
-                if cards[0].at_type == b"DT": ### ADDRESSTRACK modification ### MODIF:
+                if cards[0].at_type == DT_ID: ### ADDRESSTRACK modification
                     parsed_cards = parser_fn(cards, dt_parser, provider, deck)
-                elif cards[0].at_type == b"AT":
-                    parsed_cards = parser_fn(cards, at_parser, provider, deck) ## TODO: re-check.
+                elif cards[0].at_type == AT_ID:
+                    parsed_cards = parser_fn(cards, at_parser, provider, deck) ## TODO: re-check. Generates circ. import.
             except AttributeError:
                 parsed_cards = parser_fn(cards)
-            #else:
-            #    parsed_cards = parser_fn(cards)
 
             if not parsed_cards:
                 return []
@@ -594,7 +548,7 @@ def validate_card_issue_modes(issue_mode: int, cards: list, provider: Provider=N
 
 
 class DeckState:
-    ### ADDRESSTRACK: added attribute valid_cards to be able to process only the valid cards.
+    ### ADDRESSTRACK: added attribute valid_cards to be able to process only the valid (non-bogus) cards.
     ### LOCK: self.lock is dict of senders, with dicts including locktime and amount.
     ### NOTE: you have to define cleanup_height to cleanup locks remaining after the last card.
 
@@ -610,7 +564,7 @@ class DeckState:
         self.processed_burns = set()
         self.valid_cards = cast(list, []) ### ADDRESSTRACK.
         self.debug = False ### addition to check LOCK modifications.
-        self.cleanup_height = cleanup_height
+        self.cleanup_height = cleanup_height ### LOCK
 
         self.calc_state()
         self.checksum = not bool(self.total - sum(self.balances.values()))

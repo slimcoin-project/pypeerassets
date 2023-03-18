@@ -1,23 +1,16 @@
 #!/usr/bin/env python3
 
 """ Basic parser for DT cards with the major validation steps.
-It loops through the cards by epoch, instead by card. This allows to update the enabled voters in each epoch,
+It loops through the cards by epoch and then by card. This allows to update the enabled voters in each epoch,
 and so calculate the valid proposals which were selected from the next epoch.
 Minor functions are in dt_parser_utils. """
 
-# from decimal import Decimal
-# from pypeerassets.at.dt_entities import ProposalTransaction, SignallingTransaction, DonationTransaction, LockingTransaction
-# from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
-# from pypeerassets.at.dt_states import ProposalState, DonationState
-# from pypeerassets.at.transaction_formats import *
-# from pypeerassets.at.dt_parser_utils import *
 from pypeerassets.at.dt_parser_state import ParserState
 
 def dt_parser(cards: list, provider: object, deck: object, current_blockheight: int=None, initial_parser_state: object=None, force_dstates: bool=False, force_continue: bool=False, start_epoch: int=None, end_epoch: int=None, debug: bool=False, debug_voting: bool=False, debug_donations: bool=False):
     """Basic parser loop. Loops through all cards, and processes epochs."""
 
     # TODO: Transactions in the same block must also be ordered by block position.
-    # Modified: added blockseq and cardseq.
     cards.sort(key=lambda x: (x.blocknum, x.blockseq, x.cardseq))
 
     # initial_parser_state enables to continue parsing from a certain blockheight or use the parser from "outside".

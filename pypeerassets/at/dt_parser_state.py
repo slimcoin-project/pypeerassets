@@ -10,6 +10,9 @@ from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
 from pypeerassets.at.dt_states import ProposalState, DonationState
 from pypeerassets.at.transaction_formats import *
 from pypeerassets.at.dt_parser_utils import *
+# from pypeerassets.__main__ import find_deck # circular import, TODO refactor.
+import pypeerassets.at.constants as c
+import pypeerassets as pa
 from copy import deepcopy
 
 class ParserState(object):
@@ -40,7 +43,9 @@ class ParserState(object):
 
         # SDP voters/balances are stored as CardTransfers, so they can be easily retrieved with PeerAsset standard methods.
         if self.deck.sdp_deckid:
-            self.sdp_deck = deck_from_tx(self.deck.sdp_deckid, self.provider)
+            # self.sdp_deck = deck_from_tx(self.deck.sdp_deckid, self.provider)
+            # TODO: find_deck should be used but currently generates circular import.
+            self.sdp_deck = pa.find_deck(provider=self.provider, key=self.deck.sdp_deckid, version=c.DECK_VERSION)
             # The SDP Decimal Diff is the difference between the number of decimals of the main token and the voting token.
             self.sdp_decimal_diff = self.deck.number_of_decimals - self.sdp_deck.number_of_decimals
         else:
