@@ -1,8 +1,9 @@
 from pypeerassets.at.dt_entities import ProposalTransaction, SignallingTransaction, DonationTimeLockScript
 from pypeerassets.at.dt_states import ProposalState
 from pypeerassets.at.dt_parser import ParserState, dt_parser
-from pypeerassets.at.dt_parser_utils import deck_from_tx
-from pypeerassets.__main__ import get_card_bundles, find_all_valid_decks
+# from pypeerassets.at.dt_parser_utils import deck_from_tx
+# from pypeerassets.__main__ import get_card_bundles, find_all_valid_decks, find_deck
+import pypeerassets as pa
 from pypeerassets.provider import Provider
 from pypeerassets.protocol import Deck
 from pypeerassets.kutil import Kutil
@@ -162,7 +163,8 @@ def get_donation_states(provider, proposal_id=None, proposal_tx=None, tx_txid=No
 
     return result
 
-def proposal_from_tx(proposal_id, provider, deckid=None, deck=None):
+def find_proposal(proposal_id, provider, deckid=None, deck=None, deck_version=1, production=True):
+    # MODIF: name changed to match find_deck syntax.
     # best thing is if we know deckid or deck.
     if deck is None:
         if deckid is None:
@@ -170,17 +172,20 @@ def proposal_from_tx(proposal_id, provider, deckid=None, deck=None):
             ttx = provider.getrawtransaction(proposal_id, 1)
             deck = deck_from_p2th(ttx, "proposal", provider)
         else:
-            deck = deck_from_tx(deckid, provider)
+            # deck = deck_from_tx(deckid, provider)
+            deck = pa.find_deck(provider, deckid, deck_version, production)
     return ProposalTransaction.from_txid(proposal_id, provider, deck=deck, basicdata=basicdata)
 
-def get_parser_state(provider, deck=None, deckid=None, lastblock=None, force_continue=False, force_dstates=False, debug=False, debug_voting=False, debug_donations=False):
+def get_parser_state(provider, deck=None, deckid=None, lastblock=None, force_continue=False, force_dstates=False, debug=False, debug_voting=False, debug_donations=False, deck_version=1, production=True):
 
     if not deck:
         if not deckid:
             raise ValueError("No deck id provided.")
-        deck = deck_from_tx(deckid, provider)
+        #deck = deck_from_tx(deckid, provider)
+        deck = pa.find_deck(provider, deckid, deck_version, production)
 
-    unfiltered_cards = list((card for batch in get_card_bundles(provider, deck) for card in batch))
+    # unfiltered_cards = list((card for batch in get_card_bundles(provider, deck) for card in batch))
+    unfiltered_cards = list((card for batch in pa.get_card_bundles(provider, deck) for card in batch))
 
     pst = ParserState(deck, unfiltered_cards, provider, current_blockheight=lastblock, debug=debug, debug_voting=debug_voting, debug_donations=debug_donations)
 
@@ -197,7 +202,7 @@ def get_proposal_state(provider, proposal_id=None, proposal_tx=None, deck=None, 
 
     current_blockheight = provider.getblockcount()
     if not proposal_tx:
-        ptx = proposal_from_tx(proposal_id, provider)
+        ptx = find_proposal(proposal_id, provider)
     else:
         ptx = proposal_tx
         proposal_id = ptx.txid
@@ -299,7 +304,7 @@ def create_unsigned_tx(deck: Deck, provider: Provider, tx_type: str, network_nam
         data_output = create_opreturn_txout(tx_type, data, network=network)
 
         if (address == None) and (tx_type == "donation"):
-            ptx = proposal_from_tx(proposal_txid, provider)
+            ptx = find_proposal(proposal_txid, provider)
             address = ptx.donation_address
 
         outputs = [p2th_output, data_output]
@@ -433,7 +438,8 @@ def deck_from_p2th(tx: dict, tx_type: str, provider: Provider): # we could do th
 
 
 def dt_deck_list(provider: Provider, deck_type: bytes=DT_ID, version=1, production=True):
-    decks = find_all_valid_decks(provider, version, production)
+    # decks = find_all_valid_decks(provider, version, production)
+    decks = pa.find_all_valid_decks(provider, version, production)
     dt_decklist = []
     for d in decks:
         try:

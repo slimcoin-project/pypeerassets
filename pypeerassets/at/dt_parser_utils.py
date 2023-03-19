@@ -5,9 +5,7 @@ from decimal import Decimal
 from pypeerassets.at.dt_entities import ProposalTransaction #, SignallingTransaction, DonationTransaction, LockingTransaction, VotingTransaction
 from pypeerassets.at.dt_entities import InvalidTrackedTransactionError # , DONATION_OUTPUT, DATASTR_OUTPUT
 from pypeerassets.at.dt_states import ProposalState
-# from pypeerassets.at.transaction_formats import *
 from pypeerassets.provider import Provider
-# from pypeerassets.kutil import Kutil
 from pypeerassets.pa_constants import param_query
 
 ### Transaction retrieval
@@ -184,7 +182,7 @@ def update_voters(voters={}, new_cards=[], weight=1, dec_diff=0, debug=False):
 
 ### Other utils
 
-def deck_from_tx(txid: str, provider: Provider, deck_version: int=1, prod: bool=True):
+"""def deck_from_tx(txid: str, provider: Provider, deck_version: int=1, prod: bool=True):
     '''Wrapper for deck_parser, gets the deck from the TXID.'''
     # NOTE: at a first glance this may fit better in dt_misc_utils, but then it throws a circular import.
     # TODO replace completely with find_deck.
@@ -196,4 +194,4 @@ def deck_from_tx(txid: str, provider: Provider, deck_version: int=1, prod: bool=
     deck = deck_parser((provider, raw_tx, deck_version, p2th), prod)
     #if deck is None:
     #    raise ValueError("No correct deck information provided.")
-    return deck
+    return deck"""
