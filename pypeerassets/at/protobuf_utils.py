@@ -99,15 +99,16 @@ def serialize_deck_extended_data(network: tuple, deck: object=None, params: dict
     check_size(d, network)
     return d.SerializeToString()
 
-def serialize_card_extended_data(network: tuple, card: object=None, id: bytes=None, txid: str=None, vout: int=None):
+def serialize_card_extended_data(network: tuple, card: object=None, id: bytes=None, txid: str=None):
 
     # NOTE: id scrapped. protocol re-checked, works now.
     if card is not None:
-        txid, vout = bytes.fromhex(card.donation_txid), card.donation_vout
+        txid = bytes.fromhex(card.donation_txid)
+        # txid, vout = bytes.fromhex(card.donation_txid), card.donation_vout
 
     c = CardExtendedDataProto()
     c.txid = bytes.fromhex(txid)
-    c.vout = vout # probably not needed, but current parser requires it.
+    # c.vout = vout # not currently used, but we keep it in the case of someone needing to use a distinct vout for DT donations. # discarded for now. Not useful for PoB tokens, and there seems to be no real use case in DT as well.
 
     check_size(c, network)
     return c.SerializeToString()

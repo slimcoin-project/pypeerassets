@@ -263,26 +263,7 @@ def parse_card_transfer_metainfo(protobuf: bytes, deck_version: int) -> dict:
     if not card.version == deck_version:
         raise CardVersionMismatch({'error': 'card version does not match deck version.'})
 
-
-    ### LOCK: modified for locktime
-    # to not overcomplicate things, the CardTransfer object receives the lock_address
-    # in the hashed form.
-    # NOTE: do we need this for the new lockhash version ?
-    #print(card.__slots__)
-    #if "lockhash" not in card.__slots__: # this doesn't work, __dict__ also not.
-    #    card.lockhash = None
-    #    card.lockhash_type = None
-    """if card.lock_address:
-        lock_address = b58encode_check(card.lock_address)
-    else:
-        lock_address = None
-    print("card lock address hash:", card.lock_address, type(card.lock_address))
-    try:
-        lock_address = Address(card.lock_address, network=net_query(card.network))
-    except Exception as e:
-        # if the address is not correctly formatted we ignore it
-        print("ERROR", e)
-        lock_address = None"""
+    ### LOCK: added locktime, lockhash and lockhash_type
 
     return {
         "version": card.version,
