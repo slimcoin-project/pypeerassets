@@ -13,6 +13,8 @@ from pypeerassets.at.ttx_base import BaseTrackedTransaction, InvalidTrackedTrans
 from pypeerassets.networks import net_query
 from pypeerassets.hash_encoding import hash_to_address
 from pypeerassets.at.constants import P2TH_OUTPUT, DATASTR_OUTPUT, DONATION_OUTPUT, RESERVED_OUTPUT
+# from pypeerassets.pautils import find_tx_sender # this gives circular import
+# import pypeerassets.pautils as pu
 
 
 class TrackedTransaction(BaseTrackedTransaction):
@@ -299,17 +301,20 @@ class ProposalTransaction(TrackedTransaction):
         # epoch_number = self.metadata.epochs
         epoch_number = self.metadata["epochs"]
         # MODIF: standard round length implementation.
-        if round_length is None:
+        # MODIF: standard round length replaces round_length completely.
+        """if round_length is None:
             try:
                 round_length = self.metadata["sla"]
                 assert self.metadata != None
             except (KeyError, AssertionError):
                 # round_length = self.metadata.sla
-                round_length = self.deck.standard_round_length
+                round_length = self.deck.standard_round_length"""
 
         # NOTE: req_amount was before a small int number, now it can be a number of up to the max amount of decimal places
         # req_amount = self.metadata.amount
         req_amount = self.metadata["amount"]
+        # Description. Short optional string which can be used to describe or give a name (non-unique) to the Proposal.
+        description = self.metadata.get("description")
 
         if first_ptx_txid is None:
             # MODIFIED: we now use .txid, not .txid2 anymore for modifications.
@@ -322,22 +327,15 @@ class ProposalTransaction(TrackedTransaction):
                 except AssertionError:
                     raise InvalidTrackedTransactionError("TXID of modified proposal is in wrong format.")
 
-            """try:
-                assert len(self.metadata.txid) == 32
-                first_ptx_txid = self.metadata.txid.hex()
-
-            except AttributeError:
-                pass
-            except AssertionError:
-                if len(self.metadata.txid) > 0:
-                     raise InvalidTrackedTransactionError("TXID of modified proposal is in wrong format.")"""
-
 
         # Donation Address. This one must be one from which the ProposalTransaction was signed.
         # Otherwise spammers could confuse the system.
-        # CONVENTION for now: It is the address of the FIRST input of the ProposalTransaction.
+        # CONVENTION for now: It is the address of the FIRST input of the ProposalTransaction,
+        # thus we can use find_tx_sender.
+        # TODO: currently find_tx_sender generates a circular import, even if importing complete pautils module.
         if not donation_address:
             try:
+                # donation_address = pu.find_tx_sender(self.to_json)
                 input_txid = self.ins[0].txid
                 input_vout = self.ins[0].txout
                 input_tx = provider.getrawtransaction(input_txid, 1)
@@ -350,7 +348,8 @@ class ProposalTransaction(TrackedTransaction):
         object.__setattr__(self, 'donation_address', donation_address)
 
         object.__setattr__(self, 'epoch_number', epoch_number) # epochs: epochs to work on.
-        object.__setattr__(self, 'round_length', round_length) # Proposer can define length of each round of the distribution.
+        # object.__setattr__(self, 'round_length', round_length) # Proposer can define length of each round of the distribution.
+        object.__setattr__(self, 'description', description) # Requested amount of coin units.
         object.__setattr__(self, 'req_amount', req_amount) # Requested amount of coin units.
         object.__setattr__(self, 'first_ptx_txid', first_ptx_txid)
 

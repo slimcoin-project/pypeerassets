@@ -1,7 +1,7 @@
 import pypeerassets.transactions as patx # MutableTransaction, tx_output, p2pkh_script, make_raw_transaction
 from pypeerassets.provider import Provider
 from decimal import Decimal
-from pypeerassets.at.dt_misc_utils import coins_to_sats, sats_to_coins
+from pypeerassets.at.dt_misc_utils import coins_to_sats, sats_to_coins # these should be changed to here.
 from pypeerassets.networks import net_query
 
 class TransactionDraft():
@@ -40,6 +40,7 @@ class TransactionDraft():
 
 
     def add_single_input(self, txid, vout):
+        # needed for DEX, TODO!
         pass
 
     def add_necessary_inputs(self, input_address, coins=None, sats=None):
@@ -51,11 +52,11 @@ class TransactionDraft():
             amount = self.sats_to_coins(sats)
         elif coins:
             amount = coins
-
-        print(input_address, amount)
+        if self.debug:
+            print("Input address and amount:", input_address, amount)
         input_query = self.provider.select_inputs(input_address, amount)
         inputs = input_query["utxos"]
-        print(inputs)
+        # print(inputs)
         input_sats = self.coins_to_sats(Decimal(input_query["total"]))
         self.ins += inputs
         self.input_sats += input_sats
@@ -97,9 +98,10 @@ class TransactionDraft():
             #     raise ValueError("Change output already created!")  # maybe this would make sense. Decide later.
 
         if address is None:
-            address = provider.getnewaddress() # TODO: there is an "account" param, add this.
+            address = self.provider.getnewaddress() # TODO: there is an "account" param, add this.
         change_amount = self.input_sats - self.get_required_amount()
-        print(change_amount, type(change_amount))
+        if self.debug:
+            print("Change amount:", change_amount)
         self.add_p2pkh_output(address, sats=change_amount, output_index=output_index)
         self.change_output_index = output_index
 
@@ -110,8 +112,9 @@ class TransactionDraft():
     def get_required_amount(self):
         output_sum = sum([o.value for o in self.outs])
         fee = self.fee_sats
-        print("os", output_sum)
-        print("fee", fee)
+        if self.debug:
+            print("output sum", output_sum)
+            print("fee", fee)
         return output_sum + fee
 
 

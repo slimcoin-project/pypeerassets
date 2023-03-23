@@ -14,12 +14,14 @@ def get_marked_txes(provider, p2th_account, min_blockheight=None, max_blockheigh
     # basic function. Gets all txes sent to a P2TH address, looping through "listtransactions".
     # This needs before the address being imported into the coin wallet, and the account being set to its name.
     # (see import_p2th_address)
+    # MODIF. As listtransactions is unpredictable and may lead to duplicates, we filter them out with set.
+    # Re-check speed.
 
     if min_blockheight is not None:
         min_blocktime = provider.getblock(provider.getblockhash(min_blockheight))["time"]
     if max_blockheight is not None:
         max_blocktime = provider.getblock(provider.getblockhash(max_blockheight))["time"]
-    txlist = []
+    txidlist = []
     start = 0
     while True:
         newtxes = provider.listtransactions(p2th_account, 999, start)
@@ -31,9 +33,11 @@ def get_marked_txes(provider, p2th_account, min_blockheight=None, max_blockheigh
               if tx["blocktime"] < min_blocktime:
                   continue
 
-           txlist.append(provider.getrawtransaction(tx["txid"], 1))
+           # txlist.append(provider.getrawtransaction(tx["txid"], 1))
+           txidlist.append(tx["txid"])
 
         if len(newtxes) < 999: # lower than limit
+            txlist = [ provider.getrawtransaction(t, 1) for t in set(txidlist) ]
             return txlist
         start += 999
 

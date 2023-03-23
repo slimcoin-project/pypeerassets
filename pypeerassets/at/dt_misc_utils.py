@@ -1,16 +1,16 @@
+import pypeerassets as pa
+import pypeerassets.at.constants as c
 from pypeerassets.at.dt_entities import ProposalTransaction, SignallingTransaction, DonationTimeLockScript
 from pypeerassets.at.dt_states import ProposalState
 from pypeerassets.at.dt_parser import ParserState, dt_parser
-# from pypeerassets.at.dt_parser_utils import deck_from_tx
-# from pypeerassets.__main__ import get_card_bundles, find_all_valid_decks, find_deck
-import pypeerassets as pa
+from pypeerassets.at.protobuf_utils import parse_protobuf
 from pypeerassets.provider import Provider
 from pypeerassets.protocol import Deck
+from pypeerassets.pautils import read_tx_opreturn
 from pypeerassets.kutil import Kutil
 from pypeerassets.transactions import make_raw_transaction, p2pkh_script, find_parent_outputs, nulldata_script, MutableTxIn, TxIn, TxOut, Transaction, MutableTransaction, MutableTxIn, ScriptSig, Locktime
 from pypeerassets.networks import net_query
 from pypeerassets.provider.rpcnode import Sequence
-from pypeerassets.at.constants import DT_ID
 from btcpy.structs.address import P2shAddress
 from btcpy.structs.script import P2shScript, AbsoluteTimelockScript
 from btcpy.structs.sig import P2shSolver, AbsoluteTimelockSolver, P2pkhSolver, P2pkSolver, Sighash
@@ -80,6 +80,26 @@ def get_dstates_from_txid(txid: str, proposal_state: ProposalState, only_signall
 
     return result
 
+def get_dstate_from_origin_tx(txid: str, provider: Provider):
+    # this is simpler. The donation state exactly corresponding to a signalling/reserve transaction is returned.
+    try:
+        rawtx = provider.getrawtransaction(txid, 1)
+        op_return_output = rawtx["vout"][c.DATASTR_OUTPUT]
+        ttxdata = parse_protobuf(read_tx_opreturn(op_return_output), "ttx")
+        assert ttxdata.id in (c.ID_SIGNALLING, c.ID_LOCKING, c.ID_DONATION)
+
+    except (AssertionError, KeyError):
+        print("Donation state not found, no signalling/reserve transaction starting with this string.")
+        return None
+
+    proposal = get_proposal_state(ttxdata.proposal_id, provider)
+
+    for dstate in proposal.donation_states:
+        if tx.txid == dstate.id:
+            return dstate
+    else:
+        print("Donation state is invalid.")
+        return None
 
 def get_dstates_from_address(address: str, proposal_state: ProposalState, dist_round: int=None):
     # returns donation state from an address used in a signalling, locking or donation transaction.
@@ -172,7 +192,6 @@ def find_proposal(proposal_id, provider, deckid=None, deck=None, deck_version=1,
             ttx = provider.getrawtransaction(proposal_id, 1)
             deck = deck_from_p2th(ttx, "proposal", provider)
         else:
-            # deck = deck_from_tx(deckid, provider)
             deck = pa.find_deck(provider, deckid, deck_version, production)
     return ProposalTransaction.from_txid(proposal_id, provider, deck=deck, basicdata=basicdata)
 
@@ -437,7 +456,7 @@ def deck_from_p2th(tx: dict, tx_type: str, provider: Provider): # we could do th
     print("No deck for this P2TH address found.")
 
 
-def dt_deck_list(provider: Provider, deck_type: bytes=DT_ID, version=1, production=True):
+def dt_deck_list(provider: Provider, deck_type: bytes=c.ID_DT, version=1, production=True):
     # decks = find_all_valid_decks(provider, version, production)
     decks = pa.find_all_valid_decks(provider, version, production)
     dt_decklist = []

@@ -62,8 +62,8 @@ class BaseTrackedTransaction(Transaction):
             raise InvalidTrackedTransactionError("No OP_RETURN data.")
 
         try:
-
             object.__setattr__(self, 'metadata', parse_protobuf(datastr, "ttx"))
+
         except Exception as e:
             print("Error, metadata not correctly formatted for protobuf.")
             print(e)

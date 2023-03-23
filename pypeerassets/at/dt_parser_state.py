@@ -8,11 +8,9 @@ from decimal import Decimal
 from pypeerassets.at.dt_entities import ProposalTransaction, SignallingTransaction, DonationTransaction, LockingTransaction, VotingTransaction
 from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
 from pypeerassets.at.dt_states import ProposalState, DonationState
-from pypeerassets.at.transaction_formats import *
-from pypeerassets.at.dt_parser_utils import *
-# from pypeerassets.__main__ import find_deck # circular import, TODO refactor.
+from pypeerassets.at.dt_parser_utils import * # TODO: better import module
 import pypeerassets.at.constants as c
-import pypeerassets as pa
+import pypeerassets as pa # TODO: re-check if the circular import problem with find_deck remains.
 from copy import deepcopy
 
 class ParserState(object):
