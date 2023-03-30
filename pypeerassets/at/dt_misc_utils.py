@@ -444,20 +444,25 @@ def sign_mixed_transaction(provider: Provider, unsigned: MutableTransaction, key
 
 
 def deck_from_p2th(tx: dict, tx_type: str, provider: Provider): # we could do this also with Transaction object ...
+    # We give a transaction with P2TH output and receive the deck object.
     # loops through DT decks and checks their P2TH addresses.
     # this is independent from any deckid in the metadata.
     try:
         tx_p2th = tx["vout"][0]["scriptPubKey"]["addresses"][0]
     except KeyError: # may happen with OP_RETURN
         raise ValueError("Transaction has no P2TH address in output 1.")
-    for deck in dt_deck_list(provider): # for now there is only DT with this feature ...
+    for deck in list_decks_by_at_type(provider, c.ID_DT):
         if deck.derived_p2th_address(tx_type) == tx_p2th:
             return deck
     print("No deck for this P2TH address found.")
 
+def list_decks_by_at_type(provider: Provider, deck_type: int=c.ID_DT, version=1, production=True):
+    # NOTE: We need this unfortunately in this file, so it can't go into pacli.
+    # TODO: This does not catch some errors with invalid decks which are displayed:
+    # InvalidDeckSpawn ("InvalidDeck P2TH.") -> not catched in deck_parser in pautils.py
+    # 'error': 'OP_RETURN not found.' -> InvalidNulldataOutput , in pautils.py
+    # 'error': 'Deck () metainfo incomplete, deck must have a name.' -> also in pautils.py, defined in exceptions.py.
 
-def dt_deck_list(provider: Provider, deck_type: bytes=c.ID_DT, version=1, production=True):
-    # decks = find_all_valid_decks(provider, version, production)
     decks = pa.find_all_valid_decks(provider, version, production)
     dt_decklist = []
     for d in decks:

@@ -7,8 +7,6 @@ Take into account that the slot distribution round code is a bit unintuitive:
 - round 0 is B 10/11
 - round 1 is B 20/21
 etc.
-
-Fixed this in line 23 and 30 ("rd + 1") in Oct. 21. TODO: re-check if this doesn't lead to other bugs!
 """
 
 def get_period_dict(ps: ProposalState) -> dict:

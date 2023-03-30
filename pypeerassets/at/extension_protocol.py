@@ -23,6 +23,9 @@ def initialize_custom_deck_attributes(deck, network, epoch_length=None, epoch_qu
             deck.multiplier = multiplier if multiplier else data["multiplier"]
             # deck.at_address = at_address if at_address else data["at_address"] # TODO if possible, improve this!
             deck.addr_type = data["hash_type"] ### new. needed for hash_encoding.
+            deck.startblock = data["startblock"]
+            deck.endblock = data["endblock"]
+            print("Startblock", deck.startblock, type(deck.startblock))
         else:
             assert data["id"] == c.ID_DT
             deck.epoch_length = epoch_length if epoch_length else data["epoch_len"]

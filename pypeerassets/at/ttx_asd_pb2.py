@@ -19,7 +19,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   syntax='proto3',
   serialized_options=None,
   create_key=_descriptor._internal_create_key,
-  serialized_pb=b'\n\x1bttx_asd_specification.proto\"\x97\x02\n\x12TrackedTransaction\x12\x0f\n\x07version\x18\x01 \x01(\r\x12\n\n\x02id\x18\x02 \x01(\r\x12\x0c\n\x04txid\x18\x03 \x01(\x0c\x12\x0e\n\x06\x65pochs\x18\x04 \x01(\r\x12\x0e\n\x06\x61mount\x18\x05 \x01(\x04\x12\x13\n\x0b\x64\x65scription\x18\x06 \x01(\t\x12\x10\n\x08locktime\x18\x07 \x01(\r\x12\x10\n\x08lockhash\x18\x08 \x01(\x0c\x12\x15\n\rlockhash_type\x18\t \x01(\r\x12\x0c\n\x04vote\x18\n \x01(\x08\"X\n\x07TTXTYPE\x12\x08\n\x04NONE\x10\x00\x12\x0c\n\x08PROPOSAL\x10\x01\x12\n\n\x06VOTING\x10\x02\x12\x0e\n\nSIGNALLING\x10\x03\x12\x0b\n\x07LOCKING\x10\x04\x12\x0c\n\x08\x44ONATION\x10\x05\" \n\x10\x43\x61rdExtendedData\x12\x0c\n\x04txid\x18\x01 \x01(\x0c\"\xf9\x01\n\x10\x44\x65\x63kExtendedData\x12\x13\n\x0b\x65xt_version\x18\x01 \x01(\r\x12\n\n\x02id\x18\x02 \x01(\r\x12\x11\n\tepoch_len\x18\x03 \x01(\r\x12\x0e\n\x06reward\x18\x04 \x01(\r\x12\x10\n\x08min_vote\x18\x05 \x01(\r\x12\x17\n\x0fspecial_periods\x18\x06 \x01(\r\x12\x1b\n\x13voting_token_deckid\x18\x07 \x01(\x0c\x12\x12\n\nmultiplier\x18\x08 \x01(\r\x12\x0c\n\x04hash\x18\t \x01(\x0c\x12\x11\n\thash_type\x18\n \x01(\r\"$\n\x08\x45XT_TYPE\x12\x08\n\x04NONE\x10\x00\x12\x06\n\x02\x41T\x10\x01\x12\x06\n\x02\x44T\x10\x02\x62\x06proto3'
+  serialized_pb=b'\n\x1bttx_asd_specification.proto\"\x97\x02\n\x12TrackedTransaction\x12\x0f\n\x07version\x18\x01 \x01(\r\x12\n\n\x02id\x18\x02 \x01(\r\x12\x0c\n\x04txid\x18\x03 \x01(\x0c\x12\x0e\n\x06\x65pochs\x18\x04 \x01(\r\x12\x0e\n\x06\x61mount\x18\x05 \x01(\x04\x12\x13\n\x0b\x64\x65scription\x18\x06 \x01(\t\x12\x10\n\x08locktime\x18\x07 \x01(\r\x12\x10\n\x08lockhash\x18\x08 \x01(\x0c\x12\x15\n\rlockhash_type\x18\t \x01(\r\x12\x0c\n\x04vote\x18\n \x01(\x08\"X\n\x07TTXTYPE\x12\x08\n\x04NONE\x10\x00\x12\x0c\n\x08PROPOSAL\x10\x01\x12\n\n\x06VOTING\x10\x02\x12\x0e\n\nSIGNALLING\x10\x03\x12\x0b\n\x07LOCKING\x10\x04\x12\x0c\n\x08\x44ONATION\x10\x05\" \n\x10\x43\x61rdExtendedData\x12\x0c\n\x04txid\x18\x01 \x01(\x0c\"\x9f\x02\n\x10\x44\x65\x63kExtendedData\x12\x13\n\x0b\x65xt_version\x18\x01 \x01(\r\x12\n\n\x02id\x18\x02 \x01(\r\x12\x11\n\tepoch_len\x18\x03 \x01(\r\x12\x0e\n\x06reward\x18\x04 \x01(\r\x12\x10\n\x08min_vote\x18\x05 \x01(\r\x12\x17\n\x0fspecial_periods\x18\x06 \x01(\r\x12\x1b\n\x13voting_token_deckid\x18\x07 \x01(\x0c\x12\x12\n\nmultiplier\x18\x08 \x01(\r\x12\x0c\n\x04hash\x18\t \x01(\x0c\x12\x11\n\thash_type\x18\n \x01(\r\x12\x10\n\x08\x65ndblock\x18\x0b \x01(\r\x12\x12\n\nstartblock\x18\x0c \x01(\r\"$\n\x08\x45XT_TYPE\x12\x08\n\x04NONE\x10\x00\x12\x06\n\x02\x41T\x10\x01\x12\x06\n\x02\x44T\x10\x02\x62\x06proto3'
 )
 
 
@@ -94,8 +94,8 @@ _DECKEXTENDEDDATA_EXT_TYPE = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   serialized_options=None,
-  serialized_start=561,
-  serialized_end=597,
+  serialized_start=599,
+  serialized_end=635,
 )
 _sym_db.RegisterEnumDescriptor(_DECKEXTENDEDDATA_EXT_TYPE)
 
@@ -306,6 +306,20 @@ _DECKEXTENDEDDATA = _descriptor.Descriptor(
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
+    _descriptor.FieldDescriptor(
+      name='endblock', full_name='DeckExtendedData.endblock', index=10,
+      number=11, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
+    _descriptor.FieldDescriptor(
+      name='startblock', full_name='DeckExtendedData.startblock', index=11,
+      number=12, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
   ],
   extensions=[
   ],
@@ -320,7 +334,7 @@ _DECKEXTENDEDDATA = _descriptor.Descriptor(
   oneofs=[
   ],
   serialized_start=348,
-  serialized_end=597,
+  serialized_end=635,
 )
 
 _TRACKEDTRANSACTION_TTXTYPE.containing_type = _TRACKEDTRANSACTION

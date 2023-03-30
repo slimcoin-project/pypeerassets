@@ -25,7 +25,6 @@ from typing import Iterable, Iterator, Optional, Tuple, List
 from pypeerassets.paproto_pb2 import DeckSpawn as DeckSpawnProto
 from pypeerassets.paproto_pb2 import CardTransfer as CardTransferProto
 from pypeerassets.protocol import Deck, CardTransfer, CardBundle
-# from pypeerassets.kutil import Kutil ### ADDRESSTRACK ### # probably obsolete
 from btcpy.structs.address import Address ### find_tx_sender coinbase bugfix ### ### LOCK ###
 from btcpy.lib.base58 import b58encode_check ### LOCK ###
 from pypeerassets.networks import net_query

@@ -14,7 +14,13 @@ TODO: Ensure: All CardIssues (also those issued by the deck issuer) are invalid 
 # "Pooled burning" or "Pooled donation" could be supported later with an OP_RETURN based format, where
 # the "burners" or "donors" explicitly define who gets credited in which proportion.
 
-def is_valid_issuance(provider: Provider, card: object, tracked_address: str, multiplier: int, at_version: int=1, debug: bool=False) -> bool:
+def is_valid_issuance(provider: Provider, card: object, tracked_address: str, multiplier: int, at_version: int=1, startblock: int=None, endblock: int=None, debug: bool=False) -> bool:
+
+    # first we check if there are deadlines (MODIF 26/3):
+    if endblock and card.blocknum > endblock:
+        return False
+    if startblock and card.blocknum < startblock:
+        return False
 
     total_issuance_amount = sum(card.amount) / (10**card.number_of_decimals)
 
@@ -81,7 +87,7 @@ def at_parser(cards: list, provider: Provider, deck: object, debug: bool=True):
             if (card.sender, card.donation_txid, card.donation_vout) not in used_issuance_tuples:
 
                 # check 2: check if tx exists, sender is correct and amount corresponds to amount in tx (expensive!)
-                if is_valid_issuance(provider, card, deck.at_address, deck.multiplier, at_version, debug=debug):
+                if is_valid_issuance(provider, card, deck.at_address, deck.multiplier, at_version, deck.startblock, deck.endblock, debug=debug):
 
                     valid_cards.append(card)
                     used_issuance_tuples.append((card.sender, card.donation_txid, card.donation_vout))

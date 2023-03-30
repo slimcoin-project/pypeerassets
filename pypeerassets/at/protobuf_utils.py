@@ -99,6 +99,8 @@ def serialize_deck_extended_data(network: tuple, deck: object=None, params: dict
         d.multiplier = params["multiplier"]
         d.hash = address_to_hash(params["at_address"], params["addr_type"], network)
         d.hash_type = params["addr_type"]
+        d.startblock = params["startblock"]
+        d.endblock = params["endblock"]
 
     check_size(d, network)
     return d.SerializeToString()
