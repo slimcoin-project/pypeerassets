@@ -831,7 +831,7 @@ class DonationState(object):
     # A DonationState contains Signalling, Locked and Donation transaction and the slot.
     # Must be created always with either SignallingTX or ReserveTX.
     # Child_state_id allows more control over inheriting. A parent state would be even better but would need refactoring or costly processing.
-    # MODIF: added Proposal ID. This allows to link back to proposals knowing the ProposalState.
+    # MODIF: there is now a "claimed" state, but it is assigned in the parser.
 
     def __init__(self, proposal_id=None, signalling_tx=None, reserve_tx=None, locking_tx=None, donation_tx=None, slot=None, dist_round=None, effective_slot=None, effective_locking_slot=None, reward=None, state="incomplete"):
 

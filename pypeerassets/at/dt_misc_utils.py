@@ -463,9 +463,14 @@ def list_decks_by_at_type(provider: Provider, deck_type: int=c.ID_DT, version=1,
     # 'error': 'OP_RETURN not found.' -> InvalidNulldataOutput , in pautils.py
     # 'error': 'Deck () metainfo incomplete, deck must have a name.' -> also in pautils.py, defined in exceptions.py.
 
-    decks = pa.find_all_valid_decks(provider, version, production)
+    try:
+        decks = pa.find_all_valid_decks(provider, version, production)
+    except Exception as e:
+        print("ERROR.", e)
+        return
     dt_decklist = []
     for d in decks:
+        # print(d.__dict__)
         try:
             if d.at_type == deck_type:
                 yield d

@@ -108,12 +108,6 @@ def at_parser(cards: list, provider: Provider, deck: object, debug: bool=True):
 
     return valid_cards
 
-def burn_address(network: tuple=None, network_name: str=None): # for tests, TODO: this works only with SLM!
-    if (network is not None and network.is_testnet) or network_name[0] == "t":
-        return "mmSLiMCoinTestnetBurnAddress1XU5fu"
-    else:
-        return "SfSLMCoinMainNetworkBurnAddr1DeTK5"
-
 def input_addresses(tx, provider): # taken from dt_entities. Should perhaps be an utility in dt_misc_utils.
     addresses = []
     for inp in tx["vin"]:

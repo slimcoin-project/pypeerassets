@@ -1,6 +1,6 @@
 # idea to develop further: the original classes could provide an extension_data attribute with type dict.
 # first field is the extension name (i.e. "AT")
-# second field is another dict of the
+# second field is another dict of the current attributes.
 # MODIF: "identify" integrated here.
 
 import pypeerassets.at.constants as c
@@ -17,20 +17,18 @@ def initialize_custom_deck_attributes(deck, network, epoch_length=None, epoch_qu
         data = parse_protobuf(deck.asset_specific_data, "deck")
 
         if data["id"] == c.ID_AT:
-            # assert is_at_deck(data, net_query(network))
-            # get_at_address does basic address validation, so no cpu power is wasted with fake addresses.
+
             deck.at_address = get_at_address(data, net_query(network))
             deck.multiplier = multiplier if multiplier else data["multiplier"]
-            # deck.at_address = at_address if at_address else data["at_address"] # TODO if possible, improve this!
             deck.addr_type = data["hash_type"] ### new. needed for hash_encoding.
-            deck.startblock = data["startblock"]
-            deck.endblock = data["endblock"]
-            print("Startblock", deck.startblock, type(deck.startblock))
+
+            # optional attributes
+            deck.startblock = data.get("startblock")
+            deck.endblock = data.get("endblock")
         else:
             assert data["id"] == c.ID_DT
             deck.epoch_length = epoch_length if epoch_length else data["epoch_len"]
             deck.standard_round_unit = deck.epoch_length // c.DT_ROUND_DIVISION # MODIF: standard_round_unit.
-            # deck.standard_round_length = (deck.epoch_length // 32) * 2 # a round value is better
             deck.epoch_quantity = epoch_quantity if epoch_quantity else data["reward"] # shouldn't this better be called "epoch_reward" ?? # TODO
 
             # optional attributes

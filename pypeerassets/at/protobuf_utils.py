@@ -91,7 +91,7 @@ def serialize_deck_extended_data(network: tuple, deck: object=None, params: dict
 
     if d.id == c.DT_ID:
         d.epoch_len = params["epoch_length"]
-        d.reward = params["epoch_quantity"] # name deprecated
+        d.reward = params["epoch_reward"]
         d.min_vote = params["min_vote"]
         d.special_periods = params["sdp_periods"]
         d.voting_token_deckid = params["sdp_deckid"]

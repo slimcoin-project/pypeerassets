@@ -383,8 +383,8 @@ class ParserState(object):
         """Main validation function for donations. Checks for each issuance if the donation was correct.
         The donation transaction ID is provided (by the issue transaction)
         and it is checked if it corresponds to a real donation."""
+        # MODIF: DonationState has now a "claimed" state value if a corresponding valid CardIssue is found.
 
-        # Possible improvement: raise exceptions instead of simply returning False?
         debug = self.debug_donations
 
         if debug: print("PARSER: Checking CardIssue based on donation tx:", dtx_id)
@@ -392,7 +392,6 @@ class ParserState(object):
         # check A: does proposal exist?
         if debug: print("PARSER: Valid proposals:", self.valid_proposals)
 
-        # MODIFIED: for now we use a dict for the DonationTransaction objects, so they can be called fastly.
         # TODO: the ProposalState check could perhaps be eliminated if we ensure the DTXes here are valid.
         try:
             dtx = self.donation_txes[dtx_id]
@@ -426,8 +425,6 @@ class ParserState(object):
                 # if debug: print("PARSER: Checking donation state:", ds.id, "with donation tx", ds.donation_tx.txid)
                 if ds.donation_tx.txid == dtx_id:
                     break
-            #else:
-                #continue
         else:
             if debug: print("PARSER: Donation issuance failed: No matching donation state found.")
             return False
@@ -449,6 +446,7 @@ class ParserState(object):
             if debug: print("PARSER: Donation issuance failed: Incorrect issued token amount, different from the assigned slot.")
             return False
         else:
+            ds.state = "claimed"
             return True
 
     @staticmethod
