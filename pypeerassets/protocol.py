@@ -403,7 +403,7 @@ class CardTransfer:
         # modified order because with AT tokens, deck issuer can be the receiver.
         # CardBurn is not implemented in AT, because the deck issuer should be
         # able to participate normally in the transfer process. Cards can however
-        # be burnt sending them to unspendable addresses.
+        # be burnt sending them to unspendable addresses. (TODO - this is probably not longer true.)
 
         if deck.issue_mode == IssueMode.CUSTOM.value:
             ep.initialize_custom_card_attributes(self, deck, donation_txid=donation_txid)

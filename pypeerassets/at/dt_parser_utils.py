@@ -21,23 +21,43 @@ def get_marked_txes(provider, p2th_account, min_blockheight=None, max_blockheigh
         min_blocktime = provider.getblock(provider.getblockhash(min_blockheight))["time"]
     if max_blockheight is not None:
         max_blocktime = provider.getblock(provider.getblockhash(max_blockheight))["time"]
-    txidlist = []
+    tx_tuple_list = []
     start = 0
     while True:
         newtxes = provider.listtransactions(p2th_account, 999, start)
         for tx in newtxes:
+           try:
+               tx_blocktime = tx["blocktime"]
+           except KeyError:
+               # we need a fallback for legacy coins which do not offer blocktime parameter in listtransactions
+               tx_blocktime = provider.getblock(tx["blockhash"])["time"]
+
            if max_blockheight:
-              if tx["blocktime"] > max_blocktime:
+              if tx_blocktime > max_blocktime:
                   continue
            if min_blockheight:
-              if tx["blocktime"] < min_blocktime:
+              if tx_blocktime < min_blocktime:
                   continue
 
-           # txlist.append(provider.getrawtransaction(tx["txid"], 1))
-           txidlist.append(tx["txid"])
+           # txidlist.append(tx["txid"])
 
-        if len(newtxes) < 999: # lower than limit
-            txlist = [ provider.getrawtransaction(t, 1) for t in set(txidlist) ]
+           try:
+               blockseq = tx["blockindex"]
+           except KeyError:
+               # fallback, if blockindex doesn't work.
+               # we can unfortunately currently not use pautils.tx_serialization_order due to circular import.
+               blockseq = provider.getblock(tx["blockhash"], decode=True)["tx"].index(tx["txid"])
+
+           tx_tuple_list.append((tx["txid"], tx_blocktime, blockseq))
+
+        if len(newtxes) < 999: # this means we reached the end.
+            # the set may not be strictly necessary but in some cases there were strange bugs due to duplicates
+            ordered_txes = list(set(tx_tuple_list))
+            # Sorting transactions by blocktime and position in the block, like we sort cards.
+            ordered_txes.sort(key=lambda x: (x[1], x[2]))
+            # this is the model: cards.sort(key=lambda x: (x.blocknum, x.blockseq, x.cardseq))
+            # txlist = [ provider.getrawtransaction(t, 1) for t in ordered_txids ]
+            txlist = [ provider.getrawtransaction(t[0], 1) for t in ordered_txes ]
             return txlist
         start += 999
 

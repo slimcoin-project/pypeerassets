@@ -10,7 +10,6 @@ from pypeerassets.at.dt_parser_state import ParserState
 def dt_parser(cards: list, provider: object, deck: object, current_blockheight: int=None, initial_parser_state: object=None, force_dstates: bool=False, force_continue: bool=False, start_epoch: int=None, end_epoch: int=None, debug: bool=False, debug_voting: bool=False, debug_donations: bool=False):
     """Basic parser loop. Loops through all cards, and processes epochs."""
 
-    # TODO: Transactions in the same block must also be ordered by block position.
     cards.sort(key=lambda x: (x.blocknum, x.blockseq, x.cardseq))
 
     # initial_parser_state enables to continue parsing from a certain blockheight or use the parser from "outside".
@@ -35,17 +34,14 @@ def dt_parser(cards: list, provider: object, deck: object, current_blockheight: 
     if debug: print("PARSER: Total number of initial cards:", cards_len)
     if debug: print("PARSER: Starting epoch loop ...")
 
-    pos = 0 # card position
-    highpos = 0
+    # pos = 0 # card position
+    # highpos = 0
 
     if not pst.end_epoch:
         pst.end_epoch = pst.current_blockheight // deck.epoch_length + 1 # includes an incomplete epoch which just started
 
     if debug: print("PARSER: Start and end epoch:", pst.start_epoch, pst.end_epoch)
 
-    ### MODIFIED: Loop changed from here, with new epoch_init and epoch_postprocess methods.
-    ### Loop goes through now and provides identic results for Proposal A.
-    ### TODO: maybe integrate into ParserState.
     # first_epochs_processed = False
     valid_epoch_cards = []
     pst.epoch = pst.start_epoch
@@ -53,9 +49,9 @@ def dt_parser(cards: list, provider: object, deck: object, current_blockheight: 
     # epoch_completed = False # probably not needed:
     # We complete always when we have valid_epoch_cards at the start of the loop or after the loop has ended.
 
-    for card in pst.initial_cards:
+    for cindex, card in enumerate(pst.initial_cards): # MODIF: enumerate
 
-        card_epoch = card.blocknum // deck.epoch_length # as deck count start is from genesis block this is correct
+        card_epoch = card.blocknum // deck.epoch_length # deck epoch count starts at genesis block
         if debug: print("PARSER: Checking card", card.txid, "in epoch", card_epoch, "- current epoch:", pst.epoch)
 
         if card_epoch > pst.epoch:
@@ -72,7 +68,6 @@ def dt_parser(cards: list, provider: object, deck: object, current_blockheight: 
                 valid_epoch_cards == []
 
             # epoch(s) without cards is/are processed.
-            # TODO: is second argument card_epoch or card_epoch - 1??
             if debug: print("PARSER: Processing epochs without cards: {}-{}".format(pst.epoch, card_epoch - 1))
             pst.process_cardless_epochs(pst.epoch, card_epoch - 1)
             epoch_initialized = False
@@ -85,11 +80,17 @@ def dt_parser(cards: list, provider: object, deck: object, current_blockheight: 
                 pst.epoch_init()
                 epoch_initialized = True
 
-            if pst.check_card(card): # new method which checks only ONE card, replaces get_valid_epoch_cards
-                # yield card
-                # TODO: if the loop is transformed into a generator,
-                # check if we need to process something directly after the yield statement.
-                valid_epoch_cards.append(card)
+            # MODIF: checking for CardIssue bundle
+            # We need to do this because card_postprocess separates cards with multiple receivers.
+            if card.type == "CardIssue":
+                total_issued_amount, last_bundle_cindex = get_issuance_bundle(cards, cindex)
+            else:
+                total_issued_amount = None
+
+            if pst.check_card(card, total_issued_amount): # new method which checks only ONE card, replaces get_valid_epoch_cards
+                # yield card # original idea was to transform this into a generator, maybe later.
+                # valid_epoch_cards.append(card)
+                valid_epoch_cards += cards[cindex:last_bundle_cindex + 1]
 
 
     if len(valid_epoch_cards) > 0:

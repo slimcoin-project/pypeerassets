@@ -9,8 +9,9 @@ from pypeerassets.at.dt_entities import ProposalTransaction, SignallingTransacti
 from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
 from pypeerassets.at.dt_states import ProposalState, DonationState
 from pypeerassets.at.dt_parser_utils import * # TODO: better import module
+from pypeerassets.at.extended_utils import get_issuance_bundle
 import pypeerassets.at.constants as c
-import pypeerassets as pa # TODO: re-check if the circular import problem with find_deck remains.
+import pypeerassets as pa
 from copy import deepcopy
 
 class ParserState(object):
@@ -42,7 +43,6 @@ class ParserState(object):
         # SDP voters/balances are stored as CardTransfers, so they can be easily retrieved with PeerAsset standard methods.
         if self.deck.sdp_deckid:
             # self.sdp_deck = deck_from_tx(self.deck.sdp_deckid, self.provider)
-            # TODO: find_deck should be used but currently generates circular import.
             self.sdp_deck = pa.find_deck(provider=self.provider, key=self.deck.sdp_deckid, version=c.DECK_VERSION)
             # The SDP Decimal Diff is the difference between the number of decimals of the main token and the voting token.
             self.sdp_decimal_diff = self.deck.number_of_decimals - self.sdp_deck.number_of_decimals
@@ -457,10 +457,11 @@ class ParserState(object):
         return state.valid_cards
 
 
-    def check_card(self, card):
+    def check_card(self, card, issued_amount=None):
         """Checks a CardIssue for validity. CardTransfers are always valid (they will be later processed by DeckState)."""
 
-        # NOTE: this replaced get_valid_epoch_cards, as it's also be compatible with a generator-based approach.
+        # MODIF: issued_amount is only used for CardIssues as we need to know how much was issued in the bundle.
+        # NOTE: this replaced get_valid_epoch_cards, as it's also compatible with a generator-based approach.
         # CONVENTION: voters' weight is the balance at the start block of current epoch
 
         debug = self.debug_donations
@@ -480,20 +481,21 @@ class ParserState(object):
 
             # check 1: filter out duplicates (less expensive, so done first)
             if (card.sender, dtx_id, dtx_vout) in self.used_issuance_tuples:
-                if debug: print("PARSER: Ignoring CardIssue: Duplicate.")
+                if debug: print("PARSER: Ignoring CardIssue: Duplicate or already processed part of CardBundle.")
                 return False
 
-            card_units = sum(card.amount) # MODIFIED: this is already an int value based on the card base units
+            # MODIF: card_units is replaced by issued_amount in the following parts.
+            # card_units = sum(card.amount)
 
             # Check if it is a proposer or a donation issuance.
             # Proposers provide the ref_txid of their proposal transaction.
             # If this TX is in proposal_txes and they are the sender of the card and fulfill all requirements,
             # then the token is granted to them at their proposal address.
 
-            if (dtx_id in self.valid_proposals) and self.validate_proposer_issuance(dtx_id, card_units, card.sender, card.blocknum):
+            if (dtx_id in self.valid_proposals) and self.validate_proposer_issuance(dtx_id, issued_amount, card.sender, card.blocknum):
                 if debug: print("PARSER: DT CardIssue (Proposer):", card.txid)
 
-            elif self.validate_donation_issuance(dtx_id, dtx_vout, card_units, card.sender):
+            elif self.validate_donation_issuance(dtx_id, dtx_vout, issued_amount, card.sender):
                 if debug: print("PARSER: DT CardIssue (Donation):", card.txid)
 
             else:
