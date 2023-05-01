@@ -28,7 +28,7 @@ def initialize_custom_deck_attributes(deck, network, epoch_length=None, epoch_qu
         else:
             assert data["id"] == c.ID_DT
             deck.epoch_length = epoch_length if epoch_length else data["epoch_len"]
-            deck.standard_round_unit = deck.epoch_length // c.DT_ROUND_DIVISION # MODIF: standard_round_unit.
+            deck.standard_round_unit = deck.epoch_length // c.DT_ROUND_DIVISION # value of this constant: 28
             deck.epoch_quantity = epoch_quantity if epoch_quantity else data["reward"] # shouldn't this better be called "epoch_reward" ?? # TODO
 
             # optional attributes

@@ -6,6 +6,7 @@ and so calculate the valid proposals which were selected from the next epoch.
 Minor functions are in dt_parser_utils. """
 
 from pypeerassets.at.dt_parser_state import ParserState
+from pypeerassets.at.extended_utils import process_cards_by_bundle
 
 def dt_parser(cards: list, provider: object, deck: object, current_blockheight: int=None, initial_parser_state: object=None, force_dstates: bool=False, force_continue: bool=False, start_epoch: int=None, end_epoch: int=None, debug: bool=False, debug_voting: bool=False, debug_donations: bool=False):
     """Basic parser loop. Loops through all cards, and processes epochs."""
@@ -44,12 +45,14 @@ def dt_parser(cards: list, provider: object, deck: object, current_blockheight: 
 
     # first_epochs_processed = False
     valid_epoch_cards = []
+    valid_bundles = []
     pst.epoch = pst.start_epoch
     epoch_initialized = False
     # epoch_completed = False # probably not needed:
     # We complete always when we have valid_epoch_cards at the start of the loop or after the loop has ended.
 
-    for cindex, card in enumerate(pst.initial_cards): # MODIF: enumerate
+    #for cindex, card in enumerate(pst.initial_cards): # MODIF: enumerate
+    for (card, bundle_amount) in process_cards_by_bundle(cards, debug=debug):
 
         card_epoch = card.blocknum // deck.epoch_length # deck epoch count starts at genesis block
         if debug: print("PARSER: Checking card", card.txid, "in epoch", card_epoch, "- current epoch:", pst.epoch)
@@ -80,17 +83,19 @@ def dt_parser(cards: list, provider: object, deck: object, current_blockheight: 
                 pst.epoch_init()
                 epoch_initialized = True
 
-            # MODIF: checking for CardIssue bundle
-            # We need to do this because card_postprocess separates cards with multiple receivers.
-            if card.type == "CardIssue":
-                total_issued_amount, last_bundle_cindex = get_issuance_bundle(cards, cindex)
-            else:
-                total_issued_amount = None
 
-            if pst.check_card(card, total_issued_amount): # new method which checks only ONE card, replaces get_valid_epoch_cards
+            issued_amount = card.amount[0] if bundle_amount is None else bundle_amount
+
+            if (card.type == "CardIssue") and (card.txid in valid_bundles):
+                # parts of valid CardIssue CardBundles which were already processed.
+                valid_epoch_cards.append(card)
+
+            if pst.check_card(card, issued_amount): # new method which checks only ONE card, replaces get_valid_epoch_cards
                 # yield card # original idea was to transform this into a generator, maybe later.
-                # valid_epoch_cards.append(card)
-                valid_epoch_cards += cards[cindex:last_bundle_cindex + 1]
+                valid_epoch_cards.append(card)
+                if bundle_amount is not None:
+                    valid_bundles.append(card.txid)
+                # valid_epoch_cards += cards[cindex:last_bundle_cindex + 1]
 
 
     if len(valid_epoch_cards) > 0:

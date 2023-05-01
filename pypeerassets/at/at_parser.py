@@ -1,11 +1,10 @@
 from pypeerassets.provider import Provider
 from decimal import Decimal
-from pypeerassets.at.extended_utils import get_issuance_bundle
+from pypeerassets.at.extended_utils import process_cards_by_bundle # get_issuance_bundle
 
 """
 Thus module bundles all "heavy" functions for the parser which include the use of the RPC node/provider. It is complemented by extension_protocol.py.
 """
-
 
 # NOTE: It was decided that the credited address is the one in the first vin. The vin_check thus is obsolete.
 # "Pooled burning" or "Pooled donation" could be supported later with an OP_RETURN based format, where
@@ -69,8 +68,7 @@ def is_valid_issuance(provider: Provider, card: object, total_issued_amount: int
     return True
 
 
-def at_parser(cards: list, provider: Provider, deck: object, debug: bool=True):
-    # this should be faster than the first version.
+def at_parser(cards: list, provider: Provider, deck: object, debug: bool=False):
 
     if debug:
         print("AT Token Parser started.")
@@ -82,8 +80,10 @@ def at_parser(cards: list, provider: Provider, deck: object, debug: bool=True):
     cards.sort(key=lambda x: (x.blocknum, x.blockseq, x.cardseq))
 
     valid_cards = []
-    issuance_attempts = []
+    # issuance_attempts = []
+    valid_bundles = []
     used_issuance_tuples = [] # this list joins all issuances of sender, txid, vout, to filter out duplicates:
+    # last_processed_card = 0 # MODIF: to be able to ignore cards which have been processed in a bundle
 
     # first, separate CardIssues from other cards
     # card.amount is a list, the sum must be equal to the amount of the tx * multiplier}
@@ -91,46 +91,54 @@ def at_parser(cards: list, provider: Provider, deck: object, debug: bool=True):
         print("All cards:\n", [(card.blocknum, card.blockseq, card.txid) for card in cards])
 
     # for card in cards:
-    for cindex, card in enumerate(cards):
+    # for cindex, card in enumerate(cards):
+    for (card, bundle_amount) in process_cards_by_bundle(cards, debug=debug):
+        #if cindex < last_processed_card: # cards processed as part of a bundle are ignored
+        #    continue
         if card.type == "CardIssue":
+
             if debug:
-                print("Checking issuance at position {}, txid {}, sender {}, receiver {}.".format(cindex, card.txid, card.sender, card.receiver))
+                print("Checking issuance: txid {}, sender {}, receiver {}.".format(card.txid, card.sender, card.receiver))
                 # print("Deck metadata:", deck)
 
-            # check 1: filter out duplicates (less expensive, so done first)
-            if (card.sender, card.donation_txid) not in used_issuance_tuples:
+            # check 1: filter out bundle parts and duplicates (less expensive, so done first)
+            if card.txid in valid_bundles:
+                valid_cards.append(card)
+                if debug:
+                    print("AT CardIssue: Valid part of an already processed CardBundle. Issued {} token units.".format(card.amount[0]))
 
-                # if there is more than one receiver, the cards_postprocess function divides it in several cards.
+            elif (card.sender, card.donation_txid) in used_issuance_tuples:
+                if debug:
+                    print("Ignoring CardIssue: Duplicate.")
+
+            else:
+                issued_amount = bundle_amount if bundle_amount is not None else card.amount[0]
+                # if a card has more than one receiver, the cards_postprocess function divides it in several cards.
                 # so to check validity of the issuance amount we need to take the whole bundle into account.
 
                 # we need to know how many cards will be processed together,
                 # thus also last cindex of the bundle cards is returned.
-                total_issued_amount, last_bundle_cindex = get_issuance_bundle(cards, cindex)
-                if debug and (cindex != last_bundle_cindex):
-                    print("Bundle detected from position", cindex, "to position", last_bundle_cindex)
-                    print("Total coins issued:", total_issued_amount)
                 # check 2: check if tx exists, sender is correct and amount corresponds to amount in tx (expensive!)
-                if is_valid_issuance(provider, card, total_issued_amount, tracked_address=deck.at_address,
+                if is_valid_issuance(provider, card, issued_amount, tracked_address=deck.at_address,
                                      multiplier=deck.multiplier, startblock=deck.startblock,
                                      endblock=deck.endblock, debug=debug):
 
-                    # valid_cards.append(card)
-                    new_valid_cards = cards[cindex:last_bundle_cindex + 1]
-                    valid_cards += new_valid_cards
+                    valid_cards.append(card)
+                    if bundle_amount is not None:
+                        valid_bundles.append(card.txid)
+                    #new_valid_cards = cards[cindex:last_processed_card + 1] # old method without generator
+                    #valid_cards += new_valid_cards
                     used_issuance_tuples.append((card.sender, card.donation_txid))
                     if debug:
-                        print("Valid AT CardIssue:", new_valid_cards[0].txid)
-                        if len(new_valid_cards) > 1:
-                            print("Issuance to", len(new_valid_cards), "receivers.")
+                        print("Valid AT CardIssue:", card.txid, ". Issued {} token units.".format(card.amount[0]))
+                        #if len(new_valid_cards) > 1:
+                        #    print("Issuance to", len(new_valid_cards), "receivers.")
                 else:
                     if debug:
                         print("Ignoring CardIssue: Invalid issuance.")
-            else:
-                if debug:
-                    print("Ignoring CardIssue: Duplicate or part of already processed CardBundle.")
         else:
             if debug:
-                print("AT CardTransfer:", card.txid)
+                print("AT {}".format(card.type), card.txid)
             valid_cards.append(card)
 
     return valid_cards

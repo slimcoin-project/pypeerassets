@@ -474,9 +474,6 @@ class ParserState(object):
             dtx_id = card.donation_txid
 
             # dtx_vout should currently always be 2. However, the variable is kept for future modifications.
-            # dtx_vout_bytes = getfmt(card_data, CARD_ISSUE_DT_FORMAT, "out")
-            # dtx_vout = int.from_bytes(dtx_vout_bytes, "big")
-            # dtx_vout = card.extended_data.vout ### PROTOBUF
             dtx_vout = card.donation_vout # MODIF: has now a proper attribute.
 
             # check 1: filter out duplicates (less expensive, so done first)
