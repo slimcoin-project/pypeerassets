@@ -186,14 +186,15 @@ def get_donation_states(provider, proposal_id=None, proposal_tx=None, tx_txid=No
 def find_proposal(proposal_id, provider, deckid=None, deck=None, deck_version=1, production=True):
     # MODIF: name changed to match find_deck syntax.
     # best thing is if we know deckid or deck.
+    basicdata = ProposalTransaction.get_basicdata(proposal_id, provider)
     if deck is None:
         if deckid is None:
-            basicdata = ProposalTransaction.get_basicdata(proposal_id, provider)
             ttx = provider.getrawtransaction(proposal_id, 1)
             deck = deck_from_p2th(ttx, "proposal", provider)
         else:
             deck = pa.find_deck(provider, deckid, deck_version, production)
     return ProposalTransaction.from_txid(proposal_id, provider, deck=deck, basicdata=basicdata)
+
 
 def get_parser_state(provider, deck=None, deckid=None, lastblock=None, force_continue=False, force_dstates=False, debug=False, debug_voting=False, debug_donations=False, deck_version=1, production=True):
 
@@ -217,7 +218,6 @@ def get_parser_state(provider, deck=None, deckid=None, lastblock=None, force_con
 def get_proposal_state(provider, proposal_id=None, proposal_tx=None, deck=None, debug=False, debug_donations=False, debug_voting=False):
     # version 2: does not create an additional proposal state and always does the complete check (phase=1).
     # MODIFIED: parameter phase eliminated. If we needed it, we could also derive it from the ptx values.
-
 
     current_blockheight = provider.getblockcount()
     if not proposal_tx:

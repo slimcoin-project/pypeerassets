@@ -30,7 +30,11 @@ def get_marked_txes(provider, p2th_account, min_blockheight=None, max_blockheigh
                tx_blocktime = tx["blocktime"]
            except KeyError:
                # we need a fallback for legacy coins which do not offer blocktime parameter in listtransactions
-               tx_blocktime = provider.getblock(tx["blockhash"])["time"]
+               try:
+                   blockhash = tx["blockhash"]
+               except KeyError: # unconfirmed transactions are ignored
+                   continue
+               tx_blocktime = provider.getblock(blockhash)["time"]
 
            if max_blockheight:
               if tx_blocktime > max_blocktime:
@@ -46,7 +50,7 @@ def get_marked_txes(provider, p2th_account, min_blockheight=None, max_blockheigh
            except KeyError:
                # fallback, if blockindex doesn't work.
                # we can unfortunately currently not use pautils.tx_serialization_order due to circular import.
-               blockseq = provider.getblock(tx["blockhash"], decode=True)["tx"].index(tx["txid"])
+               blockseq = provider.getblock(blockhash, decode=True)["tx"].index(tx["txid"])
 
            tx_tuple_list.append((tx["txid"], tx_blocktime, blockseq))
 
