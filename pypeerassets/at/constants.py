@@ -55,3 +55,14 @@ ID_SIGNALLING = TtxID.SIGNALLING.value
 ID_LOCKING = TtxID.LOCKING.value
 ID_DONATION = TtxID.DONATION.value
 
+# legacy compatibility
+
+TTXIDDICT = { "proposal" : TtxID.PROPOSAL.value,
+              "voting" : TtxID.VOTING.value,
+              "signalling" : TtxID.SIGNALLING.value,
+              "locking" : TtxID.LOCKING.value,
+              "donation" : TtxID.DONATION.value }
+
+def get_id(tx_type: str):
+    return TTXIDDICT[tx_type]
+

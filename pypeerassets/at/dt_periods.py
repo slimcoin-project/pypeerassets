@@ -8,6 +8,35 @@ Take into account that the slot distribution round code is a bit unintuitive:
 - round 1 is B 20/21
 etc.
 """
+# TODO: do we need B50 too?
+PERIODS = { ("A", 0) : ("pre_submission", None),
+            ("A", 1) : ("pre_distcycle", None),
+            ("B", 0) : ("security", 0),
+            ("B", 1) : ("voting", 0),
+            ("B", 10) : ("signalling", 0),
+            ("B", 11) : ("locking", 0),
+            ("B", 20) : ("signalling", 1),
+            ("B", 21) : ("locking", 1),
+            ("B", 30) : ("signalling", 2),
+            ("B", 31) : ("locking", 2),
+            ("B", 40) : ("signalling", 3),
+            ("B", 41) : ("locking", 3),
+            ("C", 0)  : ("working", None),
+            ("D", 0) : ("security", 1),
+            ("D", 1) : ("voting", 1),
+            ("D", 2) : ("release", None),
+            ("D", 10) : ("signalling", 4),
+            ("D", 11) : ("locking", 4),
+            ("D", 20) : ("signalling", 5),
+            ("D", 21) : ("locking", 5),
+            ("D", 30) : ("signalling", 6),
+            ("D", 31) : ("locking", 6),
+            ("D", 40) : ("signalling", 7),
+            ("D", 41) : ("locking", 7),
+            ("D", 50) : ("remaining", None),
+            ("E", 0) : ("post_distcycle", None)}
+
+
 
 def get_period_dict(ps: ProposalState) -> dict:
 
@@ -68,5 +97,25 @@ def humanreadable_to_periodcode(period_str: str, period_index: int) -> tuple:
         return (epoch_codes[period_index], pre_dist_periods.index(period_str))
     else:
         return (epoch_codes[dist_phase], period_index * 10 + dist_periods.index(period_str))
+
+def period_to_dist_round(period: tuple) -> int:
+    try:
+        assert (period[0] in ("B", "D")) and (period[1] >= 10)
+        return PERIODS[period][1]
+    except (AssertionError, KeyError, IndexError):
+        raise ValueError("Incorrect period, no matching distribution round.")
+
+def dist_round_to_period(dist_round: int, round_type: str) -> tuple:
+    try:
+        assert 0 <= dist_round <= 7
+        assert round_type in ("signalling", "locking", "donation")
+        for period in PERIODS.items():
+            if period[1][0] == round_type and period[1][1] == dist_round:
+                return period[0]
+        else:
+            raise ValueError
+
+    except (AssertionError, ValueError):
+        raise ValueError("Incorrect combination of round type and distribution round.")
 
 

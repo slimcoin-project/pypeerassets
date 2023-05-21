@@ -378,7 +378,7 @@ class ParserState(object):
 
         return True
 
-    def validate_donation_issuance(self, dtx_id, dtx_vout, card_units, card_sender):
+    def validate_donation_issuance(self, dtx_id, card_units, card_sender):
 
         """Main validation function for donations. Checks for each issuance if the donation was correct.
         The donation transaction ID is provided (by the issue transaction)
@@ -473,11 +473,11 @@ class ParserState(object):
             # First step: Look for a matching DonationTransaction.
             dtx_id = card.donation_txid
 
-            # dtx_vout should currently always be 2. However, the variable is kept for future modifications.
-            dtx_vout = card.donation_vout # MODIF: has now a proper attribute.
+            # dtx_vout = card.donation_vout # MODIF: this is unnecessary and has been deleted. If in the future other
+            # vouts can be used, then we can simply always process the whole amount sent to Proposer, like with AT Tokens.
 
             # check 1: filter out duplicates (less expensive, so done first)
-            if (card.sender, dtx_id, dtx_vout) in self.used_issuance_tuples:
+            if (card.sender, dtx_id) in self.used_issuance_tuples:
                 if debug: print("PARSER: Ignoring CardIssue: Duplicate or already processed part of CardBundle.")
                 return False
 
@@ -492,14 +492,14 @@ class ParserState(object):
             if (dtx_id in self.valid_proposals) and self.validate_proposer_issuance(dtx_id, issued_amount, card.sender, card.blocknum):
                 if debug: print("PARSER: DT CardIssue (Proposer):", card.txid)
 
-            elif self.validate_donation_issuance(dtx_id, dtx_vout, issued_amount, card.sender):
+            elif self.validate_donation_issuance(dtx_id, issued_amount, card.sender):
                 if debug: print("PARSER: DT CardIssue (Donation):", card.txid)
 
             else:
                 if debug: print("PARSER: Ignoring CardIssue: Invalid data.")
                 return False
 
-            self.used_issuance_tuples.append((card.sender, dtx_id, dtx_vout))
+            self.used_issuance_tuples.append((card.sender, dtx_id))
             return True
 
         else:

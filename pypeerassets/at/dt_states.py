@@ -239,7 +239,7 @@ class ProposalState(object):
         # data is there (TODO: when is that the case? can't we make current_blockheight mandatory?)
         # TODO: probably the problem of the bug (abandoned states at the start) is the number 0 of abandon_until_rd.
 
-
+        last_processed_round = 7 # standard value: all rounds are processed.
         if current_blockheight is not None:
             # We loop in reverse order through the rounds, to be able to break out of the loop as early as possible.
             #for rev_rdindex, rd_blocks in enumerate(reversed(self.rounds)):
@@ -255,9 +255,9 @@ class ProposalState(object):
                     last_processed_round = rd_index - 1 # if round 0 is not completely processed, this gives "-1".
                     break
 
-        elif self.dist_factor is not None:
-            last_processed_round = 7 # all incomplete are marked as abandoned if the parser has already set the dist factor
-        else:
+        #elif self.dist_factor is not None:
+        #    last_processed_round = 7 # all incomplete are marked as abandoned if the parser has already set the dist factor
+        elif self.dist_factor is None:
             last_processed_round = -1 # nothing is marked as abandoned
 
         # If the first phase is re-processed or if there was a incomplete processing:
@@ -470,9 +470,9 @@ class ProposalState(object):
 
             # In round 1-4, the effectively locked slot amounts are the values which determinate the
             # slot rest for the next round. In round 5-8 it's the Donation effective slots.
-            if effective_locking_slot and (rd < 4):
+            if dstate.effective_locking_slot and (rd < 4):
                 self.effective_locking_slots[rd] += dstate.effective_locking_slot
-            if effective_slot:
+            if dstate.effective_slot:
                 self.effective_slots[rd] += dstate.effective_slot
 
             if set_reward:
@@ -835,26 +835,27 @@ class DonationState(object):
 
         # MODIF: from _process_donation_states. We now give only the origin_tx.
         if type(origin_tx) == SignallingTransaction:
-            signalling_tx = origin_tx
-            reserve_tx = None
+            self.signalling_tx = origin_tx
+            self.reserve_tx = None
         elif type(origin_tx) in (LockingTransaction, DonationTransaction):
-            reserve_tx = origin_tx
-            signalling_tx = None
+            self.reserve_tx = origin_tx
+            self.signalling_tx = None
             # else: # MODIF: this can't normally happen as we don't have other tx types here.
             #    continue
 
-        if signalling_tx is not None:
-            self.origin_tx = signalling_tx
+        if self.signalling_tx is not None:
+            #self.origin_tx = signalling_tx
             self.donor_address = self.origin_tx.address
             self.signalled_amount = self.origin_tx.amount
-        elif reserve_tx is not None:
-            self.origin_tx = reserve_tx
+        elif self.reserve_tx is not None:
+            #self.origin_tx = reserve_tx
             self.donor_address = self.origin_tx.reserve_address
             self.signalled_amount = self.origin_tx.reserved_amount
         else:
             raise InvalidDonationStateError("A DonationState must be initialized with a signalling or reserve address.")
 
         self.id = self.origin_tx.txid
+
 
     def set_reward(self, proposal_state):
         if (self.effective_slot is not None) and (self.effective_slot > 0):
@@ -871,8 +872,6 @@ class DonationState(object):
             else:
                 self.effective_slot = min(self.slot, self.donation_tx.amount)
 
-            #self.donation_txes[rd].append(donation_tx)
-            #self.donated_amounts[rd] += donation_tx.amount
             self.state = "complete" if (self.effective_slot > 0) else "abandoned"
 
         elif last_processed_round >= self.dist_round:
