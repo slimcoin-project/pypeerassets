@@ -84,7 +84,7 @@ class Deck:
                  at_type=None,
                  multiplier: int=None,
                  epoch_length: int=None,
-                 epoch_quantity: int=None,
+                 epoch_reward: int=None,
                  min_vote: int=None,
                  sdp_periods: int=None,
                  sdp_deck: str=None,
@@ -112,7 +112,7 @@ class Deck:
 
         if self.issue_mode == IssueMode.CUSTOM.value:
 
-            ep.initialize_custom_deck_attributes(self, network, epoch_length=epoch_length, epoch_quantity=epoch_quantity, min_vote=min_vote, sdp_periods=sdp_periods, sdp_deck=sdp_deck, multiplier=multiplier, at_address=at_address)
+            ep.initialize_custom_deck_attributes(self, network, epoch_length=epoch_length, epoch_reward=epoch_reward, min_vote=min_vote, sdp_periods=sdp_periods, sdp_deck=sdp_deck, multiplier=multiplier, at_address=at_address)
 
 
     @property ### MODIFIED VERSION TO OPTIMIZE SPEED ###

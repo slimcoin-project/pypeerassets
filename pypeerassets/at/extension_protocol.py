@@ -9,7 +9,7 @@ from pypeerassets.networks import net_query
 from pypeerassets.hash_encoding import HASHTYPE, hash_to_address
 from collections import namedtuple
 
-def initialize_custom_deck_attributes(deck, network, epoch_length=None, epoch_quantity=None, min_vote=None, sdp_periods=None, sdp_deck=None, multiplier=None, at_address=None, debug=False):
+def initialize_custom_deck_attributes(deck, network, epoch_length=None, epoch_reward=None, min_vote=None, sdp_periods=None, sdp_deck=None, multiplier=None, at_address=None, debug=False):
     ### additional Deck attributes for AT/DT types
 
 
@@ -29,7 +29,7 @@ def initialize_custom_deck_attributes(deck, network, epoch_length=None, epoch_qu
             assert data["id"] == c.ID_DT
             deck.epoch_length = epoch_length if epoch_length else data["epoch_len"]
             deck.standard_round_unit = deck.epoch_length // c.DT_ROUND_DIVISION # value of this constant: 28
-            deck.epoch_quantity = epoch_quantity if epoch_quantity else data["reward"] # shouldn't this better be called "epoch_reward" ?? # TODO
+            deck.epoch_reward = epoch_reward if epoch_reward else data["reward"] # shouldn't this better be called "epoch_reward" ?? # TODO
 
             # optional attributes
             deck.min_vote = min_vote if min_vote else data.get("min_vote")

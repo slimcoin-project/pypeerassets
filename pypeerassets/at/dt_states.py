@@ -616,7 +616,7 @@ class ProposalState(object):
     def set_dist_factor(self, ending_proposals):
         # Proposal factor: if there is more than one proposal ending in the same epoch,
         # the resulting slot is divided by the req_amounts of them.
-        # TODO: It could make sense to calculate the rewards here directly, i.e. multiply this with deck.epoch_quantity
+        # TODO: It could make sense to calculate the rewards here directly, i.e. multiply this with deck.epoch_reward.
 
         if len(ending_proposals) > 1:
             total_req_amount = sum([p.req_amount for p in ending_proposals])
@@ -632,7 +632,7 @@ class ProposalState(object):
         else:
             proposer_proportion = Decimal((self.req_amount - filled_amount) / self.req_amount)
         if proposer_proportion > 0:
-            reward_units = self.deck.epoch_quantity * (10 ** self.deck.number_of_decimals)
+            reward_units = self.deck.epoch_reward * (10 ** self.deck.number_of_decimals)
             self.proposer_reward = int(proposer_proportion * self.dist_factor * reward_units)
         else:
             self.proposer_reward = 0
@@ -860,7 +860,7 @@ class DonationState(object):
     def set_reward(self, proposal_state):
         if (self.effective_slot is not None) and (self.effective_slot > 0):
             slot_proportion = Decimal(self.effective_slot) / proposal_state.req_amount
-            reward_units = proposal_state.deck.epoch_quantity * (10 ** proposal_state.deck.number_of_decimals)
+            reward_units = proposal_state.deck.epoch_reward * (10 ** proposal_state.deck.number_of_decimals)
             self.reward = int(slot_proportion * reward_units * proposal_state.dist_factor)
 
     def set_effective_slot(self, last_processed_round):

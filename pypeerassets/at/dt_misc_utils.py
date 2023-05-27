@@ -142,7 +142,6 @@ def get_dstates_from_donor_address(address: str, proposal_state: ProposalState, 
     # print("Donation states:", proposal_state.donation_states)
     for rd, rd_states in enumerate(proposal_state.donation_states):
 
-
         if dist_round is not None and (rd != dist_round):
             continue
 

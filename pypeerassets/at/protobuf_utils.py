@@ -53,7 +53,6 @@ def serialize_ttx_metadata(network: tuple, transaction: object=None, params: dic
     if params["id"] == c.ID_PROPOSAL:
 
         tx.epochs = params["epoch_number"]
-        # tx.sla = params["round_length"] # eliminated
         tx.description = params["description"]
 
         if type(params["req_amount"]) in (Decimal, float):
@@ -110,11 +109,9 @@ def serialize_card_extended_data(network: tuple, card: object=None, id: bytes=No
     # NOTE: id scrapped. protocol re-checked, works now.
     if card is not None:
         txid = bytes.fromhex(card.donation_txid)
-        # txid, vout = bytes.fromhex(card.donation_txid), card.donation_vout
 
     c = CardExtendedDataProto()
     c.txid = bytes.fromhex(txid)
-    # c.vout = vout # not currently used, but we keep it in the case of someone needing to use a distinct vout for DT donations. # discarded for now. Not useful for PoB tokens, and there seems to be no real use case in DT as well.
 
     check_size(c, network)
     return c.SerializeToString()
