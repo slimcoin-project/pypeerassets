@@ -134,7 +134,7 @@ def get_dstates_from_address(address: str, proposal_state: ProposalState, dist_r
 
     return states
 
-def get_dstates_from_donor_address(address: str, proposal_state: ProposalState, dist_round: int=None):
+def get_dstates_from_donor_address(address: str, proposal_state: ProposalState, dist_round: int=None, all_states=False):
     # returns donation state from a signalling, locking or donation transaction.
     # This uses the donor address which is stored in the DonationState, not the "destination" address.
 
@@ -146,7 +146,9 @@ def get_dstates_from_donor_address(address: str, proposal_state: ProposalState, 
             continue
 
         for ds in rd_states.values():
-           if ds.donor_address == address:
+           # MODIF: no abandoned states are taken into account if all_states isn't given
+           # normally this means that the 'states' list will have a length of 1 only.
+           if (ds.donor_address == address) and ((ds.state in ("incomplete", "complete")) or all_states):
                states.append(ds)
     return states
 

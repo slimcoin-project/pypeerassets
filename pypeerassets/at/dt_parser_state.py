@@ -130,7 +130,7 @@ class ParserState(object):
             # MODIFIED. "processed" variable is now implemented, so double processing should be prevented with a simpler check.
             phase = 1 if self.epoch <= p.end_epoch else 0 # TODO: re-check this!
             if not p.processed[phase]:
-                p.set_donation_states(debug=self.debug_donations, current_blockheight=self.current_blockheight)
+                p.set_donation_states(self.current_blockheight, debug=self.debug_donations)
 
     def get_sdp_cards(self):
 
@@ -370,7 +370,7 @@ class ParserState(object):
             return False
 
         if len(proposal_state.donation_states) == 0:
-            proposal_state.set_donation_states()
+            proposal_state.set_donation_states(self.current_blockheight)
 
         if card_units != proposal_state.proposer_reward:
             if debug: print("PARSER: Proposer issuance failed: Incorrect amount.")
@@ -412,7 +412,7 @@ class ParserState(object):
 
         if len(proposal_state.donation_states) == 0:
             if debug: print("PARSER: Creating donation states ...")
-            proposal_state.set_donation_states(debug=self.debug_donations)
+            proposal_state.set_donation_states(self.current_blockheight, debug=self.debug_donations)
 
         if debug: print("PARSER: Number of donation txes:", len([tx for r in proposal_state.donation_txes for tx in r ]))
 
