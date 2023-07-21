@@ -19,10 +19,8 @@ class ProposalState(object):
         self.donation_address = self.first_ptx.donation_address
         self.deck = self.first_ptx.deck
 
-        # Slot Allocation Round Attributes are lists with values for each of the 8 distribution rounds
-        # Phase 2 can vary if there is a ProposalModification, so this can be set various times.
-        # TODO: as the round lengths are now determined automatically, can set_rounds be simplified?
-        self.set_rounds(phase=0)
+        # If there is a ProposalModification, set_rounds is called again (modify method).
+        self.set_rounds()
         self.init_fresh_state()
 
         if sub_state:
@@ -70,90 +68,50 @@ class ProposalState(object):
         # and the number of coins required by the proposals in their ending period.
         # The higher the amount of proposals and their required amounts, the lower this factor is.
         self.dist_factor = None
-        # Processed is a list of 3 values and refers to the donation states processed in each of both phases and the
-        # completeness (i.e. if there were blocks missing for the last processed phase):
-        # [ phase1, phase2, complete ]
-        self.processed = [False, False, False] # TODO: delete third one, no longer needed! # re-checking ...
+
+        # self.processed is a list of two values, one per phase.
+        # It is set to True once the donation states of a phase are completely processed.
+        self.processed = [False, False]  # MODIF: deleted third value, no longer needed!
 
         # If there are slots missing at the end, the proposer can claim the proportion.
         self.proposer_reward = None
 
+    def set_rounds(self, modification: bool=False):
+        # MODIF: the 'phase' parameter was replaced by 'modification', as it was confusing
+        # and several cases and checks were not necessary.
 
-    def set_rounds(self, phase=0):
-        # MODIF: Heavily modified in 03/23 and simplified due to standard_round_length
-        # and the "first round * 3 times" rule recently decided.
-        # This method sets the start and end blocks of all rounds and periods of either the first or the second phase.
-        # Phase 0 means: both phases are calculated.
-        # Method is only called once per phase or when a proposal has been modified.
+        # This method sets the start and end blocks of all rounds and periods.
+        # When a proposal is recorded, both phases are calculated.
+        # When a proposal has been modified, phase 2 is recalculated.
 
         # 1. Calculate round starts
         epoch_length = self.deck.epoch_length
-        # rd_unit = self.deck.standard_round_length // 2 # round length unit. Maybe the deck standard length should already be changed to rd_unit.
         rd_unit = self.deck.standard_round_unit
-        # round_starts = [None] * 8 # all changed from 9 to 8
-        # round_halfway = [None] * 8
 
-        if phase != 2:
+        if not modification:
 
             self.rounds = [None] * 8
             self.security_periods = [None] * 2
             self.voting_periods = [None] * 2
 
-
-        # special lengths
-        security_period_length = max(rd_unit, 2) # minimum 2 blocks
-        # security_period_lengths = [max(l // 2, 2) for l in self.round_lengths] # minimum 2 blocks
+        security_period_length = max(rd_unit, 2)  # minimum 2 blocks
         voting_period_length = release_period_length = rd_unit * 8
-        # voting_period_lengths = [l * 4 for l in self.round_lengths]
-        # release_period_length = voting_period_length # MODIF: changed from voting_period_lengths[1].
-
-        # halfways = [l // 2 for l in self.round_lengths]
-        # halfway = round_length // 2 # standard round length is always even so the // could be replaced by /
-
-        # pre_allocation_period_phase1 = security_period_lengths[0] + voting_period_lengths[0]
-        # pre_allocation_period_phase2 = security_period_lengths[1] + voting_period_lengths[1] + release_period_length
         preallocation_p1 = security_period_length + voting_period_length
         preallocation_p2 = preallocation_p1 + release_period_length
 
+        # Phase 1 periods and rounds (processed only for proposal submissions,
+        # as phase 1 rounds cannot be changed.)
+        if not modification:
 
-        if phase in (0, 1):
-            # distribution_length = pre_allocation_period_phase1 + (self.round_lengths[0] * 4)
-            # blocks in epoch: blocks which have passed since last epoch start.
-            # blocks_in_epoch = self.first_ptx.blockheight % epoch_length
-            # blocks_remaining = epoch_length - blocks_in_epoch
-
-            # if proposal can still be voted and slots distributed in the current epoch, then do it,
-            # otherwise the voting/distribution phase will start in the next epoch.
-            # MODIF: drastically simplified. Proposal has to be submitted ALWAYS in the previous epoch.
+            # Proposal lifecycle begins in next epoch after the submission.
             self.start_epoch = self.first_ptx.epoch + 1
             self.dist_start = self.start_epoch * epoch_length
-
-
-            # if blocks_remaining > distribution_length:
-
-            #    # start_epoch is the epoch number of the first voting/distribution phase.
-            #    self.start_epoch = self.first_ptx.epoch
-            #    # dist_start is the block where the first voting/distribution phase starts.
-            #    self.dist_start = self.first_ptx.blockheight
-            # else:
-            #    self.start_epoch = self.first_ptx.epoch + 1
-            #    self.dist_start = self.start_epoch * epoch_length
-
-            # Security, voting and release periods
-            # self.security_periods[0] = [self.dist_start, self.dist_start + security_period_lengths[0] - 1] # FIX: added -1, otherwise we have one block more!
             self.security_periods[0] = [self.dist_start, self.dist_start + security_period_length - 1]
             voting_p1_start = self.security_periods[0][1] + 1
-            # self.voting_periods[0] = [voting_p1_start, voting_p1_start + voting_period_lengths[0] - 1] # FIX: added -1
             self.voting_periods[0] = [voting_p1_start, voting_p1_start + voting_period_length - 1]
-            dist_p1_start = self.dist_start + preallocation_p1 # before: pre_allocation_period_phase1
+            dist_p1_start = self.dist_start + preallocation_p1
 
-            #for rd in range(4): # first phase has 4 rounds
-            #    round_starts[rd] = phase_start + self.round_lengths[0] * rd
-            #    round_halfway[rd] = round_starts[rd] + halfways[0]
-            #    self.rounds[rd] = [[round_starts[rd], round_halfway[rd] - 1], [round_halfway[rd], round_starts[rd] + self.round_lengths[0] - 1]]
-
-            # All sub-rounds (signalling, locking/donation) have half the length of the complete round duration.
-            # First round is special: 3 times the normal round length
+            # Slot distribution rounds
             for rd in range(4):
                  duration = rd_unit * 6 if rd == 0 else rd_unit * 2
                  start = dist_p1_start if rd == 0 else self.rounds[rd - 1][1][1] + 1
@@ -161,45 +119,33 @@ class ProposalState(object):
                  locking_round = [start + (duration // 2), start + duration - 1]
                  self.rounds[rd] = [signalling_round, locking_round]
 
-        if phase in (0, 2):
-            # we use valid_ptx here, this gives the option to change the round length of 2nd round.
+        # Phase 2 periods and rounds (processed for proposal submissals and modifications)
+        self.end_epoch = self.start_epoch + self.valid_ptx.epoch_number + 1
+        end_epoch_start = self.end_epoch * epoch_length
+        dist_p2_start = self.end_epoch * epoch_length + preallocation_p2
+        self.security_periods[1] = [end_epoch_start, end_epoch_start + security_period_length - 1]
+        voting_p2_start = self.security_periods[1][1] + 1
+        self.voting_periods[1] = [voting_p2_start, voting_p2_start + voting_period_length - 1]
+        release_start = self.voting_periods[1][1] + 1
+        self.release_period = [release_start, release_start + release_period_length - 1]
 
-            # epoch = self.end_epoch # final vote/distribution should always begin at the start of the end epoch.
-
-            # End epoch is 1 after last working epoch.
-            self.end_epoch = self.start_epoch + self.valid_ptx.epoch_number + 1
-            end_epoch_start = self.end_epoch * epoch_length
-            dist_p2_start = self.end_epoch * epoch_length + preallocation_p2 # pre_allocation_period_phase2
-
-            self.security_periods[1] = [end_epoch_start, end_epoch_start + security_period_length - 1]
-            voting_p2_start = self.security_periods[1][1] + 1
-            self.voting_periods[1] = [voting_p2_start, voting_p2_start + voting_period_length - 1]
-
-            release_start = self.voting_periods[1][1] + 1
-            self.release_period = [release_start, release_start + release_period_length - 1]
-
-            for i in range(4): # second phase has 4 rounds
-                rd = i + 4
-                duration = rd_unit * 2
-                start = dist_p2_start + duration * i
-                signalling_round = [start, start + (duration // 2) - 1]
-                donation_round = [start + (duration // 2), start + duration - 1]
-                self.rounds[rd] = [signalling_round, donation_round]
-
-                # round_starts[rd] = phase_start + self.round_lengths[1] * i
-                # round_halfway[rd] = round_starts[rd] + halfways[1] # MODIF: instead of "halfway"
-                # dist_p2_start + self.round_lengths[1] * i
-                # self.rounds[rd] = [[round_starts[rd], round_halfway[rd] - 1], [round_halfway[rd], round_starts[rd] + self.round_lengths[1] - 1]]
+        for i in range(4):
+            rd = i + 4
+            duration = rd_unit * 2
+            start = dist_p2_start + duration * i
+            signalling_round = [start, start + (duration // 2) - 1]
+            donation_round = [start + (duration // 2), start + duration - 1]
+            self.rounds[rd] = [signalling_round, donation_round]
 
     def modify(self, debug=False):
-        # This function bundles the modifications needed when a valid Proposal Modification was recorded.
-        # It does not reprocess set_donation_states, because this is only done after end_epoch
-        # when a card is detected or when the parser loop ends before end_epoch.
+        # This function bundles the steps needed when a valid Proposal Modification was recorded.
+        # It doesn't need to reprocess set_donation_states, because this is only done
+        # when a card is detected (after end_epoch) or when the parser loop ends.
         # Thus set_donation_states is never called before modify.
 
-        # 1: Re-setting rounds and other values for phase 2.
+        # 1: Re-setting end epoch and rounds/periods for second phase.
         if self.first_ptx.epoch_number != self.valid_ptx.epoch_number:
-            self.set_rounds(phase=2)
+            self.set_rounds(modification=True)
             self.end_epoch = self.start_epoch + self.valid_ptx.epoch_number
 
         # 2. Re-setting required coin amount and derivative attributes
@@ -207,45 +153,35 @@ class ProposalState(object):
             self.req_amount = self.valid_ptx.req_amount
 
         if debug:
-            print("PROPOSAL: Valid modification of proposal {} by transaction {}.\nreq_amount: {}, end_epoch: {}, rounds: {}".format(self.first_ptx.txid, self.valid_ptx.txid, self.req_amount, self.end_epoch, self.rounds))
+            print("""PROPOSAL: Valid modification of proposal {} by transaction {}.
+                     req_amount: {}, end_epoch: {}, rounds: {}""".format(self.first_ptx.txid,
+                     self.valid_ptx.txid, self.req_amount, self.end_epoch, self.rounds))
 
-    def set_donation_states(self, current_blockheight, phase=0, debug=False):
-        # Phase 0 means both phases are calculated.
+    def set_donation_states(self, current_blockheight, debug=False):
+        # MODIF: 'phase' parameter eliminated. Method is not called by phase anymore.
 
-        # If rounds are not set, or phase is 2 (re-defining of the second phase), then we set it.
-        if len(self.rounds) == 0 or (phase == 2):
+        if len(self.rounds) == 0:
             if debug: print("PROPOSAL: Setting rounds for proposal:", self.id)
-            self.set_rounds(phase)
+            self.set_rounds()
 
-        # Mark abandoned donation states:
-        # Incomplete donation states are marked as "abandoned" when the current block height has passed
-        # the end block of a round or phase where a required transaction (locking or donation) was not observed,
-        # The "abandon_until_rd" indicator indicates a distribution round. When the last block of this round is
-        # reached by the parser, it marks all incomplete states from this round downwards as abandoned.
+        # Incomplete donation states are marked as "abandoned" when the algorithm has processed
+        # the end block of a round/period where a required transaction (locking or donation) was not found.
+        # last_processed_round indicates the last round processed completely.
 
         last_processed_round = 7 # standard value: all rounds are processed.
 
         for rd_index, rd_blocks in enumerate(self.rounds):
             if current_blockheight <= rd_blocks[1][1]:
-                last_processed_round = rd_index - 1 # if round 0 is not completely processed, this gives "-1".
+                last_processed_round = rd_index - 1  # if round 0 is not completely processed, result is -1.
                 break
 
-        # If the first phase is re-processed or if there was a incomplete processing:
-        # the donor address list is reset
-        if phase in (0, 1) or self.processed[2] == False:
-            self.donor_addresses = []
-        if phase in (0, 1):
-            # Set the first available slot amout to req_amount.
-            # If phase = 2, then the phase 1 values should be already set.
-            self.available_slot_amount = [self.req_amount, None, None, None, None, None, None, None]
+        self.available_slot_amount = [self.req_amount, None, None, None, None, None, None, None]
 
-        self.donation_states = dstates = [{} for i in range(8)] # dstates is a list containing a dict with the txid of the signalling or reserve transaction as key
-
+        # dstates is a list containing a dict with the txid of the signalling or reserve transaction as key
+        self.donation_states = dstates = [{} for i in range(8)]
 
         # Once the proposal has ended and the number of proposals is known, the reward of each donor can be set
         set_reward = True if self.dist_factor is not None else False
-
-        rounds = (range(8), range(4), range(4,8))
 
         # Sort all transactions
         self.all_signalling_txes.sort(key = lambda x: (x.blockheight, x.blockseq))
@@ -274,17 +210,16 @@ class ProposalState(object):
                 if "reserve_successor" in tx.__dict__:
                     print("DONATION: Reserve successor for", tx.txid, type(tx), tx.reserve_successor.txid, type(tx.reserve_successor))
 
-        #if debug: print("All signalling txes:", self.all_signalling_txes)
-        for rd in rounds[phase]:
+        if debug: print("All signalling txes:", self.all_signalling_txes)
+        for rd in range(8):  # originally: rounds[phase]
             if rd == 4:
                 self.available_slot_amount[rd] = self.req_amount - sum(self.effective_slots[:4])
             elif rd > 4:
                 self.available_slot_amount[rd] = self.available_slot_amount[rd - 1] - self.effective_slots[rd - 1]
             elif rd > 0: # rounds 1, 2 and 3, 0 is already set
                 self.available_slot_amount[rd] = self.available_slot_amount[rd - 1] - self.effective_locking_slots[rd - 1]
-            # print("av. slot amount rd", rd, self.id, self.available_slot_amount[rd])
 
-            # MODIF: selected successors now is segregated by round (EXPERIMENTAL!)
+            # Successor selection is segregated by round
             # TODO: should be optimized (list of successors by round), so not the whole search has to be done in each rd.
             selected_successors = []
             for tx in all_tracked_txes:
@@ -296,29 +231,19 @@ class ProposalState(object):
                         selected_successors.append(tx.reserve_successor.txid)
 
             dstates[rd] = self._process_donation_states(rd, selected_successors, debug=debug, set_reward=set_reward, last_processed_round=last_processed_round)
-            # if debug: print("Donation states of round", rd, ":", dstates[rd])
+            if debug: print("Donation states of round", rd, ":", dstates[rd])
 
-        if phase in (0, 1):
-
-            self.donation_states = dstates
-            self.processed[0] = True
-            if phase == 0:
-                self.processed[1] = True
-
-        elif phase == 2:
-
-            self.donation_states[4:] = dstates[4:]
-            self.processed[1] = True
+        self.donation_states = dstates
+        self.processed[0] = True
+        self.processed[1] = True
 
         self.total_donated_amount = sum(self.donated_amounts)
-        if (phase in (0, 2)) and (self.dist_factor is not None):
+        if self.dist_factor is not None:
             self.set_proposer_reward()
-            self.processed[2] = True # complete # TODO after implementing the periods cleanly this is no longer necessary
 
 
     def _process_donation_states(self, rd, selected_successors, set_reward=False, last_processed_round=-1, debug=False):
         # This method always must run chronologically, with previous rounds already completed.
-        # It can, however, be run to redefine phase 2 (rd 4-7).
         # It sets also the attributes that are necessary for the next round and its slot calculation.
 
         # 1. determine the valid signalling txes (include reserve/locking txes).
@@ -330,10 +255,10 @@ class ProposalState(object):
         if rd in (0, 3, 6, 7):
 
              valid_stxes = self._validate_basic(round_stxes, rd, selected_successors, reserve_mode=False, debug=debug)
-             valid_rtxes = [] # No RTXes in these rounds.
+             valid_rtxes = []  # No RTXes in these rounds.
              total_reserved_amount = 0
         else:
-             # base_txes are the potential reserve transactions
+             # base_txes are all potential reserve transactions
              if rd in (1, 2):
                  base_txes = self.locking_txes[rd - 1]
              elif rd == 4:
@@ -341,11 +266,9 @@ class ProposalState(object):
              else:
                  base_txes = self.donation_txes[rd - 1]
 
-             # NOTE: additional sorting here was kept as there were slight inconsistencies otherwise
              raw_round_rtxes = sorted(base_txes, key = lambda x: (x.blockheight, x.blockseq))
              round_rtxes = self._validate_basic(raw_round_rtxes, rd, selected_successors, debug=debug, reserve_mode=True)
 
-             #round_rtxes = [rtx for rtx in raw_round_rtxes if (rtx.reserved_amount) and (self.check_donor_address(rtx, rd, rtx.reserve_address, add_address=True, debug=debug, reserve=True))]
              if debug: print("DONATION: All possible reserve TXes in round:", rd, ":", [(t.txid, t.reserved_amount) for t in round_rtxes])
 
              # Reserve Transactions are validated first, as they have higher priority.
@@ -357,7 +280,7 @@ class ProposalState(object):
              if debug: print("DONATION: Total reserved in round {}: {} - Available slot amount: {}".format(rd, total_reserved_amount, self.available_slot_amount[rd]))
 
              if total_reserved_amount > self.available_slot_amount[rd]:
-                 # MODIFIED: we need to delete the successors here too
+                 # Invalid successors are deleted
                  for stx in round_stxes:
                      if "direct_successor" in stx.__dict__:
                          self._delete_invalid_successor(stx.direct_successor, selected_successors)
@@ -456,10 +379,10 @@ class ProposalState(object):
         if successor_tx is None:
             return
         txid = successor_tx.txid
-        #print("checking", txid)
+
         if txid in selected_successors:
-            #print("found.")
             txid_index = selected_successors.index(txid)
+
             # second level: if locking tx is deleted, donation tx must also be deleted.
             if type(successor_tx) == LockingTransaction:
                 for successor_attr in ("direct_successor", "reserve_successor"):

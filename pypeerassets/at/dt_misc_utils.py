@@ -152,9 +152,9 @@ def get_dstates_from_donor_address(address: str, proposal_state: ProposalState, 
                states.append(ds)
     return states
 
-def get_donation_states(provider, proposal_id=None, proposal_tx=None, tx_txid=None, address=None, donor_address=None, phase=1, debug=False, dist_round=None, pos=None):
+def get_donation_states(provider, proposal_id=None, proposal_tx=None, tx_txid=None, address=None, donor_address=None, debug=False, dist_round=None, pos=None):
 
-    # NOTE: phase is set as a default to 1.
+    # NOTE: phase eliminated, as it was in get_proposal_state.
     # NOTE: we give the option to call this function already with the full proposal_tx if already available.
     proposal_state = get_proposal_state(provider, proposal_id=proposal_id, proposal_tx=proposal_tx, debug_donations=debug)
 
@@ -217,7 +217,7 @@ def get_parser_state(provider, deck=None, deckid=None, lastblock=None, force_con
     return pst
 
 def get_proposal_state(provider, proposal_id=None, proposal_tx=None, deck=None, debug=False, debug_donations=False, debug_voting=False):
-    # version 2: does not create an additional proposal state and always does the complete check (phase=1).
+    # version 2: does not create an additional proposal state and always does the complete check.
     # MODIFIED: parameter phase eliminated. If we needed it, we could also derive it from the ptx values.
 
     current_blockheight = provider.getblockcount()

@@ -120,15 +120,14 @@ class ParserState(object):
 
     def force_dstates(self):
 
-        # Allows to set all states even if no card has been issued.
-        # Has to be called in the moment the state is evaluated, i.e. normally at the end of the parsing process.
+        # Allows to set all donation states even if no card has been issued.
         for p in self.proposal_states.values():
             if self.debug_donations: print("PARSER: Setting donation states for Proposal:", p.id)
 
-            # We must ensure process_donation_states is only called once per round, otherwise
+            # We must ensure process_donation_states is only called once per phase, otherwise
             # Locking/DonationTransactions will not be added (because of the 1 state per donor address restriction)
-            # MODIFIED. "processed" variable is now implemented, so double processing should be prevented with a simpler check.
-            phase = 1 if self.epoch <= p.end_epoch else 0 # TODO: re-check this!
+            # "processed" variable prevents this with a simple check.
+            phase = 1 if self.epoch <= p.end_epoch else 0
             if not p.processed[phase]:
                 p.set_donation_states(self.current_blockheight, debug=self.debug_donations)
 
@@ -278,15 +277,14 @@ class ParserState(object):
     def get_votes(self, proposal, phase, formatted_result=False):
         # TODO should be integrated in the ProposalState class.
         # returns a dictionary with two keys: "positive" and "negative",
-        # containing the amounts of the tokens with whose address a proposal was voted.
+        # weighted by the amounts of the tokens belonging to the voters of a proposal.
         # NOTE: The balances are valid for the epoch of the ParserState. So this cannot be called
         #       for votes in other epochs.
         # NOTE 2: In this protocol the last vote counts (this is why the vtxs list is reversed).
         #       You can always change you vote.
-        # TODO: This is still without the "first vote can also be valid for second round" system.
         # Formatted_result returns the "decimal" value of the votes, i.e. the number of "tokens"
         # which voted for the proposal, which depends on the "number_of_decimals" value.
-        # MODIFIED: This is now called by phase, it is more transparent and efficient.
+        # NOTE 3: This method is now called by phase, it is more transparent and efficient.
 
         votes = {}
         voters = [] # to filter out duplicates.
@@ -298,16 +296,20 @@ class ParserState(object):
         if len(proposal.all_voting_txes) == 0:
             return votes
 
-        ### FIX 1 ### (try to do it more elegant later)
-        if phase == 0:
-            phase_vtxes = [ v for v in proposal.all_voting_txes if v.epoch == proposal.start_epoch ]
-        elif phase == 1:
-            phase_vtxes = [ v for v in proposal.all_voting_txes if v.epoch == proposal.end_epoch ]
-        # sorted_vtxes = sorted(proposal.all_voting_txes, key=lambda tx: tx.blockheight, reverse=True)
-        sorted_vtxes = sorted(phase_vtxes, key=lambda tx: tx.blockheight, reverse=True)
+        voting_epoch = proposal.start_epoch if phase == 0 else proposal.end_epoch
+        phase_vtxes = [v for v in proposal.all_voting_txes if v.epoch == voting_epoch]
+
+        # simplified, following switch can be deleted.
+        #if phase == 0:
+        #    phase_vtxes = [v for v in proposal.all_voting_txes if v.epoch == proposal.start_epoch]
+        #elif phase == 1:
+        #    phase_vtxes = [v for v in proposal.all_voting_txes if v.epoch == proposal.end_epoch]
+
+        sorted_vtxes = sorted(phase_vtxes, key=lambda tx: (tx.blockheight, tx.blockseq), reverse=True)
 
         for v in sorted_vtxes: # reversed for the "last vote counts" rule.
             if debug: print("VOTING: Vote: Epoch", v.epoch, "txid:", v.txid, "sender:", v.sender, "outcome:", v.vote, "height", v.blockheight)
+            # TODO: self.epoch switch is probably obsolete: We already have restricted the voting txes above in phase_vtxes.
             if (v.epoch == self.epoch) and (v.sender not in voters):
                 try:
                     if debug: print("VOTING: Vote is valid.")

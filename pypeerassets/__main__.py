@@ -96,7 +96,7 @@ def deck_spawn(provider: Provider, deck: Deck, inputs: dict,
     network_params = net_query(deck.network)
     pa_params = param_query(deck.network)
 
-    ### AT: LEGACY SUPPORT for blockchains where no 0-value output is permitted ###
+    # AT: support for blockchains where no 0-value output is permitted
     from pypeerassets.legacy import is_legacy_blockchain
 
     if is_legacy_blockchain(network_params.shortname, "nulldata"):
@@ -109,7 +109,7 @@ def deck_spawn(provider: Provider, deck: Deck, inputs: dict,
     else:
         p2th_addr = pa_params.test_P2TH_addr
 
-    #  first round of txn making is done by presuming minimal fee ### LEGACY: added op_return value.
+    #  first round of txn making is done by presuming minimal fee # AT: added op_return value.
     change_sum = Decimal(inputs['total'] - network_params.min_tx_fee - pa_params.P2TH_fee - op_return_txout_value)
 
     txouts = [

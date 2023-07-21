@@ -1,36 +1,36 @@
 from pypeerassets.provider import Provider
 from decimal import Decimal
-from pypeerassets.at.extended_utils import process_cards_by_bundle # get_issuance_bundle
+from pypeerassets.at.extended_utils import process_cards_by_bundle  # get_issuance_bundle
 
 """
 Thus module bundles all "heavy" functions for the parser which include the use of the RPC node/provider. It is complemented by extension_protocol.py.
 """
 
-# NOTE: It was decided that the credited address is the one in the first vin. The vin_check thus is obsolete.
-# "Pooled burning" or "Pooled donation" could be supported later with an OP_RETURN based format, where
-# the "burners" or "donors" explicitly define who gets credited in which proportion.
-# MODIFIED: we look now at all cards in a bundle at once.
+# NOTE: It was decided that the credited address is the one in the first vin.
+# "Pooled burning" or "Pooled donation" could be supported later with an OP_RETURN based format,
+# where "burners" or "donors" explicitly define who gets credited in which proportion.
+# NOTE 2: The algorithm checks all cards in a bundle at once.
+
 
 def is_valid_issuance(provider: Provider, card: object, total_issued_amount: int, tracked_address: str, multiplier: int, at_version: int=1, startblock: int=None, endblock: int=None, debug: bool=False) -> bool:
 
     # check 1: txid must be valid
     try:
         tx = provider.getrawtransaction(card.donation_txid, 1)
-    except: # bad txid
+    except Exception:  # bad txid
         if debug:
             print("Error: Bad or non-existing txid.")
         return False
 
     # check 2: amount transferred to the tracked_address must be equal to issued amount * multiplier
     total_tx_amount = Decimal(0)
-
     for vout in tx["vout"]:
         try:
             if vout["scriptPubKey"]["addresses"][0] == tracked_address:
                 if vout["value"] > 0:
                     total_tx_amount += Decimal(vout["value"])
         except KeyError:
-            continue # should normally not occur, only perhaps with very exotic scripts.
+            continue  # should normally not occur, only perhaps with very exotic scripts.
     if debug:
         print("Total donated/burnt amount:", total_tx_amount, "Multiplier:", multiplier, "Number of decimals:", card.number_of_decimals)
     total_units = int(total_tx_amount * multiplier * (10 ** card.number_of_decimals))
@@ -44,14 +44,14 @@ def is_valid_issuance(provider: Provider, card: object, total_issued_amount: int
     # This checks always vin[0], i.e. the card issuer must sign with the same key than the first input is signed.
     tx_vin_tx = provider.getrawtransaction(tx["vin"][0]["txid"], 1)
     tx_vin_vout = tx["vin"][0]["vout"]
-    tx_sender = tx_vin_tx["vout"][tx_vin_vout]["scriptPubKey"]["addresses"][0] # allows a tx based on a previous tx with various vouts.
+    tx_sender = tx_vin_tx["vout"][tx_vin_vout]["scriptPubKey"]["addresses"][0]  # allows a tx based on a previous tx with various vouts.
 
     if card.sender != tx_sender:
         if debug:
             print("Error: Sender {} not entitled to issue these cards (correct sender {}).".format(card.sender, tx_sender))
         return False
 
-    # check 4 if there are deadlines (MODIF 26/3):
+    # check 4 if there are pre-defined deadlines
 
     if endblock or startblock:
         tx_height = provider.getblock(tx["blockhash"])["height"]
@@ -72,34 +72,24 @@ def at_parser(cards: list, provider: Provider, deck: object, debug: bool=False):
 
     if debug:
         print("AT Token Parser started.")
-    # however, it uses the used_issuance_tuples list, which may grow and lead to memory problems
-    ### it may be possible to categorize used_issuance_tuples by sender? But that would lead to additional overhead.
-    # if the token is used very much.
 
-    # MODIF: necessary for duplicate detection.
+    # necessary for duplicate detection.
     cards.sort(key=lambda x: (x.blocknum, x.blockseq, x.cardseq))
 
     valid_cards = []
-    # issuance_attempts = []
     valid_bundles = []
-    used_issuance_tuples = [] # this list joins all issuances of sender, txid, vout, to filter out duplicates:
-    # last_processed_card = 0 # MODIF: to be able to ignore cards which have been processed in a bundle
+    used_issuance_tuples = []  # this list joins all issuances of sender, txid, vout, to filter out duplicates:
 
-    # first, separate CardIssues from other cards
-    # card.amount is a list, the sum must be equal to the amount of the tx * multiplier}
     if debug:
         print("All cards:\n", [(card.blocknum, card.blockseq, card.txid) for card in cards])
 
-    # for card in cards:
-    # for cindex, card in enumerate(cards):
+    # first, separate CardIssues from other cards
+    # card.amount is a list, the sum must be equal to the amount of the tx * multiplier}
     for (card, bundle_amount) in process_cards_by_bundle(cards, debug=debug):
-        #if cindex < last_processed_card: # cards processed as part of a bundle are ignored
-        #    continue
         if card.type == "CardIssue":
 
             if debug:
                 print("Checking issuance: txid {}, sender {}, receiver {}.".format(card.txid, card.sender, card.receiver))
-                # print("Deck metadata:", deck)
 
             # check 1: filter out bundle parts and duplicates (less expensive, so done first)
             if card.txid in valid_bundles:
@@ -126,31 +116,28 @@ def at_parser(cards: list, provider: Provider, deck: object, debug: bool=False):
                     valid_cards.append(card)
                     if bundle_amount is not None:
                         valid_bundles.append(card.txid)
-                    #new_valid_cards = cards[cindex:last_processed_card + 1] # old method without generator
-                    #valid_cards += new_valid_cards
                     used_issuance_tuples.append((card.sender, card.donation_txid))
                     if debug:
-                        print("Valid AT CardIssue:", card.txid, ". Issued {} token units.".format(card.amount[0]))
-                        #if len(new_valid_cards) > 1:
-                        #    print("Issuance to", len(new_valid_cards), "receivers.")
+                        print("Valid AT CardIssue: {}. Issued {} token units.".format(card.txid, card.amount[0]))
                 else:
                     if debug:
                         print("Ignoring CardIssue: Invalid issuance.")
         else:
             if debug:
-                print("AT {}".format(card.type), card.txid)
+                print("AT {} {}".format(card.type, card.txid))
             valid_cards.append(card)
 
     return valid_cards
 
-def input_addresses(tx, provider): # taken from dt_entities. Should perhaps be an utility in dt_misc_utils.
+
+def input_addresses(tx, provider):  # taken from dt_entities. Should perhaps be an utility in dt_misc_utils.
     addresses = []
     for inp in tx["vin"]:
         try:
             inp_txout = inp["vout"]
             inp_txjson = provider.getrawtransaction(inp["txid"], 1)
-        except KeyError: # coinbase transactions
-            continue # normally it should be possible to simply return with an empty list here
+        except KeyError:  # coinbase transactions
+            continue  # normally it should be possible to simply return with an empty list here
         addr = inp_txjson["vout"][inp_txout]["scriptPubKey"]["addresses"][0]
         addresses.append(addr)
     return addresses
