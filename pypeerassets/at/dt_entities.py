@@ -13,8 +13,6 @@ from pypeerassets.at.ttx_base import BaseTrackedTransaction, InvalidTrackedTrans
 from pypeerassets.networks import net_query
 from pypeerassets.hash_encoding import hash_to_address
 from pypeerassets.at.constants import P2TH_OUTPUT, DATASTR_OUTPUT, DONATION_OUTPUT, RESERVED_OUTPUT
-# from pypeerassets.pautils import find_tx_sender # this gives circular import
-# import pypeerassets.pautils as pu
 
 
 class TrackedTransaction(BaseTrackedTransaction):
@@ -53,12 +51,8 @@ class TrackedTransaction(BaseTrackedTransaction):
         object.__setattr__(self, 'ttx_type', tx_type) # ttx_type simplifies the donor_address algo.
 
         if type(self) != ProposalTransaction:
-
-            # refactored; proposal_txid and proposal no longer arguments.
-            # proposal_txid = self.metadata.txid.hex()
             proposal_txid = self.metadata["txid"].hex()
             object.__setattr__(self, 'proposal_txid', proposal_txid)
-
 
         object.__setattr__(self, 'deck', deck)
 
@@ -66,74 +60,7 @@ class TrackedTransaction(BaseTrackedTransaction):
         # so P2TH address is stored.
 
         epoch = self.blockheight // self.deck.epoch_length if deck is not None else None
-
         object.__setattr__(self, 'epoch', epoch) # Epoch in which the transaction was sent. Epochs begin with 0.
-
-
-    def get_output_tx(self, tx_list, proposal_state, dist_round, mode: str=None, debug: bool=False):
-        # Searches a locking/donation transaction which shares the address of a signalling or reserve transaction
-        # Locking mode searches for the DonationTransaction following to a LockingTransaction.
-        # If locking mode, then a reserve address is ignored even if it exists.
-        # NOTE: This finds only the first transaction of those searched.
-
-        phase = dist_round // 4
-        reserve = False
-        direct_successors, indirect_successors = [], []
-
-        try:
-
-            assert mode != "locking"
-            addr = self.reserve_address
-            tx_type = tx.ttx_type
-
-        except (AttributeError, AssertionError):
-
-            # Here we separate ReserveTXes and SignallingTXes:
-            # AttributeError is thrown for SignallingTXes
-            # AssertionError for LockingTxes or DonationTxes which act as ReserveTxes
-
-            addr = self.address
-            if mode != "locking":
-                reserve = True
-
-        # MODIFIED. This list had no proper sorting, so it could led to inconsistent behaviour.
-        for tx in sorted(tx_list, key=lambda x: (x.blockheight, x.blockseq)):
-            if not proposal_state.check_donor_address(tx, dist_round, addr, reserve=reserve, debug=debug):
-                if debug: print("Donor address rejected, already used:", addr)
-                continue
-
-            if debug: print("Input addresses of tx", tx.txid, ":", tx.input_addresses)
-            # first priority has the direct successor
-            if self.txid in [t.txid for t in tx.ins]:
-                if debug: print("Added direct successor:", tx.txid)
-                direct_successors.append(tx)
-
-            # second priority is the first one of the list which is matching.
-            # TODO: It may be needed that first ALL txes are checked for direct successors, then for indirect ones.
-            # This would need a rewrite, as then get_output_tx would have to be called twice per tx.
-            elif addr in tx.input_addresses:
-                if debug: print("Added indirect successor:", tx.txid)
-                indirect_successors.append(tx)
-
-        for tx in direct_successors + indirect_successors:
-            # in locking mode, we check the block height of the donation release transaction.
-            # print("Checking tx", tx)
-            if mode == "locking":
-                startblock = proposal_state.release_period[0]
-                endblock = proposal_state.release_period[1]
-
-            else:
-                startblock = proposal_state.rounds[dist_round][1][0]
-                endblock = proposal_state.rounds[dist_round][1][1] # last valid block
-
-            if not (startblock <= tx.blockheight <= endblock):
-                continue
-
-            proposal_state.add_donor_address(addr, tx.ttx_type, phase, reserve=reserve)
-            return tx
-
-        if debug: print("Nothing found.")
-        return None
 
     def get_direct_successors(self, tx_list):
         """all TrackedTransactions of a list which have one of the outputs of the current tx as input."""
@@ -157,6 +84,7 @@ class TrackedTransaction(BaseTrackedTransaction):
 
     def set_direct_successor(self, tx_list: list, reserve_mode: bool=False):
         # the direct successor is a Locking/Donation transaction that spends the input 2.
+
         (output, attribute) = (3, "reserve_successor") if reserve_mode else (2, "direct_successor")
         for tx in tx_list:
             if (self.txid == tx.ins[0].txid) and (tx.ins[0].txout == output):
@@ -167,6 +95,7 @@ class TrackedTransaction(BaseTrackedTransaction):
 class LockingTransaction(TrackedTransaction):
     """A LockingTransaction is a transaction which locks the donation amount until the end of the
        working period of the Proposer. They are only necessary in the first phase (round 1-4)."""
+
 
     def __init__(self, deck, txid=None, timelock=None, d_address=None, d_amount=None, reserved_amount=None, reserve_address=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, provider=None, blockheight=None, blockhash=None, p2sh_address=None):
 
@@ -184,7 +113,6 @@ class LockingTransaction(TrackedTransaction):
                 p2sh_script = locked_out.script_pubkey
                 public_timelock = self.metadata["locktime"]
                 try:
-                    # public_dest_address = hash_to_address(self.metadata.lockhash, self.metadata.lockhash_type, network)
                     lockhash_type = self.metadata["lockhash_type"]
                     public_dest_address = hash_to_address(self.metadata["lockhash"], lockhash_type, network)
                 except (ValueError, NotImplementedError):
@@ -192,17 +120,10 @@ class LockingTransaction(TrackedTransaction):
 
                 redeem_script = DonationTimeLockScript(raw_locktime=public_timelock, dest_address_string=public_dest_address, network=network)
                 redeem_script_p2sh = P2shScript(redeem_script)
-
-                #print("Destination address:", public_dest_address)
-                #print("Redeem script:", redeem_script)
-                #print("Redeem script P2SH:", redeem_script_p2sh)
                 p2sh_address = P2shAddress.from_script(redeem_script, network=network)
-                #print("P2SH address:", p2sh_address)
-
 
                 if not redeem_script_p2sh == p2sh_script:
                     raise InvalidTrackedTransactionError("Incorrect Locktime and address data.")
-
                 else:
                     timelock = public_timelock
                     d_address = public_dest_address
@@ -251,26 +172,24 @@ class DonationTransaction(TrackedTransaction):
                 reserved_amount = reserved_out.value
                 reserve_address = reserved_out.script_pubkey.address(network=network).__str__()
 
-
         except AttributeError:
                 raise InvalidTrackedTransactionError("Incorrectly formatted DonationTransaction.")
 
         object.__setattr__(self, 'address', d_address) # donation address: the address defined in the referenced Proposal
         object.__setattr__(self, 'amount', d_amount) # donation amount
-
         object.__setattr__(self, 'reserved_amount', reserved_amount) # Output reserved for following rounds.
         object.__setattr__(self, 'reserve_address', reserve_address) # Output reserved for following rounds.
 
 
 class SignallingTransaction(TrackedTransaction):
-    """A SignallingTransaction is a transaction where a Potential Donor signals available funds."""
+    """A SignallingTransaction is a transaction where a Potential Donor signals available funds.
+    Per convention, the signalled funds are in output 2 of the transaction."""
 
     def __init__(self, deck, txid=None, s_amount=None, s_address=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, provider=None, blockhash=None, blockheight=None):
 
         TrackedTransaction.__init__(self, deck, txid=txid, version=version, ins=ins, outs=outs, locktime=locktime, network=network, timestamp=timestamp, provider=provider, blockheight=blockheight, blockhash=blockhash)
 
         if outs:
-            # CONVENTION: Signalling is in output 2 (0: P2TH, 1: OP_RETURN).
             signalling_out = outs[2]
             if not s_address:
                 s_address = signalling_out.script_pubkey.address(network=network).__str__()
@@ -285,41 +204,20 @@ class SignallingTransaction(TrackedTransaction):
 
 
 class ProposalTransaction(TrackedTransaction):
-    """A ProposalTransaction is the transaction where a DT Proposer (originator) specifies required amount and donation address."""
-    # Modified: instead of previous_proposal, we use first_ptx_txid. We always reference the first tx, not a previous modification.
+    """A ProposalTransaction is the transaction where a DT Proposer (originator) specifies required amount and donation address.
+       By convention, the donation address is the one belonging to the same key who signed the first input of the transaction."""
 
     def __init__(self, deck, txid=None, donation_address=None, epoch_number=None, round_length=None, req_amount=None, first_ptx_txid=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, provider=None, blockhash=None, blockheight=None):
 
-
         TrackedTransaction.__init__(self, deck, txid=txid, version=version, ins=ins, outs=outs, locktime=locktime, network=network, timestamp=timestamp, provider=provider, blockheight=blockheight, blockhash=blockhash)
 
-        # fmt = PROPOSAL_FORMAT
-
-        # this deck_id storage is redundant. It is however perhaps better to do this here.
-        # deck_id = getfmt(self.datastr, fmt, "dck").hex() # MODIFIED to hex. check if it does harm.
-
-        # epoch_number = self.metadata.epochs
         epoch_number = self.metadata["epochs"]
-        # MODIF: standard round length implementation.
-        # MODIF: standard round length replaces round_length completely.
-        """if round_length is None:
-            try:
-                round_length = self.metadata["sla"]
-                assert self.metadata != None
-            except (KeyError, AssertionError):
-                # round_length = self.metadata.sla
-                round_length = self.deck.standard_round_length"""
-
         # NOTE: req_amount was before a small int number, now it can be a number of up to the max amount of decimal places
-        # req_amount = self.metadata.amount
         req_amount = self.metadata["amount"]
         # Description. Short optional string which can be used to describe or give a name (non-unique) to the Proposal.
         description = self.metadata.get("description")
 
         if first_ptx_txid is None:
-            # MODIFIED: we now use .txid, not .txid2 anymore for modifications.
-            # invalid txes (e.g. deckids) are filtered out in the Parser.
-            # (NOTE: this means that all old test proposals are now invalid.)
             if "txid" in self.metadata and type(self.metadata["txid"]) == bytes:
                 try:
                     first_ptx_txid = self.metadata["txid"].hex()
@@ -327,12 +225,8 @@ class ProposalTransaction(TrackedTransaction):
                 except AssertionError:
                     raise InvalidTrackedTransactionError("TXID of modified proposal is in wrong format.")
 
-
-        # Donation Address. This one must be one from which the ProposalTransaction was signed.
-        # Otherwise spammers could confuse the system.
-        # CONVENTION for now: It is the address of the FIRST input of the ProposalTransaction,
-        # thus we can use find_tx_sender.
-        # TODO: currently find_tx_sender generates a circular import, even if importing complete pautils module.
+        # TODO: currently find_tx_sender can't be used here, it generates a circular import,
+        # even if importing complete pautils module.
         if not donation_address:
             try:
                 # donation_address = pu.find_tx_sender(self.to_json)
@@ -346,33 +240,26 @@ class ProposalTransaction(TrackedTransaction):
                 raise InvalidTrackedTransactionError("Proposal transaction has no valid donation address.")
 
         object.__setattr__(self, 'donation_address', donation_address)
-
         object.__setattr__(self, 'epoch_number', epoch_number) # epochs: epochs to work on.
-        # object.__setattr__(self, 'round_length', round_length) # Proposer can define length of each round of the distribution.
         object.__setattr__(self, 'description', description) # Requested amount of coin units.
         object.__setattr__(self, 'req_amount', req_amount) # Requested amount of coin units.
         object.__setattr__(self, 'first_ptx_txid', first_ptx_txid)
 
 class VotingTransaction(TrackedTransaction):
-    # very simple custom protocol, because the original PeerAssets voting protocol has two problems:
+    """Very simple custom protocol, because the original PeerAssets voting protocol has two problems:
     # 1. it requires an extra transaction to be sent (which would have to be sent by the Proposer => more fees)
     # 2. it requires too many addresses to be generated and imported into the client (1 per vote option).
     # This one only requires one P2TH output and a (relatively small) OP_RETURN output per voting transaction.
-    # For the vote value, we use b'+' and b'-', so the vote can be seen in the datastring. # TODO reconsider this!
-    # TODO: Implement that a vote in start epoch is not needed to be repeated in end epoch.
-    # This need some additional considerations: what if a start epoch voter sells his tokens before end epoch?
-    # So it would need to update the vote by the balance in round 2? This would be perhaps even better.
+    Vote is always cast with the entire current balance"""
 
-    # Vote is always cast with the entire current balance.
+    # TODO: A desired feature is that a vote in start epoch is not needed to be repeated in end epoch.
+    # For this purpose it would be needed to update the vote weight in the end round, if the voting token balance has changed.
 
     def __init__(self, deck, txid=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, provider=None, blockheight=None, blockhash=None, vote=None, sender=None):
 
         TrackedTransaction.__init__(self, deck, txid=txid, version=version, ins=ins, outs=outs, locktime=locktime, network=network, timestamp=timestamp, provider=provider, blockheight=blockheight, blockhash=blockhash)
 
         if vote is None:
-            ### CHANGED TO PROTOBUF
-
-            # vote = self.metadata.vote
             vote = self.metadata["vote"]
             votechar = b"+" if vote == True else b"-"
         object.__setattr__(self, "vote", votechar)
@@ -382,11 +269,11 @@ class VotingTransaction(TrackedTransaction):
             input_vout = self.ins[0].txout
             sender = provider.getrawtransaction(input_tx, 1)["vout"][input_vout]["scriptPubKey"]["addresses"][0]
 
-
         object.__setattr__(self, "sender", sender)
 
     def set_weight(self, weight):
-        object.__setattr__(self, "vote_weight", weight) # TODO: why does "vote_weight" work, but "weight" doesn't???
+        # TODO: research strange bug here: "vote_weight" works, but "weight" doesn't
+        object.__setattr__(self, "vote_weight", weight)
 
 # Scripts for Timelock contract
 # we can use the verify function to extract the locktime from the script.

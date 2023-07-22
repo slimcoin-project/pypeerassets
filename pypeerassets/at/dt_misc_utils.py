@@ -22,6 +22,7 @@ from collections import namedtuple
 ## Basic functions
 
 def coin_value(network_name: str=None, network: namedtuple=None):
+    """Value in 'satoshis' of an entire coin."""
     if network is None:
         if network_name is None:
             raise ValueError("You must provide either network name or network object.")
@@ -37,7 +38,10 @@ def coins_to_sats(coins: Decimal, network_name: str=None, network: namedtuple=No
     return int(coins * coin_value(network_name, network))
 
 def min_p2th_fee(network) -> int:
-    # normally, the minimal tx fee in PPC and derived coins is the same than the minimal amount for an output.
+    # The minimal tx fee in PPC and derived coins is the same than the minimal amount for an output.
+    # This value is however not defined in the network tuple.
+    # As a placeholder we use the min_tx_fee, which in SLM is the same
+    # TODO: do this correctly.
     # the correct way however may be:
     # txout = network.tx_cls_out()
     # return txout.get_dust_threshold()
