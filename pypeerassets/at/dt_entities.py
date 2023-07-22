@@ -261,8 +261,7 @@ class VotingTransaction(TrackedTransaction):
 
         if vote is None:
             vote = self.metadata["vote"]
-            votechar = b"+" if vote == True else b"-"
-        object.__setattr__(self, "vote", votechar)
+        object.__setattr__(self, "vote", vote)
 
         if not sender:
             input_tx = self.ins[0].txid

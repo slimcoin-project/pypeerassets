@@ -302,7 +302,7 @@ class ParserState(object):
                     if debug: print("VOTING: Vote is valid.")
                     voter_balance = self.enabled_voters[v.sender] # voting token balance at start of epoch
                     if debug: print("VOTING: Voter balance", voter_balance)
-                    vote_outcome = "positive" if v.vote == b'+' else "negative"
+                    vote_outcome = "positive" if v.vote else "negative"
                     votes[vote_outcome] += voter_balance
                     if debug: print("VOTING: Balance of outcome", vote_outcome, "increased by", voter_balance)
                     voters.append(v.sender)
