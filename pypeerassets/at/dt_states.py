@@ -3,9 +3,11 @@ from pypeerassets.at.dt_entities import TrackedTransaction, ProposalTransaction,
 from decimal import Decimal
 from copy import deepcopy
 
+
 class ProposalState(object):
-   # A ProposalState unifies all functions from proposals which are mutable.
-   # i.e. which can change after the first proposal transaction was sent.
+   """A ProposalState contains all attributes from proposals which are mutable.
+      i.e. which can change after the first proposal transaction was sent."""
+
 
     def __init__(self, valid_ptx: ProposalTransaction, first_ptx: ProposalTransaction, all_signalling_txes: int=None, all_locking_txes: int=None, all_donation_txes: int=None, all_voting_txes: int=None, **sub_state):
 
@@ -160,7 +162,6 @@ class ProposalState(object):
                      self.valid_ptx.txid, self.req_amount, self.end_epoch, self.rounds))
 
     def set_donation_states(self, current_blockheight, debug=False):
-        # MODIF: 'phase' parameter eliminated. Method is not called by phase anymore.
 
         if len(self.rounds) == 0:
             if debug: print("PROPOSAL: Setting rounds for proposal:", self.id)
@@ -690,11 +691,69 @@ class ProposalState(object):
         else:
             return 0 # if dist_round is incorrect
 
+    def process_votes(self, enabled_voters: dict, phase: int, formatted_result: bool=False, debug: bool=True):
+        # stores a dictionary in initial/final votes with two keys: "positive" and "negative",
+        # weighted by the amounts of the tokens belonging to the voters of a proposal.
+        # NOTE: The balances are valid for the epoch of the ParserState. So this cannot be called
+        #       for votes in other epochs.
+        # NOTE 2: In this protocol the last vote counts (this is why the vtxs list is reversed).
+        #       You can always change you vote.
+        # Formatted_result returns the "decimal" value of the votes, i.e. the number of "tokens"
+        # which voted for the proposal, which depends on the "number_of_decimals" value.
+        # NOTE 3: This method is now called by phase, it is more transparent and efficient.
+
+        votes = { "negative" : 0, "positive" : 0 }
+        voters = [] # to filter out duplicates.
+
+        if phase == 0:
+            self.initial_votes = votes
+        elif phase == 1:
+            self.final_votes = votes
+
+        if debug: print("VOTING: Enabled Voters:", enabled_voters)
+        print(self.idstring)
+
+        if len(self.all_voting_txes) == 0:
+            return
+
+        voting_epoch = self.start_epoch if phase == 0 else self.end_epoch
+        phase_vtxes = [v for v in self.all_voting_txes if v.epoch == voting_epoch]
+        sorted_vtxes = sorted(phase_vtxes, key=lambda tx: (tx.blockheight, tx.blockseq), reverse=True)
+
+        for v in sorted_vtxes: # reversed for the "last vote counts" rule.
+            if debug: print("VOTING: Vote: Epoch", v.epoch, "txid:", v.txid, "sender:", v.sender, "outcome:", v.vote, "height", v.blockheight)
+            if v.sender not in voters:
+                try:
+                    if debug: print("VOTING: Vote is valid.")
+                    voter_balance = enabled_voters[v.sender] # voting token balance at start of epoch
+                    if debug: print("VOTING: Voter balance", voter_balance)
+                    vote_outcome = "positive" if v.vote else "negative"
+                    votes[vote_outcome] += voter_balance
+                    if debug: print("VOTING: Balance of outcome", vote_outcome, "increased by", voter_balance)
+                    voters.append(v.sender)
+
+                    # set the weight in the transaction (vote_weight attribute)
+                    v.set_weight(voter_balance)
+
+                    # Valid voting txes are appended to ProposalStates.voting_txes by round and outcome
+                    self.voting_txes[phase].append(v)
+
+                except KeyError: # will always be thrown if a voter is not enabled in the "current" epoch.
+                    if debug: print("VOTING: Voter has no balance in the current epoch.")
+                    continue
+
+        if formatted_result:
+            for outcome in ("positive", "negative"):
+                balance = Decimal(votes[outcome]) / 10 ** self.deck.number_of_decimals
+                votes.update({outcome : balance})
+
+
 class DonationState(object):
     # A DonationState contains Signalling, Locking and Donation transaction and the slot.
     # Must be created always with either SignallingTX or ReserveTX.
     # Child_state_id allows more control over inheriting. A parent state would be even better but would need refactoring or costly processing.
     # The "claimed" state is assigned in the ParserState loop.
+
 
     def __init__(self, proposal_id=None, origin_tx=None, locking_tx=None, donation_tx=None, slot=None, dist_round=None, effective_slot=None, effective_locking_slot=None, reward=None, state="incomplete"):
 

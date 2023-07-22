@@ -169,7 +169,8 @@ class ParserState(object):
             if (pstate.start_epoch != self.epoch):
                 continue
 
-            pstate.initial_votes = self.get_votes(pstate, 0) ### phase added
+            # pstate.initial_votes = self.process_votes(pstate, 0)
+            pstate.process_votes(self.enabled_voters, 0)
 
             if self.debug_voting: print("VOTING: Votes round 1 for Proposal", pstate.id, ":", pstate.initial_votes)
 
@@ -200,7 +201,8 @@ class ParserState(object):
             if (pstate.end_epoch != self.epoch):
                 continue
             # donation address should not be possible to change (otherwise it's a headache for donors), so we use first ptx.
-            pstate.final_votes = self.get_votes(pstate, 1) ### phase added
+            # pstate.final_votes = self.process_votes(pstate, 1)
+            pstate.process_votes(self.enabled_voters, 1)
             if self.debug_voting: print("VOTING: Votes round 2 for Proposal", pstate.id, ":", pstate.final_votes)
             if pstate.final_votes["positive"] <= pstate.final_votes["negative"]:
                 pstate.state = "abandoned"
@@ -267,65 +269,6 @@ class ParserState(object):
             return q
         except UnboundLocalError: # if no txes were found
             return 0
-
-    def get_votes(self, proposal, phase, formatted_result=False):
-        # TODO should be integrated in the ProposalState class.
-        # returns a dictionary with two keys: "positive" and "negative",
-        # weighted by the amounts of the tokens belonging to the voters of a proposal.
-        # NOTE: The balances are valid for the epoch of the ParserState. So this cannot be called
-        #       for votes in other epochs.
-        # NOTE 2: In this protocol the last vote counts (this is why the vtxs list is reversed).
-        #       You can always change you vote.
-        # Formatted_result returns the "decimal" value of the votes, i.e. the number of "tokens"
-        # which voted for the proposal, which depends on the "number_of_decimals" value.
-        # NOTE 3: This method is now called by phase, it is more transparent and efficient.
-
-        votes = {}
-        voters = [] # to filter out duplicates.
-        debug = self.debug_voting
-
-        if debug: print("VOTING: Enabled Voters:", self.enabled_voters)
-
-        votes = { "negative" : 0, "positive" : 0 }
-        if len(proposal.all_voting_txes) == 0:
-            return votes
-
-        voting_epoch = proposal.start_epoch if phase == 0 else proposal.end_epoch
-        phase_vtxes = [v for v in proposal.all_voting_txes if v.epoch == voting_epoch]
-        sorted_vtxes = sorted(phase_vtxes, key=lambda tx: (tx.blockheight, tx.blockseq), reverse=True)
-
-        for v in sorted_vtxes: # reversed for the "last vote counts" rule.
-            if debug: print("VOTING: Vote: Epoch", v.epoch, "txid:", v.txid, "sender:", v.sender, "outcome:", v.vote, "height", v.blockheight)
-            # TODO: self.epoch switch is probably obsolete: We already have restricted the voting txes above in phase_vtxes.
-            if (v.epoch == self.epoch) and (v.sender not in voters):
-                try:
-                    if debug: print("VOTING: Vote is valid.")
-                    voter_balance = self.enabled_voters[v.sender] # voting token balance at start of epoch
-                    if debug: print("VOTING: Voter balance", voter_balance)
-                    vote_outcome = "positive" if v.vote else "negative"
-                    votes[vote_outcome] += voter_balance
-                    if debug: print("VOTING: Balance of outcome", vote_outcome, "increased by", voter_balance)
-                    voters.append(v.sender)
-
-                    # set the weight in the transaction (vote_weight attribute)
-                    v.set_weight(voter_balance)
-
-                    # Valid voting txes are appended to ProposalStates.voting_txes by round and outcome
-                    proposal.voting_txes[phase].append(v)
-
-                except KeyError: # will always be thrown if a voter is not enabled in the "current" epoch.
-                    if debug: print("VOTING: Voter has no balance in the current epoch.")
-                    continue
-
-            elif v.epoch < self.epoch: # due to it being sorted we can cut off all txes before the relevant epoch.
-                break ### maybe not more necessary due to phase addition!
-
-        if formatted_result:
-            for outcome in ("positive", "negative"):
-                balance = Decimal(votes[outcome]) / 10 ** self.deck.number_of_decimals
-                votes.update({outcome : balance})
-
-        return votes
 
     def validate_proposer_issuance(self, dtx_id, card_units, card_sender, card_blocknum):
 

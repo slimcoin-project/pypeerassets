@@ -1,3 +1,8 @@
+from collections import namedtuple
+from decimal import Decimal
+from btcpy.structs.address import P2shAddress
+from btcpy.structs.script import P2shScript, AbsoluteTimelockScript
+from btcpy.structs.sig import P2shSolver, AbsoluteTimelockSolver, P2pkhSolver, P2pkSolver, Sighash
 import pypeerassets as pa
 import pypeerassets.at.constants as c
 from pypeerassets.at.dt_entities import ProposalTransaction, SignallingTransaction, DonationTimeLockScript
@@ -11,13 +16,13 @@ from pypeerassets.kutil import Kutil
 from pypeerassets.transactions import make_raw_transaction, p2pkh_script, find_parent_outputs, nulldata_script, MutableTxIn, TxIn, TxOut, Transaction, MutableTransaction, MutableTxIn, ScriptSig, Locktime
 from pypeerassets.networks import net_query
 from pypeerassets.provider.rpcnode import Sequence
-from btcpy.structs.address import P2shAddress
-from btcpy.structs.script import P2shScript, AbsoluteTimelockScript
-from btcpy.structs.sig import P2shSolver, AbsoluteTimelockSolver, P2pkhSolver, P2pkSolver, Sighash
-from decimal import Decimal
 from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
 from pypeerassets.legacy import is_legacy_blockchain
 from collections import namedtuple
+from decimal import Decimal
+
+## This module bundles "middleware" functions which are to be used by pacli
+## and potentially other applications / interfaces.
 
 ## Basic functions
 
@@ -206,10 +211,8 @@ def get_parser_state(provider, deck=None, deckid=None, lastblock=None, force_con
     if not deck:
         if not deckid:
             raise ValueError("No deck id provided.")
-        #deck = deck_from_tx(deckid, provider)
         deck = pa.find_deck(provider, deckid, deck_version, production)
 
-    # unfiltered_cards = list((card for batch in get_card_bundles(provider, deck) for card in batch))
     unfiltered_cards = list((card for batch in pa.get_card_bundles(provider, deck) for card in batch))
 
     pst = ParserState(deck, unfiltered_cards, provider, current_blockheight=lastblock, debug=debug, debug_voting=debug_voting, debug_donations=debug_donations)
@@ -259,6 +262,7 @@ def format_votes(decimals, votes):
 
 def import_p2th_address(provider: Provider, p2th_address: str) -> None:
     # this checks if a P2TH address is already imported. If not, import it (only rpcnode).
+
     p2th_account = provider.getaccount(p2th_address)
 
     if (type(p2th_account) == dict) and (p2th_account.get("code") == -5):
@@ -270,6 +274,7 @@ def import_p2th_address(provider: Provider, p2th_address: str) -> None:
 
 def deck_p2th_from_id(network: str, deck_id: str) -> str:
     # helper function giving the p2th.
+
     return Kutil(network=network,
                          privkey=bytearray.fromhex(deck_id)).address
 
