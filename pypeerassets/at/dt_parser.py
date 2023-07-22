@@ -13,8 +13,9 @@ def dt_parser(cards: list, provider: object, deck: object, current_blockheight: 
 
     cards.sort(key=lambda x: (x.blocknum, x.blockseq, x.cardseq))
 
-    # initial_parser_state enables to continue parsing from a certain blockheight or use the parser from "outside".
-    # Use with caution.
+    # initial_parser_state allows to use the parser without calling the
+    # find_all_valid_cards function. Use with caution.
+
     if initial_parser_state:
         pst = initial_parser_state
         debug = pst.debug
@@ -35,23 +36,16 @@ def dt_parser(cards: list, provider: object, deck: object, current_blockheight: 
     if debug: print("PARSER: Total number of initial cards:", cards_len)
     if debug: print("PARSER: Starting epoch loop ...")
 
-    # pos = 0 # card position
-    # highpos = 0
-
     if not pst.end_epoch:
         pst.end_epoch = pst.current_blockheight // deck.epoch_length + 1 # includes an incomplete epoch which just started
 
     if debug: print("PARSER: Start and end epoch:", pst.start_epoch, pst.end_epoch)
 
-    # first_epochs_processed = False
     valid_epoch_cards = []
     valid_bundles = []
     pst.epoch = pst.start_epoch
     epoch_initialized = False
-    # epoch_completed = False # probably not needed:
-    # We complete always when we have valid_epoch_cards at the start of the loop or after the loop has ended.
 
-    #for cindex, card in enumerate(pst.initial_cards): # MODIF: enumerate
     for (card, bundle_amount) in process_cards_by_bundle(cards, debug=debug):
 
         card_epoch = card.blocknum // deck.epoch_length # deck epoch count starts at genesis block
@@ -90,13 +84,11 @@ def dt_parser(cards: list, provider: object, deck: object, current_blockheight: 
                 # parts of valid CardIssue CardBundles which were already processed.
                 valid_epoch_cards.append(card)
 
-            if pst.check_card(card, issued_amount): # new method which checks only ONE card, replaces get_valid_epoch_cards
-                # yield card # original idea was to transform this into a generator, maybe later.
+            if pst.check_card(card, issued_amount):
+                # yield card  # original idea was to transform this into a generator, maybe later.
                 valid_epoch_cards.append(card)
                 if bundle_amount is not None:
                     valid_bundles.append(card.txid)
-                # valid_epoch_cards += cards[cindex:last_bundle_cindex + 1]
-
 
     if len(valid_epoch_cards) > 0:
         pst.epoch_postprocess(valid_epoch_cards)

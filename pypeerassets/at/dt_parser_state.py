@@ -8,17 +8,17 @@ from decimal import Decimal
 from pypeerassets.at.dt_entities import ProposalTransaction, SignallingTransaction, DonationTransaction, LockingTransaction, VotingTransaction
 from pypeerassets.at.dt_entities import InvalidTrackedTransactionError
 from pypeerassets.at.dt_states import ProposalState, DonationState
-from pypeerassets.at.dt_parser_utils import * # TODO: better import module
 from pypeerassets.at.extended_utils import get_issuance_bundle
 import pypeerassets.at.constants as c
 import pypeerassets as pa
+import pypeerassets.at.dt_parser_utils as dpu
 from copy import deepcopy
 
 class ParserState(object):
     """A ParserState contains the current state of all important variables for a single deck,
        while the card parser is running.
        A sub_state is a dict to allow to create a ParserState in a pre-processed state.
-       Currently not used but maybe useful."""
+       Currently not used but useful for further updates."""
 
     def __init__(self, deck: object, initial_cards: list, provider: object, epoch: int=None, start_epoch: int=None, end_epoch: int=None,  current_blockheight: int=None, debug: bool=False, debug_voting: bool=False, debug_donations: bool=False, epochs_with_completed_proposals: int=0, **sub_state):
 
@@ -61,10 +61,9 @@ class ParserState(object):
 
         else:
             self.start_epoch = start_epoch
+
         self.end_epoch = end_epoch
-
         self.startblock = self.start_epoch * self.deck.epoch_length # first block of the epoch the deck was spawned. Probably not needed.
-
         self.valid_cards = []
 
         # Notes for some attributes:
@@ -97,7 +96,7 @@ class ParserState(object):
             self.sdp_cards = None
 
         if self.debug: print("PARSER: Get proposal states ...", )
-        self.proposal_states = get_proposal_states(self.provider, self.deck, self.current_blockheight, debug=self.debug)
+        self.proposal_states = dpu.get_proposal_states(self.provider, self.deck, self.current_blockheight, debug=self.debug)
         if self.debug: print(len(self.proposal_states), "found.")
 
         # We don't store the txes anymore in the ParserState, as they're already stored in the ProposalStates.
@@ -145,11 +144,13 @@ class ParserState(object):
     def get_sdp_balances(self):
 
         upper_limit = self.epoch * self.deck.epoch_length # balance at the start of the epoch.
+
         if self.epoch == self.start_epoch:
             if self.debug_voting: print("VOTING: Retrieving old SDP cards ...")
             lower_limit = 0
         else:
             lower_limit = (self.epoch - 1) * self.deck.epoch_length # balance at the start of the epoch.
+
         if self.debug_voting: print("VOTING: Blocklimit for this epoch:", upper_limit, "Epoch number:", self.epoch)
         if self.debug_voting: print("VOTING: Card blocks:", [card.blocknum for card in self.sdp_cards])
 
@@ -191,7 +192,6 @@ class ParserState(object):
     def update_valid_ending_proposals(self):
         # this function checks all proposals which end in a determinated epoch
         # valid proposals are those who are voted in round1 and round2 with _more_ than 50% (50% is not enough).
-        # MODIFIED: modified_proposals no longer parameter.
         # Only checks round-2 votes.
 
         ending_valid_proposals = {}
@@ -205,14 +205,11 @@ class ParserState(object):
             if pstate.final_votes["positive"] <= pstate.final_votes["negative"]:
                 pstate.state = "abandoned"
                 continue
-
             ending_valid_proposals.update({pstate.first_ptx.txid : pstate})
 
-        # if self.debug_voting: print("PARSER: Completed proposals in epoch {}: {}".format(self.epoch, ending_valid_proposals.keys()))
-
+        if self.debug_voting: print("PARSER: Completed proposals in epoch {}: {}".format(self.epoch, ending_valid_proposals.keys()))
         if len(ending_valid_proposals) == 0:
             return
-
         self.epochs_with_completed_proposals += 1
 
         # Set the Distribution Factor (number to be multiplied with the donation/slot,
@@ -236,7 +233,7 @@ class ParserState(object):
 
         proposal_list = []
         tx_attr = "all_{}_txes".format(tx_type)
-        txes = get_marked_txes(self.provider, self.deck.derived_p2th_address(tx_type), min_blockheight=min_blockheight, max_blockheight=max_blockheight)
+        txes = dpu.get_marked_txes(self.provider, self.deck.derived_p2th_address(tx_type), min_blockheight=min_blockheight, max_blockheight=max_blockheight)
         for q, rawtx in enumerate(txes):
             try:
                 if tx_type == "donation":
@@ -248,9 +245,6 @@ class ParserState(object):
                 elif tx_type == "voting":
                     tx = VotingTransaction.from_json(tx_json=rawtx, provider=self.provider, deck=self.deck)
 
-                # The ProposalTransaction is added as an object afterwards, to simplify the op_return procesing.
-                # proposal_tx = self.proposal_states[tx.proposal_txid].first_ptx
-                # tx.set_proposal(proposal_tx)
                 # We add the tx directly to the corresponding ProposalState.
                 # If the ProposalState does not exist, KeyError is thrown and the tx is ignored.
                 # When we create the first instance of the state we make a deepcopy.
@@ -298,13 +292,6 @@ class ParserState(object):
 
         voting_epoch = proposal.start_epoch if phase == 0 else proposal.end_epoch
         phase_vtxes = [v for v in proposal.all_voting_txes if v.epoch == voting_epoch]
-
-        # simplified, following switch can be deleted.
-        #if phase == 0:
-        #    phase_vtxes = [v for v in proposal.all_voting_txes if v.epoch == proposal.start_epoch]
-        #elif phase == 1:
-        #    phase_vtxes = [v for v in proposal.all_voting_txes if v.epoch == proposal.end_epoch]
-
         sorted_vtxes = sorted(phase_vtxes, key=lambda tx: (tx.blockheight, tx.blockseq), reverse=True)
 
         for v in sorted_vtxes: # reversed for the "last vote counts" rule.
@@ -336,9 +323,6 @@ class ParserState(object):
         if formatted_result:
             for outcome in ("positive", "negative"):
                 balance = Decimal(votes[outcome]) / 10 ** self.deck.number_of_decimals
-                # modified: base is number_of_decimals of main deck. old version:
-                # balance = Decimal(votes[outcome]) / 10**self.sdp_deck.number_of_decimals
-
                 votes.update({outcome : balance})
 
         return votes
@@ -356,24 +340,24 @@ class ParserState(object):
 
         # 2. Card must be issued after the last round deadline. Otherwise, a card could be valid for a couple of blocks,
         # and then become invalid.
-        # TODO this may be innecessary, as this is valid for all issuances, not only Proposer issuances.
-        # But check first if there are different checks in donation issuances.
-        try:
-           # MODIFIED: as the Proposer round is not longer necessary, modified [8][0][0] to [7][1][1] + 1
-           last_round_end = proposal_state.rounds[7][1][1] + 1 # modified from round_starts
-        except (IndexError, AttributeError):
-           # if rounds attribute is still not set , e.g. because there was not a single Donation CardIssue.
-           # then we set rounds. Should normally not be necessary, as rounds is now finalized in update_approved_proposals.
-           proposal_state.set_rounds()
-           last_round_end = proposal_state.rounds[7][1][1] + 1
+        # DELETED: This check is innecessary, as it is done in the parser loop for all cards.
+        # try:
+        #    # MODIFIED: as the Proposer round is not longer necessary, modified [8][0][0] to [7][1][1] + 1
+        #    last_round_end = proposal_state.rounds[7][1][1] + 1 # modified from round_starts
+        # except (IndexError, AttributeError):
+        #    # if rounds attribute is still not set , e.g. because there was not a single Donation CardIssue.
+        #    # then we set rounds. Should normally not be necessary, as rounds is now finalized in update_approved_proposals.
+        #    proposal_state.set_rounds()
+        #    last_round_end = proposal_state.rounds[7][1][1] + 1
 
-        if card_blocknum < last_round_end:
-            if debug: print("PARSER: Proposer issuance failed: card issued before end epoch of ProposalState.")
-            return False
+        # if card_blocknum < last_round_end:
+        #     if debug: print("PARSER: Proposer issuance failed: card issued before end epoch of ProposalState.")
+        #     return False
 
         if len(proposal_state.donation_states) == 0:
             proposal_state.set_donation_states(self.current_blockheight)
 
+        # 2. Check correct amount
         if card_units != proposal_state.proposer_reward:
             if debug: print("PARSER: Proposer issuance failed: Incorrect amount.")
             return False
@@ -385,16 +369,15 @@ class ParserState(object):
         """Main validation function for donations. Checks for each issuance if the donation was correct.
         The donation transaction ID is provided (by the issue transaction)
         and it is checked if it corresponds to a real donation."""
-        # MODIF: DonationState has now a "claimed" state value if a corresponding valid CardIssue is found.
 
         debug = self.debug_donations
 
         if debug: print("PARSER: Checking CardIssue based on donation tx:", dtx_id)
 
-        # check A: does proposal exist?
+        # check A: do donation transaction and proposal exist?
         if debug: print("PARSER: Valid proposals:", self.valid_proposals)
 
-        # TODO: the ProposalState check could perhaps be eliminated if we ensure the DTXes here are valid.
+        # Retrieve DonationTransaction object.
         try:
             dtx = self.donation_txes[dtx_id]
             if debug: print("PARSER: Donation transaction found.")
@@ -408,25 +391,33 @@ class ParserState(object):
             if debug: print("PARSER: Proposal state does not exist or was not approved.")
             return False
 
-        # We only associate donation/signalling txes to Proposals which really correspond to a card (token unit[s]) issued.
-        # This way, fake/no participation proposals and donations with no associated card issue attempts are ignored,
-        # which could be a way to attack the system with spam.
-
+        # We only create donation states for Proposals where a card was issued.
         if len(proposal_state.donation_states) == 0:
             if debug: print("PARSER: Creating donation states ...")
             proposal_state.set_donation_states(self.current_blockheight, debug=self.debug_donations)
 
         if debug: print("PARSER: Number of donation txes:", len([tx for r in proposal_state.donation_txes for tx in r ]))
 
-        # check B: Does txid correspond to a real donation?
+        # check B: Does the txid correspond to a valid DonationTransaction?
         # We go through the DonationStates per round and search for the dtx_id.
         # When we find it, we get the DonationState for the card issuance.
-        dstates = [d for rd_states in proposal_state.donation_states for d in rd_states.values()]
-        for ds in dstates:
-            if ds.donation_tx is not None:
-                # if debug: print("PARSER: Checking donation state:", ds.id, "with donation tx", ds.donation_tx.txid)
-                if ds.donation_tx.txid == dtx_id:
-                    break
+        # MODIF: should be slightly faster
+        for rd_states in proposal_state.donation_states:
+            for ds in rd_states.values():
+                try:
+                    if ds.donation_tx.txid == dtx.txid:
+                        break
+                except AttributeError:
+                    continue
+            else:
+                continue
+            break
+        #dstates = [d for rd_states in proposal_state.donation_states for d in rd_states.values()]
+        #for ds in dstates:
+        #    if ds.donation_tx is not None:
+        #        # if debug: print("PARSER: Checking donation state:", ds.id, "with donation tx", ds.donation_tx.txid)
+        #        if ds.donation_tx.txid == dtx_id:
+        #            break
         else:
             if debug: print("PARSER: Donation issuance failed: No matching donation state found.")
             return False
@@ -437,10 +428,10 @@ class ParserState(object):
             return False
 
         if debug: print("PARSER: Initial slot:", ds.slot, "Effective slot:", ds.effective_slot)
-        if debug: print("PARSER: Real donation", ds.donated_amount)
+        if debug: print("PARSER: Donation amount:", ds.donated_amount)
         if debug: print("PARSER: Card amount:", card_units)
         if debug: print("PARSER: Calculated reward:", ds.reward)
-        if debug: print("PARSER: Distribution Factor", proposal_state.dist_factor)
+        if debug: print("PARSER: Distribution Factor:", proposal_state.dist_factor)
 
 
         # Check D: Was the issued amount correct?
@@ -463,11 +454,9 @@ class ParserState(object):
         """Checks a CardIssue for validity. CardTransfers are always valid (they will be later processed by DeckState)."""
 
         # MODIF: issued_amount is only used for CardIssues as we need to know how much was issued in the bundle.
-        # NOTE: this replaced get_valid_epoch_cards, as it's also compatible with a generator-based approach.
         # CONVENTION: voters' weight is the balance at the start block of current epoch
 
         debug = self.debug_donations
-        # card_data = card.asset_specific_data # not needed anymore due to PROTOBUF
 
         if card.type == "CardIssue":
             if debug: print("PARSER: Checking validity of CardIssue", card.txid, "based on txid:", card.donation_txid)
@@ -475,16 +464,10 @@ class ParserState(object):
             # First step: Look for a matching DonationTransaction.
             dtx_id = card.donation_txid
 
-            # dtx_vout = card.donation_vout # MODIF: this is unnecessary and has been deleted. If in the future other
-            # vouts can be used, then we can simply always process the whole amount sent to Proposer, like with AT Tokens.
-
             # check 1: filter out duplicates (less expensive, so done first)
             if (card.sender, dtx_id) in self.used_issuance_tuples:
                 if debug: print("PARSER: Ignoring CardIssue: Duplicate or already processed part of CardBundle.")
                 return False
-
-            # MODIF: card_units is replaced by issued_amount in the following parts.
-            # card_units = sum(card.amount)
 
             # Check if it is a proposer or a donation issuance.
             # Proposers provide the ref_txid of their proposal transaction.
@@ -510,21 +493,18 @@ class ParserState(object):
             return True
 
     def epoch_init(self):
-        # EXPERIMENTAL, new parser structure without position lookup.
-        # This is called when the card loop enters a new epoch.
-        debug = self.debug_voting
+        # Called when the card loop enters a new epoch.
 
+        debug = self.debug_voting
         epoch_firstblock, epoch_lastblock = self.epoch * self.deck.epoch_length, (self.epoch + 1) * self.deck.epoch_length - 1
         if debug: print("PARSER: Checking epoch:", self.epoch, ", from block", epoch_firstblock, "to", epoch_lastblock)
 
         if self.deck.sdp_periods: # should give true if 0 or None
 
             sdp_epochs_remaining = self.deck.sdp_periods - self.epochs_with_completed_proposals
-
             if debug: print("VOTING: Epochs with completed proposals:", self.epochs_with_completed_proposals)
             if debug: print("VOTING: SDP periods remaining:", sdp_epochs_remaining)
 
-            #if (self.deck.sdp_periods > 0) and (sdp_epochs_remaining <= self.deck.sdp_periods): # voters from other tokens
             if sdp_epochs_remaining <= self.deck.sdp_periods:
 
                 # We set apart all CardTransfers of SDP voters before the epoch start
@@ -532,14 +512,10 @@ class ParserState(object):
 
                 # Weight is calculated according to the epoch
                 # Weight is reduced only in epochs where proposals were completely approved.
-                sdp_weight = get_sdp_weight(self.epochs_with_completed_proposals, self.deck.sdp_periods)
-
-                # Adjusted weight multiplies the token balance by the difference in decimal places
-                # between the main token and the SDP token.
-                # adjusted_weight = sdp_weight * 10 ** self.sdp_decimal_diff
+                sdp_weight = dpu.get_sdp_weight(self.epochs_with_completed_proposals, self.deck.sdp_periods)
 
                 if len(sdp_epoch_balances) > 0:
-                    updated_sdp_voters = update_voters(self.enabled_voters, sdp_epoch_balances, weight=sdp_weight, debug=self.debug_voting, dec_diff=self.sdp_decimal_diff)
+                    updated_sdp_voters = dpu.update_voters(self.enabled_voters, sdp_epoch_balances, weight=sdp_weight, debug=self.debug_voting, dec_diff=self.sdp_decimal_diff)
                     self.enabled_voters.update(updated_sdp_voters)
 
         # As card issues can occur any time after the proposal has been voted
@@ -557,7 +533,7 @@ class ParserState(object):
     def epoch_postprocess(self, valid_epoch_cards):
         # if debug: print("Valid cards found in this epoch:", len(valid_epoch_cards))
 
-        self.enabled_voters.update(update_voters(voters=self.enabled_voters, new_cards=valid_epoch_cards, debug=self.debug_voting))
+        self.enabled_voters.update(dpu.update_voters(voters=self.enabled_voters, new_cards=valid_epoch_cards, debug=self.debug_voting))
         # if debug: print("New voters balances:", self.enabled_voters)
 
         # if it's integrated into DeckState we probably don't need this, as we have DeckState.valid_cards
@@ -569,7 +545,6 @@ class ParserState(object):
         for epoch in range(start, end + 1):
             self.epoch = epoch
             self.epoch_init()
-            self.epoch == epoch
             # the postprocess step can be skipped, as there are no cards.
         self.epoch += 1 # TODO re-check! This sets the epoch to the one where the card is.
 

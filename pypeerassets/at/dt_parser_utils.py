@@ -11,10 +11,8 @@ from pypeerassets.pa_constants import param_query
 ### Transaction retrieval
 
 def get_marked_txes(provider, p2th_account, min_blockheight=None, max_blockheight=None):
-    # basic function. Gets all txes sent to a P2TH address, looping through "listtransactions".
-    # This needs before the address being imported into the coin wallet, and the account being set to its name.
-    # (see import_p2th_address)
-    # MODIF. As listtransactions is unpredictable and may lead to duplicates, we filter them out with set.
+    # Gets all txes sent to a P2TH address, looping through "listtransactions".
+    # As listtransactions may lead to duplicates, we filter them out with set.
     # Re-check speed.
 
     if min_blockheight is not None:
@@ -43,8 +41,6 @@ def get_marked_txes(provider, p2th_account, min_blockheight=None, max_blockheigh
               if tx_blocktime < min_blocktime:
                   continue
 
-           # txidlist.append(tx["txid"])
-
            try:
                blockseq = tx["blockindex"]
            except KeyError:
@@ -55,21 +51,19 @@ def get_marked_txes(provider, p2th_account, min_blockheight=None, max_blockheigh
            tx_tuple_list.append((tx["txid"], tx_blocktime, blockseq))
 
         if len(newtxes) < 999: # this means we reached the end.
-            # the set may not be strictly necessary but in some cases there were strange bugs due to duplicates
+            # Duplicates filtering
             ordered_txes = list(set(tx_tuple_list))
             # Sorting transactions by blocktime and position in the block, like we sort cards.
             ordered_txes.sort(key=lambda x: (x[1], x[2]))
             # this is the model: cards.sort(key=lambda x: (x.blocknum, x.blockseq, x.cardseq))
-            # txlist = [ provider.getrawtransaction(t, 1) for t in ordered_txids ]
             txlist = [ provider.getrawtransaction(t[0], 1) for t in ordered_txes ]
             return txlist
         start += 999
 
-def get_proposal_states(provider, deck, current_blockheight=None, all_signalling_txes=[], all_donation_txes=[], all_locking_txes=[], force_dstates=False, debug=False):
+def get_proposal_states(provider, deck, current_blockheight=None, all_signalling_txes=[], all_donation_txes=[], all_locking_txes=[], debug=False):
     # Gets all proposal txes of a deck and creates the initial ProposalStates. Needs P2TH.
     # If a new Proposal Transaction referencing an earlier one is found, the ProposalState is modified.
     # If provided, then donation/signalling txes are calculated
-    # Modified: force_dstates option (for pacli commands) calculates all phases/rounds and DonationStates, even if no card was issued.
     statedict = {}
     used_firsttxids = []
 
@@ -79,55 +73,44 @@ def get_proposal_states(provider, deck, current_blockheight=None, all_signalling
                 print("PARSER: Found ProposalTransaction", rawtx["txid"])
             tx = ProposalTransaction.from_json(tx_json=rawtx, provider=provider, deck=deck)
 
-            if tx.txid not in used_firsttxids: # filters out duplicates
-                if debug:
-                    print("PARSER: Basic validity/duplicate check passed. First ptx: >{}<".format(tx.txid, tx.first_ptx_txid))
-                if (tx.first_ptx_txid in ("", None, tx.txid)): # case 1: new proposal transaction # MODIF: old legacy support condition removed.
-                    state = ProposalState(first_ptx=tx, valid_ptx=tx, all_signalling_txes=all_signalling_txes, all_donation_txes=all_donation_txes, all_locking_txes=all_locking_txes)
-
-
-                    # added this here:
-                    statedict.update({ tx.txid : state })
-
-                elif tx.first_ptx_txid in statedict: # case 2: proposal modification
-                    state = statedict[tx.first_ptx_txid]
-
-                    if state.first_ptx.donation_address == tx.donation_address:
-                        state.valid_ptx = tx
-                        if debug:
-                            print("PARSER: Proposal modification: added to proposal state {}".format(tx.first_ptx_txid))
-                    else:
-                        # NOTE: this case was added 02/23.
-                        if debug:
-                            print("PARSER: Invalid modification: different donation address.")
-                            print("PARSER: First ptx: {}, modification: {}".format(state.first_ptx.donation_address, tx.donation_address))
-                        continue
-                else: # case 3: invalid first ptx
-                    if debug:
-                        print("PARSER: Invalid modification, invalid transaction format or non-existing proposal.")
-                    continue
-            else: # case 4: duplicate
+            if tx.txid in used_firsttxids: # filters duplicates
                 if debug:
                     print("Ignoring duplicate proposal.")
+                continue
+
+            if debug:
+                print("PARSER: Basic validity/duplicate check passed. First ptx: >{}<".format(tx.txid, tx.first_ptx_txid))
+
+            if (tx.first_ptx_txid in ("", None, tx.txid)): # case 1: new proposal transaction
+                state = ProposalState(first_ptx=tx, valid_ptx=tx, all_signalling_txes=all_signalling_txes, all_donation_txes=all_donation_txes, all_locking_txes=all_locking_txes)
+                statedict.update({ tx.txid : state })
+
+            elif tx.first_ptx_txid in statedict: # case 2: proposal modification
+                state = statedict[tx.first_ptx_txid]
+
+                if state.first_ptx.donation_address == tx.donation_address:
+                    state.valid_ptx = tx
+                    if debug:
+                        print("PARSER: Proposal modification: added to proposal state {}".format(tx.first_ptx_txid))
+                else:
+                    if debug:
+                        print("PARSER: Invalid modification: different donation address.")
+                        print("PARSER: First ptx: {}, modification: {}".format(state.first_ptx.donation_address, tx.donation_address))
+                    continue
+            else: # case 3: invalid first ptx
+                if debug:
+                    print("PARSER: Invalid modification, invalid transaction format or non-existing proposal.")
                 continue
 
         except InvalidTrackedTransactionError as e:
             print(e)
             continue
 
-        # this was probably wrong here, as it would create a new proposal state also for modifications
-        # statedict.update({ tx.txid : state })
         used_firsttxids.append(tx.txid)
-        # print("updated state", tx.txid)
 
     return statedict
 
-## SDP
-# TODO: What if there is no SDP token defined? Somebody must vote in the first round.
-# An idea could be to use burn transactions in the last epoch (if it's the first epoch, then it would be simply "counting backwards") -> but this would encourage burning perhaps too much
-# second idea: the deck issuer could vote for the first Proposal, or define the voters. However, this would make the token have a centralized element.
-# "all proposals are voted" or "voting by the donors" are not possible as they have a risk of cheating.
-# maybe best is make SDP mandatory.
+## SDP (mandatory for now)
 
 def get_sdp_weight(epochs_from_start: int, sdp_periods: int) -> Decimal:
     # Weight calculation for SDP token holders
@@ -177,15 +160,11 @@ def update_voters(voters={}, new_cards=[], weight=1, dec_diff=0, debug=False):
                 rec_amount = int(card.amount[rec_position] * weight) * dec_adjustment
 
                 if receiver not in voters:
-
                     if debug: print("New voter:", receiver, "with amount:", rec_amount)
                     voters.update({receiver : rec_amount })
-
                 else:
-
                     old_amount = voters[receiver]
                     if debug: print("Voter:", receiver, "with old_amount:", old_amount, "updated to new amount:", old_amount + rec_amount)
-
                     voters.update({receiver : old_amount + rec_amount})
 
         # if cardissue, we only add balances to receivers, nothing is deducted.
@@ -196,30 +175,11 @@ def update_voters(voters={}, new_cards=[], weight=1, dec_diff=0, debug=False):
             rest = -int(sum(card.amount)) # MODIFIED: weight here does not apply!
 
             if card.sender not in voters:
-
                 if debug: print("Card sender not in voters. Resting the rest:", rest)
                 voters.update({card.sender : rest * dec_adjustment})
-
             else:
-
                 old_amount = voters[card.sender]
                 if debug: print("Card sender updated from:", old_amount, "to:", old_amount + rest * dec_adjustment)
                 voters.update({card.sender : old_amount + rest * dec_adjustment})
 
     return voters
-
-### Other utils
-
-"""def deck_from_tx(txid: str, provider: Provider, deck_version: int=1, prod: bool=True):
-    '''Wrapper for deck_parser, gets the deck from the TXID.'''
-    # NOTE: at a first glance this may fit better in dt_misc_utils, but then it throws a circular import.
-    # TODO replace completely with find_deck.
-    from pypeerassets.pautils import deck_parser
-
-    params = param_query(provider.network)
-    p2th = params.P2TH_addr
-    raw_tx = provider.getrawtransaction(txid, 1)
-    deck = deck_parser((provider, raw_tx, deck_version, p2th), prod)
-    #if deck is None:
-    #    raise ValueError("No correct deck information provided.")
-    return deck"""
