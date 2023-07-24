@@ -130,7 +130,7 @@ def at_parser(cards: list, provider: Provider, deck: object, debug: bool=False):
     return valid_cards
 
 
-def input_addresses(tx, provider):  # taken from dt_entities. Should perhaps be an utility in dt_misc_utils.
+"""def input_addresses(tx, provider):  # taken from dt_entities. Should perhaps be an utility in dt_misc_utils.
     addresses = []
     for inp in tx["vin"]:
         try:
@@ -140,4 +140,4 @@ def input_addresses(tx, provider):  # taken from dt_entities. Should perhaps be 
             continue  # normally it should be possible to simply return with an empty list here
         addr = inp_txjson["vout"][inp_txout]["scriptPubKey"]["addresses"][0]
         addresses.append(addr)
-    return addresses
+    return addresses"""

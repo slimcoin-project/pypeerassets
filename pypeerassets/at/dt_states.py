@@ -5,8 +5,8 @@ from copy import deepcopy
 
 
 class ProposalState(object):
-   """A ProposalState contains all attributes from proposals which are mutable.
-      i.e. which can change after the first proposal transaction was sent."""
+    """A ProposalState contains all attributes from proposals which are mutable.
+       i.e. which can change after the first proposal transaction was sent."""
 
 
     def __init__(self, valid_ptx: ProposalTransaction, first_ptx: ProposalTransaction, all_signalling_txes: int=None, all_locking_txes: int=None, all_donation_txes: int=None, all_voting_txes: int=None, **sub_state):
@@ -225,6 +225,8 @@ class ProposalState(object):
 
             # Successor selection is segregated by round
             # TODO: should be optimized (list of successors by round), so not the whole search has to be done in each rd.
+            # could be done with while loop, all_tracked_txes.pop(0) and then catching the IndexError to break out.
+            # As this is the last time all_tracked_txes is used this doesn't cause side effects.
             selected_successors = []
             for tx in all_tracked_txes:
                 if self.validate_round(tx, rd):
@@ -253,7 +255,7 @@ class ProposalState(object):
         # 1. determine the valid signalling txes (include reserve/locking txes).
         dstates = {}
         donation_tx, locking_tx, effective_locking_slot, effective_slot = None, None, None, None
-        round_stxes = [stx for stx in self.all_signalling_txes if self.get_stx_dist_round(stx) == rd]
+        round_stxes = [stx for stx in self.all_signalling_txes if self.get_stx_dist_round(stx) == rd] # TODO: could this now be replaced with stx.dist_round == rd?
 
         if debug: print("Checking signalling and reserve transactions of round", rd)
         if rd in (0, 3, 6, 7):
@@ -324,6 +326,7 @@ class ProposalState(object):
                 if debug: print("SLOT: Donation state without positive slot not created.")
                 try:
                    if tx.direct_successor.txid in selected_successors:
+                       # NOTE: we don't have to delete the donor address of a DonationTX here, because the tx will be ignored anyway.
                        self._delete_invalid_successor(tx.direct_successor, selected_successors)
                 except AttributeError:
                    pass
@@ -441,6 +444,10 @@ class ProposalState(object):
                 reserve_mode = False
                 selected_tx = tx.direct_successor
 
+            # MODIF: donor address set.
+            if type(selected_tx) == DonationTransaction:
+                selected_tx.set_donor_address(direct_predecessor=tx)
+
         except AttributeError: # successor still not existing
 
             indirect_successors = tx.get_indirect_successors(potential_successors, reserve_mode=reserve_mode)
@@ -451,6 +458,9 @@ class ProposalState(object):
                 if (suc_tx.txid not in selected_successors) and (self.validate_round(suc_tx, rd)):
                     selected_tx = suc_tx
                     selected_successors.append(selected_tx.txid)
+                    ### MODIF:
+                    if type(selected_tx) == DonationTransaction:
+                        selected_tx.set_donor_address(direct_predecessor=tx)
                     break
                 elif debug:
                     if suc_tx.txid in selected_successors:
@@ -587,7 +597,6 @@ class ProposalState(object):
                         break
                 else:
                     if debug: print("Transaction rejected by priority check:", tx.txid)
-                    # self._delete_invalid_successor(successor_txid, selected_successors)
                     self._delete_invalid_successor(successor_tx, selected_successors)
                     continue
                 parent_dstate = dstate
@@ -625,7 +634,6 @@ class ProposalState(object):
 
                 else:
                     if debug: print("Reserve transaction rejected due to incomplete slot of parent donation state:", tx.txid, "\nSlot:", parent_dstate.slot, "Effective Slot (donated amount): {} Locking Slot: {}".format(parent_dstate.effective_slot, parent_dstate.effective_locking_slot))
-                    # self._delete_invalid_successor(successor_txid, selected_successors)
                     self._delete_invalid_successor(successor_tx, selected_successors)
                     continue
             except AttributeError as e:
@@ -660,6 +668,7 @@ class ProposalState(object):
             endblock = self.rounds[dist_round][1][1] # last valid block
 
         if (startblock <= tx.blockheight <= endblock):
+            tx.set_dist_round(dist_round)
             return True
         else:
             return False
@@ -711,7 +720,6 @@ class ProposalState(object):
             self.final_votes = votes
 
         if debug: print("VOTING: Enabled Voters:", enabled_voters)
-        print(self.idstring)
 
         if len(self.all_voting_txes) == 0:
             return

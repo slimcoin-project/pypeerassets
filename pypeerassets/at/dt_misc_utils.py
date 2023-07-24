@@ -134,9 +134,9 @@ def get_dstates_from_address(address: str, proposal_state: ProposalState, dist_r
                 used_addresses.append(ds.locking_tx.reserve_address)
                 used_addresses += ds.locking_tx.input_addresses
             if ds.donation_tx is not None:
-               # donation_tx.address is the Proposer's address, so not needed here.
-               used_addresses.append(ds.donation_tx.reserve_address)
-               used_addresses += ds.donation_tx.input_addresses
+                # donation_tx.address is the Proposer's address, so not needed here.
+                used_addresses.append(ds.donation_tx.reserve_address)
+                used_addresses += ds.donation_tx.input_addresses
 
             if address in used_addresses:
                    states.append(ds)

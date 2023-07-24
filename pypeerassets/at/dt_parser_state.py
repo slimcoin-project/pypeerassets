@@ -169,8 +169,7 @@ class ParserState(object):
             if (pstate.start_epoch != self.epoch):
                 continue
 
-            # pstate.initial_votes = self.process_votes(pstate, 0)
-            pstate.process_votes(self.enabled_voters, 0)
+            pstate.process_votes(self.enabled_voters, phase=0, debug=self.debug_voting)
 
             if self.debug_voting: print("VOTING: Votes round 1 for Proposal", pstate.id, ":", pstate.initial_votes)
 
@@ -201,8 +200,7 @@ class ParserState(object):
             if (pstate.end_epoch != self.epoch):
                 continue
             # donation address should not be possible to change (otherwise it's a headache for donors), so we use first ptx.
-            # pstate.final_votes = self.process_votes(pstate, 1)
-            pstate.process_votes(self.enabled_voters, 1)
+            pstate.process_votes(self.enabled_voters, phase=1, debug=self.debug_voting)
             if self.debug_voting: print("VOTING: Votes round 2 for Proposal", pstate.id, ":", pstate.final_votes)
             if pstate.final_votes["positive"] <= pstate.final_votes["negative"]:
                 pstate.state = "abandoned"

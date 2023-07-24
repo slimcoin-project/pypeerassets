@@ -68,7 +68,7 @@ class BaseTrackedTransaction(Transaction):
             print("Error, metadata not correctly formatted for protobuf.")
             print(e)
         object.__setattr__(self, 'deck', deck)
-        object.__setattr__(self, 'ttx_version', self.metadata["version"]) # NEW. For future upgradeability.
+        object.__setattr__(self, 'ttx_version', self.metadata["version"])
 
 
     def __str__(self):
