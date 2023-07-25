@@ -481,13 +481,13 @@ class ProposalState(object):
     def _preprocess_tracked_txes(self):
         # MODIF: It is better we sort and segregate already at the start of the processing,
         # even if there are more txes to sort/segregate, the efficiency gains are very high.
-        # TODO maybe LTXes list should be only 4 rounds short.
         result = []
-        for tx_group in (self.all_signalling_txes, self.all_locking_txes, self.all_donation_txes):
+        for group_index, tx_group in enumerate(self.all_signalling_txes, self.all_locking_txes, self.all_donation_txes):
             sorted_tx_group = []
+            rng = (8, 4, 8) # locking txes list is only 4 rounds long
             tx_group.sort(key = lambda x: (x.blockheight, x.blockseq))
 
-            for rd in range(8):
+            for rd in range(rng[group_index]):
                 rd_txes = []
                 for tx in tx_group:
                     if self.check_round(tx, rd):
