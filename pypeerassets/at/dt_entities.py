@@ -72,7 +72,7 @@ class TrackedTransaction(BaseTrackedTransaction):
         address = self.reserve_address if reserve_mode else self.address
 
         for tx in tx_list:
-            # MODIF: we don't search in all input_addresses but specifically the donor address added recently in TrackedTransaction
+            # MODIF: we don't search in all input_addresses but compare to the specific donor address.
             # DonationTransactions which don't have direct predecessors and thus no donor_address, get the donor_address set
             if (type(tx) == DonationTransaction) and (tx.donor_address is None):
                 tx.set_donor_address(dist_round=self.dist_round)
@@ -83,12 +83,15 @@ class TrackedTransaction(BaseTrackedTransaction):
 
     def set_direct_successor(self, tx_list: list, reserve_mode: bool=False):
         # the direct successor is a Locking/Donation transaction that spends the input 2.
+        # MODIF: returned True or False according to if a successor was added or not
 
         (output, attribute) = (3, "reserve_successor") if reserve_mode else (2, "direct_successor")
         for tx in tx_list:
             if (self.txid == tx.ins[0].txid) and (tx.ins[0].txout == output):
                 object.__setattr__(self, attribute, tx)
-                break
+                return True
+        else:
+            return False
 
     def set_dist_round(self, dist_round: int):
         # MODIF: setting the dist round for all tracked transactions has some advantages.)
@@ -254,7 +257,6 @@ class ProposalTransaction(TrackedTransaction):
                 except AssertionError:
                     raise InvalidTrackedTransactionError("TXID of modified proposal is in wrong format.")
 
-        # TODO: currently find_tx_sender can't be used here, it generates a circular import,
         # even if importing complete pautils module.
         if not donation_address:
             try:
@@ -280,9 +282,6 @@ class VotingTransaction(TrackedTransaction):
     # 2. it requires too many addresses to be generated and imported into the client (1 per vote option).
     # This one only requires one P2TH output and a (relatively small) OP_RETURN output per voting transaction.
     Vote is always cast with the entire current balance"""
-
-    # TODO: A desired feature is that a vote in start epoch is not needed to be repeated in end epoch.
-    # For this purpose it would be needed to update the vote weight in the end round, if the voting token balance has changed.
 
     def __init__(self, deck, txid=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, provider=None, blockheight=None, blockhash=None, vote=None, sender=None):
 

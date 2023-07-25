@@ -187,54 +187,30 @@ class ProposalState(object):
         # TODO: not strictly necessary, could be managed with an exception thrown if dist_factor is None
         set_reward = True if self.dist_factor is not None else False
 
-        # Sort all transactions
-        self.all_signalling_txes.sort(key = lambda x: (x.blockheight, x.blockseq))
-        self.all_locking_txes.sort(key = lambda x: (x.blockheight, x.blockseq))
-        self.all_donation_txes.sort(key = lambda x: (x.blockheight, x.blockseq))
+        self.sorted_stxes, self.sorted_ltxes, self.sorted_dtxes = self._preprocess_tracked_txes()
 
-        # set direct successors
-        # TODO: this way it will be very slow, see if we can optimize it, segregating it per phase/round already here.
-        for stx in self.all_signalling_txes:
-            stx.set_direct_successor(self.all_locking_txes)
-        for stx in self.all_signalling_txes:
-            stx.set_direct_successor(self.all_donation_txes)
-        for ltx in self.all_locking_txes:
-            ltx.set_direct_successor(self.all_locking_txes, reserve_mode=True)
-        for ltx in self.all_locking_txes:
-            ltx.set_direct_successor(self.all_donation_txes)
-        for dtx in self.all_donation_txes:
-            dtx.set_direct_successor(self.all_donation_txes, reserve_mode=True)
+        # Sets the direct successors, and additionally returns a list of all of them
+        selected_successors = self.set_direct_successors()
 
-        all_tracked_txes = self.all_signalling_txes + self.all_locking_txes + self.all_donation_txes
+        # all_tracked_txes = self.all_signalling_txes + self.all_locking_txes + self.all_donation_txes
 
         if debug:
-            for tx in all_tracked_txes:
+            all_tracked_txes = self.sorted_stxes + self.sorted_ltxes + self.sorted_dtxes
+            for tx in [tx for rd in all_tracked_txes for tx in rd]:
                 if "direct_successor" in tx.__dict__:
                     print("DONATION: Direct successor for", tx.txid, type(tx), tx.direct_successor.txid, type(tx.direct_successor))
                 if "reserve_successor" in tx.__dict__:
                     print("DONATION: Reserve successor for", tx.txid, type(tx), tx.reserve_successor.txid, type(tx.reserve_successor))
 
         if debug: print("All signalling txes:", self.all_signalling_txes)
-        for rd in range(8):  # originally: rounds[phase]
+
+        for rd in range(8):
             if rd == 4:
                 self.available_slot_amount[rd] = self.req_amount - sum(self.effective_slots[:4])
             elif rd > 4:
                 self.available_slot_amount[rd] = self.available_slot_amount[rd - 1] - self.effective_slots[rd - 1]
             elif rd > 0: # rounds 1, 2 and 3, 0 is already set
                 self.available_slot_amount[rd] = self.available_slot_amount[rd - 1] - self.effective_locking_slots[rd - 1]
-
-            # Successor selection is segregated by round
-            # TODO: should be optimized (list of successors by round), so not the whole search has to be done in each rd.
-            # could be done with while loop, all_tracked_txes.pop(0) and then catching the IndexError to break out.
-            # As this is the last time all_tracked_txes is used this doesn't cause side effects.
-            selected_successors = []
-            for tx in all_tracked_txes:
-                if self.validate_round(tx, rd):
-                    if "direct_successor" in tx.__dict__:
-                        selected_successors.append(tx.direct_successor.txid)
-                if (type(tx) != SignallingTransaction) and (rd in (1, 2, 4, 5)) and (self.validate_round(tx, rd - 1)):
-                    if "reserve_successor" in tx.__dict__:
-                        selected_successors.append(tx.reserve_successor.txid)
 
             dstates[rd] = self._process_donation_states(rd, selected_successors, debug=debug, set_reward=set_reward, last_processed_round=last_processed_round)
             if debug: print("Donation states of round", rd, ":", dstates[rd])
@@ -255,7 +231,7 @@ class ProposalState(object):
         # 1. determine the valid signalling txes (include reserve/locking txes).
         dstates = {}
         donation_tx, locking_tx, effective_locking_slot, effective_slot = None, None, None, None
-        round_stxes = [stx for stx in self.all_signalling_txes if self.get_stx_dist_round(stx) == rd] # TODO: could this now be replaced with stx.dist_round == rd?
+        round_stxes = self.sorted_stxes[rd]
 
         if debug: print("Checking signalling and reserve transactions of round", rd)
         if rd in (0, 3, 6, 7):
@@ -285,7 +261,7 @@ class ProposalState(object):
              # If the amount signalled in reserve transactions exceeds the total available slots,
              # do not process signalling transactions, as they would lead to slots with 0 due to their lower priority.
              if total_reserved_amount > self.available_slot_amount[rd]:
-                 # Invalid successors are deleted
+                 # Successors of invalid signalling transactions are deleted from successor list
                  for stx in round_stxes:
                      if "direct_successor" in stx.__dict__:
                          self._delete_invalid_successor(stx.direct_successor, selected_successors)
@@ -309,10 +285,11 @@ class ProposalState(object):
             self.locked_amounts[rd] = 0
             self.effective_locking_slots[rd] = 0
 
-        # 3. Generate DonationState and add locking/donation txes:
+        # 3. Generate DonationState, select definitive successors, and add locking/donation txes:
 
         # sort origin transactions, as they're here not in chronologic order as they are of 2 distinct types.
-        all_origin_txes = sorted(valid_stxes + valid_rtxes, key = lambda x: (x.blockheight, x.blockseq))
+        # MODIF: rtxes are earlier in the chain (in the round before), sorting is probably not needed.
+        all_origin_txes = sorted(valid_rtxes + valid_stxes, key = lambda x: (x.blockheight, x.blockseq))
 
         for tx in all_origin_txes:
 
@@ -323,7 +300,7 @@ class ProposalState(object):
             if debug: print("SLOT: Slot for tx", tx.txid, ":", slot)
 
             if slot == 0:
-                if debug: print("SLOT: Donation state without positive slot not created.")
+                if debug: print("SLOT: Donation state with slot zero not created.")
                 try:
                    if tx.direct_successor.txid in selected_successors:
                        # NOTE: we don't have to delete the donor address of a DonationTX here, because the tx will be ignored anyway.
@@ -333,10 +310,10 @@ class ProposalState(object):
                 continue
 
             if rd < 4:
-                locking_tx = self._get_ttx_successor(rd, tx, self.all_locking_txes, selected_successors, debug=debug, mode="origin")
+                locking_tx = self._get_ttx_successor(rd, tx, self.sorted_ltxes[rd], selected_successors, debug=debug, mode="origin")
 
-                # If the timelock is not correct, locking_tx is not added, and no donation tx is taken into account.
-                # The DonationState will be incomplete in this case. Only the SignallingTx is being added.
+                # If the timelock is not correct, the LockingTransaction is not added, and no DonationTransaction is taken into account.
+                # The DonationState will be incomplete/abandoned in this case. Only the SignallingTx is being added.
                 # if debug and locking_tx is not None: print("TX", tx.txid, "Locking tx:", locking_tx.txid, type(locking_tx))
                 if (locking_tx is not None) and self.validate_timelock(locking_tx):
 
@@ -348,14 +325,15 @@ class ProposalState(object):
                     self.locked_amounts[rd] += locking_tx.amount
                     effective_locking_slot = min(slot, locking_tx.amount)
 
-                    # TODO: do we need to priorize direct successors here too?
                     if debug: print("DONATION: Lookup Successor for locking tx:", locking_tx.txid)
-                    donation_tx = self._get_ttx_successor(rd, locking_tx, self.all_donation_txes, selected_successors, debug=debug)
+
+                    # special case: all potential successors of donation transactions in rounds 0-3 are in round 0 (see above).
+                    donation_tx = self._get_ttx_successor(rd, locking_tx, self.sorted_dtxes[0], selected_successors, debug=debug)
                     if debug and donation_tx: print("DONATION: Donation tx added in locking mode", donation_tx.txid, rd)
 
             else:
                 if debug: print("DONATION: Lookup Successor for reserve/signalling tx:", tx.txid)
-                donation_tx = self._get_ttx_successor(rd, tx, self.all_donation_txes, selected_successors, debug=debug, mode="origin")
+                donation_tx = self._get_ttx_successor(rd, tx, self.sorted_dtxes[rd], selected_successors, debug=debug, mode="origin")
                 if debug and donation_tx: print("DONATION: Donation tx added in donation mode", donation_tx.txid, rd)
 
             if donation_tx:
@@ -402,29 +380,31 @@ class ProposalState(object):
 
             del selected_successors[txid_index]
 
-    def _validate_basic(self, tx_list, rd, selected_successors, reserve_mode=False, debug=False, add_address=True):
-        # basic validation steps: donor address duplication, reserve address existence, proposer identity.
+    def _validate_basic(self, origin_tx_list, rd, selected_successors, reserve_mode=False, debug=False, add_address=True):
+        # basic validation steps previous to the creation of a new Donation State:
+        # donor address duplication, reserve address existence, proposer identity.
         result = []
 
-        for tx in tx_list:
+        # Origin transactions (signalling / reserve) are checked and get successors
+        for tx in origin_tx_list:
             if reserve_mode:
                 successor_tx = tx.reserve_successor if "reserve_successor" in tx.__dict__ else None
-                address = tx.reserve_address
+                donor_address = tx.reserve_address
                 if not tx.reserved_amount:
                     if debug: print("DONATION: Potential reserve transaction", tx.txid, "rejected, no reserved amount.")
                     continue
             else:
                 successor_tx = tx.direct_successor if "direct_successor" in tx.__dict__ else None
-                address = tx.address
+                donor_address = tx.donor_address
 
             # Proposers cannot be donors
-            if address == self.donation_address:
+            if donor_address == self.donation_address:
                 if debug: print("DONATION: Proposer {} trying to donate, this is invalid. No donation state created.".format(address))
                 if successor_tx is not None:
                     self._delete_invalid_successor(successor_tx, selected_successors)
                 continue
 
-            if self.check_donor_address(tx, rd, address, add_address=add_address, reserve=reserve_mode, debug=debug):
+            if self.check_donor_address(tx, rd, donor_address, add_address=add_address, reserve=reserve_mode, debug=debug):
                 result.append(tx)
 
             elif successor_tx is not None:
@@ -433,18 +413,18 @@ class ProposalState(object):
         return result
 
     def _get_ttx_successor(self, rd: int, tx: TrackedTransaction, potential_successors: list, selected_successors: list, mode: str=None, debug: bool=False) -> TrackedTransaction:
-        # used: we need to ensure there are no duplicates
-        # used_txids = [t.txid for rd in used for t in rd] if used is not None else []
+        """This method definitively selects the successor of a SignallingTransaction or LockingTransaction."""
+
         try:
+            # origin mode: when Locking/Donation transactions are checked as origin transactions,
+            # we select the reserve successor
             if mode == "origin" and type(tx) != SignallingTransaction:
                 reserve_mode = True
-                # origin mode: we test for the reserve successor if we are checking a reserve transaction
                 selected_tx = tx.reserve_successor
             else:
                 reserve_mode = False
                 selected_tx = tx.direct_successor
 
-            # MODIF: donor address set.
             if type(selected_tx) == DonationTransaction:
                 selected_tx.set_donor_address(direct_predecessor=tx)
 
@@ -455,17 +435,17 @@ class ProposalState(object):
 
             for suc_tx in indirect_successors:
 
-                if (suc_tx.txid not in selected_successors) and (self.validate_round(suc_tx, rd)):
+                if (suc_tx.txid not in selected_successors) and (self.check_round(suc_tx, rd)): ### MODIF: validate -> check
                     selected_tx = suc_tx
                     selected_successors.append(selected_tx.txid)
-                    ### MODIF:
+
                     if type(selected_tx) == DonationTransaction:
                         selected_tx.set_donor_address(direct_predecessor=tx)
                     break
                 elif debug:
                     if suc_tx.txid in selected_successors:
                         print("DONATION: Successor", suc_tx.txid, "rejected: is already a successor of a valid earlier transaction.")
-                    if not self.validate_round(suc_tx, rd):
+                    if not self.check_round(suc_tx, rd): ### MODIF: validate -> check
                         print("DONATION: Successor", suc_tx.txid, "rejected: blockheight out of round", rd)
             else:
                 selected_tx = None
@@ -498,18 +478,58 @@ class ProposalState(object):
             tx_type = "signalling"
         self.donor_addresses.append((addr, tx_type, phase))
 
-    def get_stx_dist_round(self, stx):
-        # checks block height of signalling transaction, and returns round.
-       for rd in range(8):
-           start = self.rounds[rd][0][0]
-           end = self.rounds[rd][1][0]
+    def _preprocess_tracked_txes(self):
+        # MODIF: It is better we sort and segregate already at the start of the processing,
+        # even if there are more txes to sort/segregate, the efficiency gains are very high.
+        # TODO maybe LTXes list should be only 4 rounds short.
+        result = []
+        for tx_group in (self.all_signalling_txes, self.all_locking_txes, self.all_donation_txes):
+            sorted_tx_group = []
+            tx_group.sort(key = lambda x: (x.blockheight, x.blockseq))
 
-           if start <= stx.blockheight <= end:
-               # print("Start/bh/end:", start, stx.blockheight, end, "txid:", stx.txid)
-               return rd
-       else:
-           # raise InvalidTrackedTransactionError("Incorrect blockheight for a signalling transaction.")
-           return None
+            for rd in range(8):
+                rd_txes = []
+                for tx in tx_group:
+                    if self.check_round(tx, rd):
+                        # Special case: we can't set the DonationTxes' dist round in rd 0-3,
+                        # as they're all present in the same release period.
+                        # They are however added to dist_round 0.
+                        if (type(tx) != DonationTransaction) or (rd >= 4):
+                            tx.set_dist_round(rd)
+                        rd_txes.append(tx)
+
+                sorted_tx_group.append(rd_txes)
+
+            result.append(sorted_tx_group)
+
+        return result
+
+    def set_direct_successors(self):
+        selected_successors = []
+        for rd in range(8):
+            for stx in self.sorted_stxes[rd]:
+                if rd < 4:
+                    if stx.set_direct_successor(self.sorted_ltxes[rd]):
+                        selected_successors.append(stx.direct_successor)
+                else:
+                    if stx.set_direct_successor(self.sorted_dtxes[rd]):
+                        selected_successors.append(stx.direct_successor)
+            if rd < 4:
+                for ltx in self.sorted_ltxes[rd]:
+                    if rd < 3:
+                        if ltx.set_direct_successor(self.sorted_ltxes[rd + 1], reserve_mode=True):
+                            selected_successors.append(ltx.reserve_successor)
+                    # Donation transactions of the first 4 rounds are in group 0
+                    if ltx.set_direct_successor(self.sorted_dtxes[0]):
+                        selected_successors.append(ltx.direct_successor)
+
+            if rd < 7:
+                for dtx in self.sorted_dtxes[rd]:
+                    if dtx.set_direct_successor(self.sorted_dtxes[rd + 1], reserve_mode=True):
+                        selected_successors.append(dtx.reserve_successor)
+
+        return selected_successors
+
 
     def set_dist_factor(self, ending_proposals):
         # Proposal factor: if there is more than one proposal ending in the same epoch,
@@ -537,7 +557,7 @@ class ProposalState(object):
         else:
             self.proposer_reward = 0
 
-    def _validate_priority(self, tx_list: list, dist_round: int, selected_successors: list, reserve_mode: bool=False, debug: bool=False):
+    def _validate_priority(self, origin_tx_list: list, dist_round: int, selected_successors: list, reserve_mode: bool=False, debug: bool=False):
         """Validates the priority of signalling and reserve transactions in round 2, 3, 5 and 6."""
         # New version with DonationStates, modified to validate a whole round list at once (more efficient).
         # Should be optimized in the beta/release version.
@@ -554,20 +574,20 @@ class ProposalState(object):
 
             valid_dstates = [dstate for rd in (0, 1, 2, 3) for dstate in self.donation_states[rd].values()]
 
-            if type(tx_list[0]) == DonationTransaction:
+            if type(origin_tx_list[0]) == DonationTransaction:
                 valid_rtx_txids = [dstate.donation_tx.txid for dstate in valid_dstates if dstate.donation_tx is not None]
 
         elif dist_round == 5:
 
             valid_dstates = [dstate for dstate in self.donation_states[4].values()]
 
-            if type(tx_list[0]) == DonationTransaction:
+            if type(origin_tx_list[0]) == DonationTransaction:
                 valid_rtx_txids = [dstate.donation_tx.txid for dstate in valid_dstates if dstate.donation_tx is not None]
 
         elif dist_round in (1, 2):
 
             valid_dstates = [dstate for dstate in self.donation_states[dist_round - 1].values()]
-            if type(tx_list[0]) == LockingTransaction:
+            if type(origin_tx_list[0]) == LockingTransaction:
                 try:
                     valid_rtx_txids = [dstate.locking_tx.txid for dstate in valid_dstates if dstate.locking_tx is not None]
                 except AttributeError as e:
@@ -576,7 +596,7 @@ class ProposalState(object):
         # Locking or DonationTransactions: we simply look for the DonationState including it
         # If it's not in any of the valid states, it can't be valid.
 
-        for tx in tx_list:
+        for tx in origin_tx_list:
 
             # Assign successor first
             try:
@@ -631,7 +651,6 @@ class ProposalState(object):
                 elif (dist_round >= 4) and (parent_dstate.donation_tx.amount >= (Decimal(parent_dstate.slot) * fill_threshold)):
                     valid_txes.append(tx)
                     parent_dstate.child_state_ids.append(tx.txid)
-
                 else:
                     if debug: print("Reserve transaction rejected due to incomplete slot of parent donation state:", tx.txid, "\nSlot:", parent_dstate.slot, "Effective Slot (donated amount): {} Locking Slot: {}".format(parent_dstate.effective_slot, parent_dstate.effective_locking_slot))
                     self._delete_invalid_successor(successor_tx, selected_successors)
@@ -657,18 +676,20 @@ class ProposalState(object):
         else:
             return False
 
-    def validate_round(self, tx: TrackedTransaction, dist_round: int) -> bool:
-        """Checks a transaction was sent in a correct round."""
+    def check_round(self, tx: TrackedTransaction, dist_round: int) -> bool:
+        """Checks in which round a transaction was sent."""
 
-        if type(tx) == DonationTransaction and dist_round < 4: # replaced "locking mode"
+        if type(tx) == DonationTransaction and dist_round < 4:
             startblock = self.release_period[0]
             endblock = self.release_period[1]
+        elif type(tx) == SignallingTransaction: # MODIF: added, to get rid of the signalling_tx round function.
+            startblock = self.rounds[dist_round][0][0]
+            endblock = self.rounds[dist_round][0][1]
         else:
             startblock = self.rounds[dist_round][1][0]
             endblock = self.rounds[dist_round][1][1] # last valid block
 
         if (startblock <= tx.blockheight <= endblock):
-            tx.set_dist_round(dist_round)
             return True
         else:
             return False
@@ -759,9 +780,8 @@ class ProposalState(object):
 class DonationState(object):
     # A DonationState contains Signalling, Locking and Donation transaction and the slot.
     # Must be created always with either SignallingTX or ReserveTX.
-    # Child_state_id allows more control over inheriting. A parent state would be even better but would need refactoring or costly processing.
+    # Child_state_id allows more control over inheriting.
     # The "claimed" state is assigned in the ParserState loop.
-
 
     def __init__(self, proposal_id=None, origin_tx=None, locking_tx=None, donation_tx=None, slot=None, dist_round=None, effective_slot=None, effective_locking_slot=None, reward=None, state="incomplete"):
 
@@ -786,7 +806,7 @@ class DonationState(object):
             self.signalling_tx = None
 
         if self.signalling_tx is not None:
-            self.donor_address = self.origin_tx.address
+            self.donor_address = self.origin_tx.donor_address
             self.signalled_amount = self.origin_tx.amount
         elif self.reserve_tx is not None:
             self.donor_address = self.origin_tx.reserve_address
