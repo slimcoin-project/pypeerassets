@@ -435,7 +435,8 @@ class ProposalState(object):
 
             for suc_tx in indirect_successors:
 
-                if (suc_tx.txid not in selected_successors) and (self.check_round(suc_tx, rd)): ### MODIF: validate -> check
+                # MODIF: round checks not necessary, as the txes are already restricted for a round.
+                if (suc_tx.txid not in selected_successors): # and (self.check_round(suc_tx, rd)):
                     selected_tx = suc_tx
                     selected_successors.append(selected_tx.txid)
 
@@ -445,8 +446,8 @@ class ProposalState(object):
                 elif debug:
                     if suc_tx.txid in selected_successors:
                         print("DONATION: Successor", suc_tx.txid, "rejected: is already a successor of a valid earlier transaction.")
-                    if not self.check_round(suc_tx, rd): ### MODIF: validate -> check
-                        print("DONATION: Successor", suc_tx.txid, "rejected: blockheight out of round", rd)
+                    #if not self.check_round(suc_tx, rd): ### MODIF: validate -> check
+                    #    print("DONATION: Successor", suc_tx.txid, "rejected: blockheight out of round", rd)
             else:
                 selected_tx = None
 
@@ -459,7 +460,7 @@ class ProposalState(object):
         # TODO: Due to the "child states" introduced recently, there is no need anymore to allow
         # duplicate donor addresses for phase 1 and 2. This could be an important simplification.
         phase = rd // 4
-        if debug: print("DONATION: Checking tx", tx.txid, "with address", tx.address)
+        if debug: print("DONATION: Checking tx", tx.txid, "with address", tx.donor_address)
 
         # Reserve transactions count as signalling transactions for this list,
         # otherwise a duplicate starting with signalling/reserve tx would be permitted.
@@ -627,7 +628,7 @@ class ProposalState(object):
 
                 # Donor address check is done first, but without adding addresses; we do this at the end of validation.
                 # We don't check donor addresses for Locking/Donation txes, they are checked in tx.get_output_addresses().
-                if not self.check_donor_address(tx, dist_round, tx.address, add_address=False, debug=debug):
+                if not self.check_donor_address(tx, dist_round, tx.donor_address, add_address=False, debug=debug):
                     self._delete_invalid_successor(successor_tx, selected_successors)
                     continue
 
@@ -636,7 +637,7 @@ class ProposalState(object):
                     if dstate.donor_address in tx.input_addresses:
 
                         parent_dstate = dstate
-                        self.add_donor_address(tx.address, tx.ttx_type, (dist_round // 4))
+                        self.add_donor_address(tx.donor_address, tx.ttx_type, (dist_round // 4))
                         break
                 else:
                     if debug: print("Transaction rejected by priority check:", tx.txid)

@@ -76,7 +76,7 @@ class TrackedTransaction(BaseTrackedTransaction):
             # DonationTransactions which don't have direct predecessors and thus no donor_address, get the donor_address set
             if (type(tx) == DonationTransaction) and (tx.donor_address is None):
                 tx.set_donor_address(dist_round=self.dist_round)
-            #if address in tx.input_addresses:
+
             if address == tx.donor_address:
                 successors.append(tx)
         return successors
