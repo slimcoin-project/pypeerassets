@@ -482,7 +482,7 @@ class ProposalState(object):
         # MODIF: It is better we sort and segregate already at the start of the processing,
         # even if there are more txes to sort/segregate, the efficiency gains are very high.
         result = []
-        for group_index, tx_group in enumerate(self.all_signalling_txes, self.all_locking_txes, self.all_donation_txes):
+        for group_index, tx_group in enumerate((self.all_signalling_txes, self.all_locking_txes, self.all_donation_txes)):
             sorted_tx_group = []
             rng = (8, 4, 8) # locking txes list is only 4 rounds long
             tx_group.sort(key = lambda x: (x.blockheight, x.blockseq))
