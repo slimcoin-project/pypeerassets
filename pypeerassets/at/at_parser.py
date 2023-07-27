@@ -1,15 +1,17 @@
 from pypeerassets.provider import Provider
 from decimal import Decimal
 from pypeerassets.at.extended_utils import process_cards_by_bundle
+import pypeerassets.pautils as pu
 
 """
-Thus module bundles the specific AT parser functions using the RPC node/provider. It is complemented by extension_protocol.py.
-"""
+Thus module bundles parser functions for AT tokens which use the RPC node/provider.
+The algorithm checks all cards in a bundle at once.
+It is complemented by extension_protocol.py.
 
-# NOTE: It was decided that the credited address is the one in the first vin.
-# "Pooled burning" or "Pooled donation" could be supported later with an OP_RETURN based format,
-# where "burners" or "donors" explicitly define who gets credited in which proportion.
-# NOTE 2: The algorithm checks all cards in a bundle at once.
+NOTE: It was decided that the credited address is the one in the first input (vin).
+"Pooled burning" or "Pooled donation" could be supported later with an OP_RETURN based format,
+where "burners" or "donors" explicitly define who gets credited in which proportion.
+"""
 
 
 def is_valid_issuance(provider: Provider, card: object, total_issued_amount: int, tracked_address: str, multiplier: int, at_version: int=1, startblock: int=None, endblock: int=None, debug: bool=False) -> bool:
@@ -41,11 +43,9 @@ def is_valid_issuance(provider: Provider, card: object, total_issued_amount: int
         return False
 
     # check 3 (most expensive, thus last): Sender must be identical with the transaction sender.
-    # This checks always vin[0], i.e. the card issuer must sign with the same key than the first input is signed.
-    # TODO: try to replace with find_tx_sender.
-    tx_vin_tx = provider.getrawtransaction(tx["vin"][0]["txid"], 1)
-    tx_vin_vout = tx["vin"][0]["vout"]
-    tx_sender = tx_vin_tx["vout"][tx_vin_vout]["scriptPubKey"]["addresses"][0]  # allows a tx based on a previous tx with various vouts.
+    # find_tx_sender checks always vin[0], i.e. the card issuer must sign with the same key than the first input is signed.
+
+    tx_sender = pu.find_tx_sender(provider, tx)
 
     if card.sender != tx_sender:
         if debug:

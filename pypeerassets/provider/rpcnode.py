@@ -6,7 +6,7 @@ from .common import Provider
 from pypeerassets.exceptions import InsufficientFunds
 from btcpy.structs.transaction import MutableTxIn, Sequence, ScriptSig
 from decimal import Decimal, getcontext, localcontext ### localcontext added for more precise utxo value calculation
-getcontext().prec = 15 ### BUGFIX: changed from 6 to 15, 6 does lots of unexpected roundings, because precision is across all the decimal places, also before the comma! 15 supports values up to 100 million coins.
+getcontext().prec = 15  # precision for Decimal, to avoid rounding errors
 
 try:
     from peercoin_rpc import Client

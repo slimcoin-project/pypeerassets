@@ -19,13 +19,11 @@ from pypeerassets.card_parsers import parsers
 from pypeerassets.networks import net_query
 
 ### ADDRESSTRACK ###
-from pypeerassets.provider import Provider
-from pypeerassets.at.dt_parser import dt_parser
-from pypeerassets.at.at_parser import at_parser
-from pypeerassets.at.constants import P2TH_MODIFIER, DT_ID, AT_ID
 import pypeerassets.at.extension_protocol as ep
 ### LOCK ###
 from pypeerassets.hash_encoding import hash_to_address
+from pypeerassets.at.constants import P2TH_MODIFIER, DT_ID, AT_ID
+from pypeerassets.provider import Provider
 
 # P2TH_MODIFIER = { "proposal" : 1, "voting" : 2, "donation" : 3, "signalling" : 4, "locking" : 5 }
 
@@ -372,14 +370,12 @@ class CardTransfer:
 
         self.receiver = receiver
         self.amount = amount
-        ### LOCK ###
+
+        # Modifications for Locktime features
         self.locktime = locktime
         if lockhash and lockhash_type and locktime:
             self.lockhash = lockhash
             self.lockhash_type = lockhash_type
-
-        ### ADDRESSTRACK workaround ###
-        self.deck_data = deck.asset_specific_data
 
         if blockhash:
             self.blockhash = blockhash
@@ -396,7 +392,7 @@ class CardTransfer:
             self.cardseq = 0
             self.tx_confirmations = 0
 
-        ### AT ###
+        # Modifications for AT and DT features.
         # this function defines the type of the CardTransfer and some other attributes.
         # if deck contains correct addresstrack-specific metadata and the card references a txid,
         # the card type is CardIssue. Will be validated later by custom parser.
@@ -471,11 +467,10 @@ class CardTransfer:
 
         if self.asset_specific_data:
             r.update({'asset_specific_data': self.asset_specific_data})
-        ### LOCK
+
+        # Modifications for Locktime features
         if self.locktime:
             r.update({'locktime': self.locktime})
-        #if self.lock_address:
-        #    r.update({'lock_address': self.lock_address})
         if self.lockhash:
             r.update({'lockhash' : self.lockhash})
             r.update({'lockhash_type' : self.lockhash_type})
@@ -501,15 +496,12 @@ class CardTransfer:
 
         return ', '.join(r)
 
-    def deck_data(self): ### ADDRESSTRACK: needed for parser. Look for a more elegant solution. ###
-        return deck.asset_specific_data
-
 
 def validate_card_issue_modes(issue_mode: int, cards: list, provider: Provider=None, deck: Deck=None) -> list:
     """validate cards against deck_issue modes"""
-    ### ADDRESSTRACK modification: including provider variable for custom parser and including deck ###
+    # AT/DT modifications: including provider variable for custom parser and including deck ###
 
-    if len(cards) == 0: ### MODIF: if there are no cards, cards[0] cannot work ###
+    if len(cards) == 0: # AT/DT bugfix
         return []
 
     supported_mask = 63  # sum of all issue_mode values
@@ -528,11 +520,16 @@ def validate_card_issue_modes(issue_mode: int, cards: list, provider: Provider=N
             except ValueError:
                 continue
 
-            try: ### added. the AttributeError is thrown when no Protobuf data is found.
-                if cards[0].at_type == DT_ID: ### ADDRESSTRACK modification
-                    parsed_cards = parser_fn(cards, dt_parser, provider, deck)
+            try: # AT/DT. The AttributeError is thrown when no Protobuf data is found.
+
+                if cards[0].at_type == DT_ID:  # modification for extended parsers
+                    import pypeerassets.at.dt_parser as dtp
+                    parsed_cards = parser_fn(cards, dtp.dt_parser, provider, deck)
+
                 elif cards[0].at_type == AT_ID:
-                    parsed_cards = parser_fn(cards, at_parser, provider, deck) ## TODO: re-check. Generates circ. import.
+                    import pypeerassets.at.at_parser as atp
+                    parsed_cards = parser_fn(cards, atp.at_parser, provider, deck)
+
             except AttributeError:
                 parsed_cards = parser_fn(cards)
 
@@ -544,9 +541,9 @@ def validate_card_issue_modes(issue_mode: int, cards: list, provider: Provider=N
 
 
 class DeckState:
-    ### ADDRESSTRACK: added attribute valid_cards to be able to process only the valid (non-bogus) cards.
-    ### LOCK: self.lock is dict of senders, with dicts including locktime and amount.
-    ### NOTE: you have to define cleanup_height to cleanup locks remaining after the last card.
+    # Added attribute valid_cards to be able to process only the valid (non-bogus) cards.
+    # Locktime: self.lock is dict of senders, with dicts including locktime and amount.
+    # cleanup_height cleans locks remaining after the last card.
 
     def __init__(self, cards: Generator, cleanup_height: int=None) -> None:
 
