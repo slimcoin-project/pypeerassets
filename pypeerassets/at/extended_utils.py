@@ -2,9 +2,10 @@
 
 def get_issuance_bundle(cards: list, i: int):
     # Due to pa.pautils.card_postprocess: if a card has multiple amounts,
-    # it gets interpreted as a bundle.
+    # it is interpreted as a bundle.
     # This algorithm looks for multiple cards (equivalent to a CardBundle) in the same transaction.
-    # This is necessary to allow payments in claim transactions.
+    # This is necessary to allow payments in claim transactions, and to treat
+    # CardIssues of AT and DT tokens equally with CardIssues of simple tokens.
 
     bundle_value = cards[i].amount[0]
 
@@ -31,7 +32,9 @@ def process_cards_by_bundle(cards, debug: bool=False):
     # This generator function pre-processes the list of cards for AT and DT parsers.
     # It looks for bundles and returns a bundle of:
     #     (card object, total issued amount of the bundle, first position of bundle)
-    # NOTE: we cannot limit the whole parser thing to CardIssues, because we don't want to sort cards again in DeckState.
+    # Basically it yields the bundle as a tuple with the first card associated to the total_issued_amount
+    # and the remaining cards with a total_issued_amount of None.
+    # NOTE: we cannot limit the function to CardIssues, because we don't want to sort cards again in DeckState.
     last_processed_position = 0
 
     for cindex, card in enumerate(cards):

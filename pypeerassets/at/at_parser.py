@@ -3,7 +3,7 @@ from decimal import Decimal
 from pypeerassets.at.extended_utils import process_cards_by_bundle
 
 """
-Thus module bundles all "heavy" functions for the parser which include the use of the RPC node/provider. It is complemented by extension_protocol.py.
+Thus module bundles the specific AT parser functions using the RPC node/provider. It is complemented by extension_protocol.py.
 """
 
 # NOTE: It was decided that the credited address is the one in the first vin.
@@ -57,7 +57,6 @@ def is_valid_issuance(provider: Provider, card: object, total_issued_amount: int
     if endblock or startblock:
         # TODO: using the 'time' variable may be faster, as you only have to lookup the start/end blocks.
         tx_height = provider.getblock(tx["blockhash"])["height"]
-        print("TEST height", tx_height)
 
         if endblock and (tx_height > endblock):
             if debug:

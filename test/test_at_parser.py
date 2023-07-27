@@ -1,6 +1,7 @@
 import pytest
 import json
 import pypeerassets.at.at_parser as a
+from .at_dt_dummy_classes import DummyATDeck, DummyATCard
 
 with open("at_dummy_txes.json", "r") as dummyfile:
     tx_dummies = json.load(dummyfile)
@@ -10,30 +11,7 @@ block_dummies = [{"height" : 132463, "hash" : "0000bca5ab2f35deda8bca8e317a28593
                  {"height" : 132472, "hash" : "0000d4feb2f9270bd623273f8c5539b543506cf0a6dae6e5618a06197f97f4f7"},
                  {"height" : 50, "hash" : "000000bc97783912780624dcce85efce226f286f45b7ccc379be08928ac4709e"}]
 
-
-class DummyATCard():
-    def __init__(self, **kwargs):
-        self.txid = kwargs["txid"]
-        self.amount = [kwargs["amount"]]
-        self.donation_txid = kwargs["donation_txid"]
-        self.number_of_decimals = kwargs["number_of_decimals"]
-        self.sender = kwargs["sender"]
-        self.blocknum = kwargs["blocknum"]
-        self.blockseq = kwargs["blockseq"]
-        self.cardseq = kwargs["cardseq"]
-        self.type = kwargs["ctype"]
-        self.receiver = ["DUMMY"] # we don't need to check an address here.
-
-class DummyATDeck():
-    def __init__(self, **kwargs):
-        self.id = kwargs["deckid"]
-        self.at_address = kwargs["at_address"]
-        self.multiplier = kwargs["multiplier"]
-        self.startblock = kwargs["startblock"]
-        self.endblock = kwargs["endblock"]
-
-
-class DummyProvider():
+class DummyProvider:
     def __init__(self):
         pass
 
@@ -47,7 +25,6 @@ class DummyProvider():
         for b in block_dummies:
             if b["hash"] == blockhash:
                 return b
-
 
 
 # basic variables
@@ -74,6 +51,7 @@ invalid_card_lwrongamount_bundle2 = DummyATCard(txid="59a127ed9d44578d2644cf3003
 
 # CardTransfer is completely fabricated.
 valid_ctransfer_lx = DummyATCard(txid="0048be95925d3c7b96a6b07e76a4a3b9db55cd2110bccf5375497099b1bf68b0", amount=15000, donation_txid=None, number_of_decimals=2, sender="mie75nFHrNAHHKfQ141fWfWozdMnaec8mb", blocknum=135000, blockseq=1, cardseq=0, ctype="CardTransfer")
+
 
 # is_valid_issuance(provider: Provider, card: object, total_issued_amount: int, tracked_address: str, multiplier: int, at_version: int=1, startblock: int=None, endblock: int=None, debug: bool=False)
 def test_issuance_valid_unlimited():
