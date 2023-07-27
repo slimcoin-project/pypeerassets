@@ -1,6 +1,6 @@
 from pypeerassets.provider import Provider
 from decimal import Decimal
-from pypeerassets.at.extended_utils import process_cards_by_bundle  # get_issuance_bundle
+from pypeerassets.at.extended_utils import process_cards_by_bundle
 
 """
 Thus module bundles all "heavy" functions for the parser which include the use of the RPC node/provider. It is complemented by extension_protocol.py.
@@ -30,7 +30,7 @@ def is_valid_issuance(provider: Provider, card: object, total_issued_amount: int
                 if vout["value"] > 0:
                     total_tx_amount += Decimal(vout["value"])
         except KeyError:
-            continue  # should normally not occur, only perhaps with very exotic scripts.
+            continue
     if debug:
         print("Total donated/burnt amount:", total_tx_amount, "Multiplier:", multiplier, "Number of decimals:", card.number_of_decimals)
     total_units = int(total_tx_amount * multiplier * (10 ** card.number_of_decimals))
@@ -42,6 +42,7 @@ def is_valid_issuance(provider: Provider, card: object, total_issued_amount: int
 
     # check 3 (most expensive, thus last): Sender must be identical with the transaction sender.
     # This checks always vin[0], i.e. the card issuer must sign with the same key than the first input is signed.
+    # TODO: try to replace with find_tx_sender.
     tx_vin_tx = provider.getrawtransaction(tx["vin"][0]["txid"], 1)
     tx_vin_vout = tx["vin"][0]["vout"]
     tx_sender = tx_vin_tx["vout"][tx_vin_vout]["scriptPubKey"]["addresses"][0]  # allows a tx based on a previous tx with various vouts.
@@ -54,7 +55,9 @@ def is_valid_issuance(provider: Provider, card: object, total_issued_amount: int
     # check 4 if there are pre-defined deadlines
 
     if endblock or startblock:
+        # TODO: using the 'time' variable may be faster, as you only have to lookup the start/end blocks.
         tx_height = provider.getblock(tx["blockhash"])["height"]
+        print("TEST height", tx_height)
 
         if endblock and (tx_height > endblock):
             if debug:
@@ -128,16 +131,3 @@ def at_parser(cards: list, provider: Provider, deck: object, debug: bool=False):
             valid_cards.append(card)
 
     return valid_cards
-
-
-"""def input_addresses(tx, provider):  # taken from dt_entities. Should perhaps be an utility in dt_misc_utils.
-    addresses = []
-    for inp in tx["vin"]:
-        try:
-            inp_txout = inp["vout"]
-            inp_txjson = provider.getrawtransaction(inp["txid"], 1)
-        except KeyError:  # coinbase transactions
-            continue  # normally it should be possible to simply return with an empty list here
-        addr = inp_txjson["vout"][inp_txout]["scriptPubKey"]["addresses"][0]
-        addresses.append(addr)
-    return addresses"""

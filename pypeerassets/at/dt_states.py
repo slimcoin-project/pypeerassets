@@ -627,7 +627,7 @@ class ProposalState(object):
             elif type(tx) == SignallingTransaction:
 
                 # Donor address check is done first, but without adding addresses; we do this at the end of validation.
-                # We don't check donor addresses for Locking/Donation txes, they are checked in tx.get_output_addresses().
+                # We don't check donor addresses for Locking/Donation txes, they are checked earlier.
                 if not self.check_donor_address(tx, dist_round, tx.donor_address, add_address=False, debug=debug):
                     self._delete_invalid_successor(successor_tx, selected_successors)
                     continue

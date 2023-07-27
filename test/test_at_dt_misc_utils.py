@@ -1,8 +1,11 @@
 import pytest
 import json
+import pypeerassets
 import pypeerassets.at.dt_misc_utils as mu
 from pypeerassets.provider import RpcNode
-from pypeerassets.at.dt_parser_utils import deck_from_tx
+# from pypeerassets.at.dt_parser_utils import deck_from_tx
+
+# TODO: datastr format has to be updated.
 
 settingsfile = open("settings.json", "r")
 credentials = json.load(settingsfile)
@@ -30,14 +33,16 @@ def test_deck_p2th_from_id():
 
 def test_create_unsigned_tx_signalling_manual():
     # manually selecting input.
-    deck = deck_from_tx(DECK_ID2, PROVIDER)
+    # deck = deck_from_tx(DECK_ID2, PROVIDER)
+    deck = pa.find_deck(PROVIDER, DECK_ID2, 1)
     dstr = b"DS" + bytes.fromhex(PROPOSAL_TXID)
     unsigned = mu.create_unsigned_tx(deck, input_txid=INPUT_TXID, input_vout=2, address="mmiUdqJTBtUc5hCGVYLPnqtNivsWSEZuoq", amount=444444, provider=PROVIDER, tx_type="signalling", data=dstr)
     assert unsigned.outs[3].script_pubkey.__str__() == 'OP_DUP OP_HASH160 d72e5400710bf2c852eed36c64fe5c0f393e61ac OP_EQUALVERIFY OP_CHECKSIG'
 
 def test_create_unsigned_tx_signalling_auto():
     # Using peerassets feature to select a suitable input.
-    deck = deck_from_tx(DECK_ID2, PROVIDER)
+    deck = pa.find_deck(PROVIDER, DECK_ID2, 1)
+    # deck = deck_from_tx(DECK_ID2, PROVIDER)
     dstr = b"DS" + bytes.fromhex(PROPOSAL_TXID)
     unsigned = mu.create_unsigned_tx(deck, input_address="n18j5ESg1Lz7Z1N4ZwTttjGVjBDNXbgbch", address="mmiUdqJTBtUc5hCGVYLPnqtNivsWSEZuoq", amount=444444, provider=PROVIDER, tx_type="signalling", data=dstr, proposal_txid=PROPOSAL_TXID)
     assert unsigned.outs[3].script_pubkey.__str__() == 'OP_DUP OP_HASH160 d72e5400710bf2c852eed36c64fe5c0f393e61ac OP_EQUALVERIFY OP_CHECKSIG'
