@@ -22,4 +22,5 @@ class DummyATDeck:
         self.multiplier = kwargs["multiplier"]
         self.startblock = kwargs["startblock"]
         self.endblock = kwargs["endblock"]
+        self.number_of_decimals = kwargs["number_of_decimals"]
 

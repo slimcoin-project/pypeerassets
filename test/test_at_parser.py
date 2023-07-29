@@ -31,8 +31,8 @@ class DummyProvider:
 provider = DummyProvider()
 
 BURNADDR="mmSLiMCoinTestnetBurnAddress1XU5fu"
-unlimited_deck = DummyATDeck(deckid="fb93cce7aceb9f7fda228bc0c0c2eca8c56c09c1d846a04bd6a59cae2a895974", at_address=BURNADDR, multiplier=100, startblock=None, endblock=None)
-limited_deck = DummyATDeck(deckid="66c25ad60538a9de0a7895d833a4a3aeeacdd75b1db9c5dd69c3746dd21d39be", at_address=BURNADDR, multiplier=1000, startblock=132000, endblock=140000)
+unlimited_deck = DummyATDeck(deckid="fb93cce7aceb9f7fda228bc0c0c2eca8c56c09c1d846a04bd6a59cae2a895974", at_address=BURNADDR, multiplier=100, startblock=None, endblock=None, number_of_decimals=4)
+limited_deck = DummyATDeck(deckid="66c25ad60538a9de0a7895d833a4a3aeeacdd75b1db9c5dd69c3746dd21d39be", at_address=BURNADDR, multiplier=1000, startblock=132000, endblock=140000, number_of_decimals=2)
 
 # The following cards correspond to real AT/PoB token cards in the 2023 testnet blockchain.
 # unlimited deck card
@@ -55,27 +55,27 @@ valid_ctransfer_lx = DummyATCard(txid="0048be95925d3c7b96a6b07e76a4a3b9db55cd211
 
 # is_valid_issuance(provider: Provider, card: object, total_issued_amount: int, tracked_address: str, multiplier: int, at_version: int=1, startblock: int=None, endblock: int=None, debug: bool=False)
 def test_issuance_valid_unlimited():
-    valid = a.is_valid_issuance(provider=provider, card=valid_card_ul, total_issued_amount=5745000, tracked_address=BURNADDR, multiplier=unlimited_deck.multiplier, debug=True)
+    valid = a.is_valid_issuance(provider=provider, card=valid_card_ul, total_issued_amount=5745000, tracked_address=BURNADDR, deck_factor=1000000, debug=True)
     assert valid == True
 
 def test_issuance_valid_limited_simple():
-    valid = a.is_valid_issuance(provider=provider, card=valid_card_lsimple, total_issued_amount=12000000, tracked_address=BURNADDR, multiplier=limited_deck.multiplier, startblock=limited_deck.startblock, endblock=limited_deck.endblock, debug=True)
+    valid = a.is_valid_issuance(provider=provider, card=valid_card_lsimple, total_issued_amount=12000000, tracked_address=BURNADDR, deck_factor=100000, startblock=limited_deck.startblock, endblock=limited_deck.endblock, debug=True)
     assert valid == True
 
 def test_issuance_valid_limited_bundle():
-    valid = a.is_valid_issuance(provider=provider, card=valid_card_lbundle1, total_issued_amount=8000000, tracked_address=BURNADDR, multiplier=limited_deck.multiplier, startblock=limited_deck.startblock, endblock=limited_deck.endblock, debug=True)
+    valid = a.is_valid_issuance(provider=provider, card=valid_card_lbundle1, total_issued_amount=8000000, tracked_address=BURNADDR, deck_factor=100000, startblock=limited_deck.startblock, endblock=limited_deck.endblock, debug=True)
     assert valid == True
 
 def test_issuance_invalid_limited_wrongblock():
-    valid = a.is_valid_issuance(provider=provider, card=invalid_card_lwrongblock, total_issued_amount=12000000, tracked_address=BURNADDR, multiplier=limited_deck.multiplier, startblock=limited_deck.startblock, endblock=limited_deck.endblock, debug=True)
+    valid = a.is_valid_issuance(provider=provider, card=invalid_card_lwrongblock, total_issued_amount=12000000, tracked_address=BURNADDR, deck_factor=100000, startblock=limited_deck.startblock, endblock=limited_deck.endblock, debug=True)
     assert valid == False
 
 def test_issuance_invalid_limited_wrong_amount_simple():
-    valid = a.is_valid_issuance(provider=provider, card=invalid_card_lwrongamount_simple, total_issued_amount=15000000, tracked_address=BURNADDR, multiplier=limited_deck.multiplier, startblock=limited_deck.startblock, endblock=limited_deck.endblock, debug=True)
+    valid = a.is_valid_issuance(provider=provider, card=invalid_card_lwrongamount_simple, total_issued_amount=15000000, tracked_address=BURNADDR, deck_factor=100000, startblock=limited_deck.startblock, endblock=limited_deck.endblock, debug=True)
     assert valid == False
 
 def test_issuance_invalid_limited_wrong_amount_bundle():
-    valid = a.is_valid_issuance(provider=provider, card=invalid_card_lwrongamount_bundle1, total_issued_amount=15000000, tracked_address=BURNADDR, multiplier=limited_deck.multiplier, startblock=limited_deck.startblock, endblock=limited_deck.endblock, debug=True)
+    valid = a.is_valid_issuance(provider=provider, card=invalid_card_lwrongamount_bundle1, total_issued_amount=15000000, tracked_address=BURNADDR, deck_factor=100000, endblock=limited_deck.endblock, debug=True)
     assert valid == False
 
 

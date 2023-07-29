@@ -13,60 +13,33 @@ NOTE: It was decided that the credited address is the one in the first input (vi
 where "burners" or "donors" explicitly define who gets credited in which proportion.
 """
 
+# TODO: adjust all unittests before committing this!
 
-def is_valid_issuance(provider: Provider, card: object, total_issued_amount: int, tracked_address: str, multiplier: int, at_version: int=1, startblock: int=None, endblock: int=None, debug: bool=False) -> bool:
+# def is_valid_issuance(provider: Provider, card: object, total_issued_amount: int, tracked_address: str, multiplier: int, at_version: int=1, startblock: int=None, endblock: int=None, debug: bool=False) -> bool:
+def is_valid_issuance(provider: Provider,
+                      card: object,
+                      tracked_address: str,
+                      deck_factor: int,
+                      total_issued_amount: int,
+                      at_version: int=1,
+                      startblock: int=None,
+                      endblock: int=None,
+                      debug: bool=False) -> bool:
 
-    # check 1: txid must be valid
     try:
-        tx = provider.getrawtransaction(card.donation_txid, 1)
-    except Exception:  # bad txid
+        checked_tx = check_donation(provider, card.donation_txid, tracked_address, deck_factor, total_issued_amount=total_issued_amount, startblock=startblock, endblock=endblock)
+        # tx_sender = check_donation(provider, card.donation_txid, tracked_address, deck_factor, total_issued_amount=total_issued_amount, startblock=startblock, endblock=endblock)
+        assert card.sender == pu.find_tx_sender(provider, checked_tx)
+
+    except ValueError as ve:
         if debug:
-            print("Error: Bad or non-existing txid.")
+            print("Invalid transaction:", ve)
         return False
 
-    # check 2: amount transferred to the tracked_address must be equal to issued amount * multiplier
-    total_tx_amount = Decimal(0)
-    for vout in tx["vout"]:
-        try:
-            if vout["scriptPubKey"]["addresses"][0] == tracked_address:
-                if vout["value"] > 0:
-                    total_tx_amount += Decimal(vout["value"])
-        except KeyError:
-            continue
-    if debug:
-        print("Total donated/burnt amount:", total_tx_amount, "Multiplier:", multiplier, "Number of decimals:", card.number_of_decimals)
-    total_units = int(total_tx_amount * multiplier * (10 ** card.number_of_decimals))
-
-    if total_units != total_issued_amount:
+    except AssertionError:
         if debug:
-            print("Error: Issuance value too high:", total_tx_amount, "*", multiplier, "* 10 ^", card.number_of_decimals, "<", total_issued_amount)
+            print("Error: Card sender {} not entitled to issue these cards (correct transaction sender: {}).".format(card.sender, tx_sender))
         return False
-
-    # check 3 (most expensive, thus last): Sender must be identical with the transaction sender.
-    # find_tx_sender checks always vin[0], i.e. the card issuer must sign with the same key than the first input is signed.
-
-    tx_sender = pu.find_tx_sender(provider, tx)
-
-    if card.sender != tx_sender:
-        if debug:
-            print("Error: Sender {} not entitled to issue these cards (correct sender {}).".format(card.sender, tx_sender))
-        return False
-
-    # check 4 if there are pre-defined deadlines
-
-    if endblock or startblock:
-        # TODO: using the 'time' variable may be faster, as you only have to lookup the start/end blocks.
-        tx_height = provider.getblock(tx["blockhash"])["height"]
-
-        if endblock and (tx_height > endblock):
-            if debug:
-                print("Error: Issuance at block {}, after deadline {}.".format(tx_height, endblock))
-            return False
-        if startblock and (tx_height < startblock):
-            if debug:
-                print("Error: Issuance at block {}, before deadline {}.".format(tx_height, startblock))
-            return False
-
     return True
 
 
@@ -81,6 +54,8 @@ def at_parser(cards: list, provider: Provider, deck: object, debug: bool=False):
     valid_cards = []
     valid_bundles = []
     used_issuance_tuples = []  # this list joins all issuances of sender, txid, vout, to filter out duplicates:
+
+    deck_factor = deck.multiplier * (10 ** deck.number_of_decimals)
 
     if debug:
         print("All cards:\n", [(card.blocknum, card.blockseq, card.txid) for card in cards])
@@ -105,14 +80,14 @@ def at_parser(cards: list, provider: Provider, deck: object, debug: bool=False):
 
             else:
                 issued_amount = bundle_amount if bundle_amount is not None else card.amount[0]
+
                 # if a card has more than one receiver, the cards_postprocess function divides it in several cards.
                 # so to check validity of the issuance amount we need to take the whole bundle into account.
-
                 # we need to know how many cards will be processed together,
                 # thus also last cindex of the bundle cards is returned.
-                # check 2: check if tx exists, sender is correct and amount corresponds to amount in tx (expensive!)
-                if is_valid_issuance(provider, card, issued_amount, tracked_address=deck.at_address,
-                                     multiplier=deck.multiplier, startblock=deck.startblock,
+                if is_valid_issuance(provider, card, deck.at_address,
+                                     deck_factor, issued_amount,
+                                     startblock=deck.startblock,
                                      endblock=deck.endblock, debug=debug):
 
                     valid_cards.append(card)
@@ -130,3 +105,59 @@ def at_parser(cards: list, provider: Provider, deck: object, debug: bool=False):
             valid_cards.append(card)
 
     return valid_cards
+
+def check_donation(provider: object,
+                   txid: str,
+                   tracked_address: str,
+                   deck_factor: int=None,
+                   total_issued_amount: int=None,
+                   startblock: int=None,
+                   endblock: int=None,
+                   debug: bool=False):
+
+    # bundles all checks to the donation/burn transaction itself,
+    # if valid, returns the raw transaction as json.
+    # if not, raises error
+    # total_issued_amount is optional, as some functions don't require the amount check.
+
+    # check 1: txid must be valid
+    try:
+        tx = provider.getrawtransaction(txid, 1)
+    except Exception as e:  # bad txid or bad provider
+        raise ValueError("Bad txid or wrongly formatted provider.")
+
+    # check 2: amount transferred to the tracked_address must be equal to expected amount
+
+    total_tx_amount = Decimal(0)
+    for vout in tx["vout"]:
+        try:
+            if vout["scriptPubKey"]["addresses"][0] == tracked_address:
+                if vout["value"] > 0:
+                    total_tx_amount += Decimal(vout["value"])
+        except KeyError:
+            continue
+    if debug:
+        print("Total donated/burnt amount:", total_tx_amount)
+
+    if total_issued_amount:
+        if (total_tx_amount * deck_factor) != total_issued_amount:
+            raise ValueError("Donation value {} not matching expected amount {}.".format(total_tx_amount, total_issued_amount))
+    else:
+        if total_tx_amount == 0:
+            raise ValueError("Donation not spending nothing to the tracked address.")
+
+    if endblock or startblock:
+        # TODO: using the 'time' variable may be faster, as you only have to lookup the start/end blocks.
+        tx_height = provider.getblock(tx["blockhash"])["height"]
+
+        if endblock and (tx_height > endblock):
+            raise ValueError("Issuance at block {}, after deadline {}.".format(tx_height, endblock))
+
+        if startblock and (tx_height < startblock):
+            raise ValueError("Error: Issuance at block {}, before deadline {}.".format(tx_height, startblock))
+
+    #tx_sender = pu.find_tx_sender(provider, tx)
+
+    #return tx_sender
+    return tx
+
