@@ -17,7 +17,6 @@ class SlmRpcNode(RpcNode):
         else:
             return "slm"
 
-
     @property
     def is_testnet(self) -> bool:
         '''check if node is configured to use testnet or mainnet'''
@@ -48,15 +47,9 @@ class SlmRpcNode(RpcNode):
         # SLM adds a rescan option
         return self.req("importprivkey", [wif, label, rescan])
 
-    def getrawtransaction(self, txid, decode=False):
-        # in SLM, the decode option is an "int" value, not bool.
-        # TODO: as this may change in future versions this should be a legacy function
-        # TODO: strange. in peercoin_rpc it's also with int, not bool. So it should fallback to there and not be necessary?
-        decode_int = 1 if decode == True else 0
-        return self.req("getrawtransaction", [txid, decode_int])
-
-class SlmTransaction(object):
+"""class SlmTransaction(object):
     # this is only to mimic the behavior of the btcpy Transaction object in pacli! only for proof-of-concept usage!
+    # OBSOLETE.
     def __init__(self, hex_tx, provider):
         self.hex = hex_tx
         #print(self.hex, type(self.hex))
@@ -64,7 +57,7 @@ class SlmTransaction(object):
         #print(self.json)
         self.txid = self.json["txid"]
     def hexlify(self):
-        return self.hex
+        return self.hex"""
 
 
 

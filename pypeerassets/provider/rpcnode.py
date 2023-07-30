@@ -97,12 +97,11 @@ class RpcNode(Client, Provider):
         unspent = self.listunspent(address=address)
         #print(unspent)
         values = [ Decimal(v["amount"]) for v in unspent ]
-        #print(values)
         return sum(values)
 
 
     def listtransactions(self, account="", many=999, since=0, include_watchonly=True): ### NEW FEATURE ###
-        '''wrapper, because P2TH needs watchonly to be set by default. May even have to be extended to allow more than 999 transactions.'''
+        '''wrapper. May even have to be extended to allow more than 999 transactions.'''
         return self.req("listtransactions", [account, many, since, include_watchonly])
 
     def getblockchaininfo(self): ### NEW FEATURE ###

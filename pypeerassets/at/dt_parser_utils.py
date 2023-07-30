@@ -21,6 +21,7 @@ def get_marked_txes(provider, p2th_account, min_blockheight=None, max_blockheigh
         max_blocktime = provider.getblock(provider.getblockhash(max_blockheight))["time"]
     tx_tuple_list = []
     start = 0
+
     while True:
         newtxes = provider.listtransactions(p2th_account, 999, start)
         for tx in newtxes:
