@@ -1,5 +1,8 @@
 """all things PeerAssets protocol."""
 
+# EXPERIMENTAL: All code changes related to "address tracking" assets are marked with ADDRESSTRACK
+# EXPERIMENTAL: This is the version with locktime and lockhash, suitable for DEXes.
+
 from enum import Enum
 from operator import itemgetter
 from typing import List, Optional, Generator, cast, Callable
@@ -15,6 +18,14 @@ from pypeerassets.exceptions import (
 from pypeerassets.card_parsers import parsers
 from pypeerassets.networks import net_query
 
+### ADDRESSTRACK ###
+import pypeerassets.at.extension_protocol as ep
+### LOCK ###
+from pypeerassets.hash_encoding import hash_to_address
+from pypeerassets.at.constants import P2TH_MODIFIER, DT_ID, AT_ID
+from pypeerassets.provider import Provider
+
+# P2TH_MODIFIER = { "proposal" : 1, "voting" : 2, "donation" : 3, "signalling" : 4, "locking" : 5 }
 
 class IssueMode(Enum):
 
@@ -67,11 +78,18 @@ class Deck:
                  issuer: str="",
                  issue_time: int=None,
                  id: str=None,
-                 tx_confirmations: int=None) -> None:
+                 tx_confirmations: int=None,
+                 at_type=None,
+                 multiplier: int=None,
+                 epoch_length: int=None,
+                 epoch_reward: int=None,
+                 min_vote: int=None,
+                 sdp_periods: int=None,
+                 sdp_deck: str=None,
+                 at_address: str=None) -> None:
         '''
         Initialize deck object, load from dictionary Deck(**dict) or initilize
-        with kwargs Deck("deck", 3, "ONCE")
-        '''
+        with kwargs Deck("deck", 3, "ONCE")'''
 
         self.version = version  # protocol version
         self.name = name  # deck name
@@ -85,23 +103,104 @@ class Deck:
         self.network = network
         self.production = production
 
-    @property
+        ### ADDRESSTRACK: outsource custom attributes of extensions
+        # TODO: for beta 2: the custom attributes should go into a single dict-style attribute of the deck,
+        # so the ugly self argument isn't necessary.
+        # a class "ExtensionAttributes" or similar would be best.
+
+        if self.issue_mode == IssueMode.CUSTOM.value:
+
+            ep.initialize_custom_deck_attributes(self, network, epoch_length=epoch_length, epoch_reward=epoch_reward, min_vote=min_vote, sdp_periods=sdp_periods, sdp_deck=sdp_deck, multiplier=multiplier, at_address=at_address)
+
+
+    @property ### MODIFIED VERSION TO OPTIMIZE SPEED ###
     def p2th_address(self) -> Optional[str]:
         '''P2TH address of this deck'''
 
         if self.id:
-            return Kutil(network=self.network,
+            try:
+                if self._p2th_address:
+                    return self._p2th_address
+            except AttributeError:
+                self._p2th_address = Kutil(network=self.network,
                          privkey=bytearray.fromhex(self.id)).address
+
+            return self._p2th_address
         else:
             return None
 
-    @property
+
+    @property ### MODIFIED VERSION TO OPTIMIZE SPEED ###
     def p2th_wif(self) -> Optional[str]:
-        '''P2TH privkey in WIF format'''
+        '''P2TH address of this deck'''
 
         if self.id:
-            return Kutil(network=self.network,
+            try:
+                if self._p2th_wif:
+                    return self._p2th_wif
+            except AttributeError:
+                self._p2th_wif = Kutil(network=self.network,
                          privkey=bytearray.fromhex(self.id)).wif
+
+            return self._p2th_wif
+        else:
+            return None
+
+    ### DT: ids for the p2th addresses/keys for donation/proposal/signalling txs
+    ### They are stored in a dictionary, to avoid too much code repetition.
+    def derived_id(self, tx_type) -> Optional[bytes]:
+        if self.id:
+            try:
+                int_id = int(self.id, 16)
+                derived_id = int_id - P2TH_MODIFIER[tx_type]
+                return derived_id.to_bytes(32, "big")
+            except KeyError:
+                return None
+            except OverflowError:
+                # TODO: this is a workaround, should be done better!
+                # It abuses that the OverflowError only can be raised because number becomes negative
+                # So in theory a Proposal can be a high number, and signalling/donationtx a low one.
+                max_id = int(b'\xff' * 32, 16)
+                new_id = max_id - derived_id # TODO won't work as hex() gives strings!
+                return new_id.to_bytes(32, "big")
+
+        else:
+            return None
+
+    def derived_p2th_wif(self, tx_type) -> Optional[str]:
+        if self.id:
+            try:
+
+                if self.derived_p2th_wifs[tx_type] is not None:
+                    return self.derived_p2th_wifs[tx_type]
+
+            except AttributeError:
+                self.derived_p2th_wifs = { tx_type : Kutil(network=self.network,
+                         privkey=self.derived_id(tx_type)).wif }
+
+            except KeyError:
+                self.derived_p2th_wifs.update({ tx_type : Kutil(network=self.network,
+                         privkey=self.derived_id(tx_type)).wif })
+
+            return self.derived_p2th_wifs[tx_type]
+        else:
+            return None
+
+    def derived_p2th_address(self, tx_type) -> Optional[str]:
+
+        if self.id:
+
+            try:
+                if self.derived_p2th_addresses[tx_type] is not None:
+                    return self.derived_p2th_addresses[tx_type]
+            except AttributeError:
+                self.derived_p2th_addresses = { tx_type : Kutil(network=self.network,
+                         privkey=self.derived_id(tx_type)).address }
+            except KeyError:
+                self.derived_p2th_addresses.update({ tx_type : Kutil(network=self.network,
+                         privkey=self.derived_id(tx_type)).address })
+
+            return self.derived_p2th_addresses[tx_type]
         else:
             return None
 
@@ -215,7 +314,8 @@ class CardBundle:
 
 class CardTransfer:
 
-    def __init__(self, deck: Deck, 
+
+    def __init__(self, deck: Deck,
                  receiver: list=[],
                  amount: List[int]=[],
                  version: int=1,
@@ -229,7 +329,11 @@ class CardTransfer:
                  blocknum: int=None,
                  timestamp: int=None,
                  tx_confirmations: int=None,
-                 type: str=None) -> None:
+                 type: str=None,
+                 locktime: int=None,
+                 lockhash: str=None,
+                 lockhash_type: str=None,
+                 donation_txid: str=None) -> None:
 
         '''CardTransfer object, used when parsing card_transfers from the blockchain
         or when sending out new card_transfer.
@@ -267,6 +371,12 @@ class CardTransfer:
         self.receiver = receiver
         self.amount = amount
 
+        # Modifications for Locktime features
+        self.locktime = locktime
+        if lockhash and lockhash_type and locktime:
+            self.lockhash = lockhash
+            self.lockhash_type = lockhash_type
+
         if blockhash:
             self.blockhash = blockhash
             self.blockseq = blockseq
@@ -282,7 +392,19 @@ class CardTransfer:
             self.cardseq = 0
             self.tx_confirmations = 0
 
-        if self.sender == deck.issuer:
+        # Modifications for AT and DT features.
+        # this function defines the type of the CardTransfer and some other attributes.
+        # if deck contains correct addresstrack-specific metadata and the card references a txid,
+        # the card type is CardIssue. Will be validated later by custom parser.
+        # modified order because with AT tokens, deck issuer can be the receiver.
+        # CardBurn is not implemented in AT, because the deck issuer should be
+        # able to participate normally in the transfer process. Cards can however
+        # be burnt sending them to unspendable addresses. (TODO - this is probably not longer true.)
+
+        if deck.issue_mode == IssueMode.CUSTOM.value:
+            ep.initialize_custom_card_attributes(self, deck, donation_txid=donation_txid)
+
+        elif self.sender == deck.issuer:
             # if deck issuer is issuing cards to the deck issuing address,
             # card is burn and issue at the same time - which is invalid!
             if deck.issuer in self.receiver:
@@ -299,6 +421,7 @@ class CardTransfer:
 
         # issuer is anyone else,
         # card type is CardTransfer
+
         else:
             self.type = "CardTransfer"
 
@@ -313,6 +436,11 @@ class CardTransfer:
         card.version = self.version
         card.amount.extend(self.amount)
         card.number_of_decimals = self.number_of_decimals
+        if self.locktime: ### LOCK addition (we don't use a version here, because of the deck version problem)
+            card.locktime = self.locktime
+            if self.lockhash:
+                 card.lockhash = self.lockhash
+                 card.lockhash_type = self.lockhash_type
         if self.asset_specific_data:
             if not isinstance(self.asset_specific_data, bytes):
                 card.asset_specific_data = self.asset_specific_data.encode()
@@ -340,6 +468,13 @@ class CardTransfer:
         if self.asset_specific_data:
             r.update({'asset_specific_data': self.asset_specific_data})
 
+        # Modifications for Locktime features
+        if self.locktime:
+            r.update({'locktime': self.locktime})
+        if self.lockhash:
+            r.update({'lockhash' : self.lockhash})
+            r.update({'lockhash_type' : self.lockhash_type})
+
         return r
 
     def to_json(self) -> dict:
@@ -362,8 +497,12 @@ class CardTransfer:
         return ', '.join(r)
 
 
-def validate_card_issue_modes(issue_mode: int, cards: list) -> list:
+def validate_card_issue_modes(issue_mode: int, cards: list, provider: Provider=None, deck: Deck=None) -> list:
     """validate cards against deck_issue modes"""
+    # AT/DT modifications: including provider variable for custom parser and including deck ###
+
+    if len(cards) == 0: # AT/DT bugfix
+        return []
 
     supported_mask = 63  # sum of all issue_mode values
 
@@ -381,7 +520,19 @@ def validate_card_issue_modes(issue_mode: int, cards: list) -> list:
             except ValueError:
                 continue
 
-            parsed_cards = parser_fn(cards)
+            try: # AT/DT. The AttributeError is thrown when no Protobuf data is found.
+
+                if cards[0].at_type == DT_ID:  # modification for extended parsers
+                    import pypeerassets.at.dt_parser as dtp
+                    parsed_cards = parser_fn(cards, dtp.dt_parser, provider, deck)
+
+                elif cards[0].at_type == AT_ID:
+                    import pypeerassets.at.at_parser as atp
+                    parsed_cards = parser_fn(cards, atp.at_parser, provider, deck)
+
+            except AttributeError:
+                parsed_cards = parser_fn(cards)
+
             if not parsed_cards:
                 return []
             cards = parsed_cards
@@ -390,16 +541,23 @@ def validate_card_issue_modes(issue_mode: int, cards: list) -> list:
 
 
 class DeckState:
+    # Added attribute valid_cards to be able to process only the valid (non-bogus) cards.
+    # Locktime: self.lock is dict of senders, with dicts including locktime and amount.
+    # cleanup_height cleans locks remaining after the last card.
 
-    def __init__(self, cards: Generator) -> None:
+    def __init__(self, cards: Generator, cleanup_height: int=None) -> None:
 
         self.cards = cards
         self.total = 0
         self.burned = 0
         self.balances = cast(dict, {})
+        self.locks = cast(dict, {}) ### LOCK
         self.processed_issues = set()
         self.processed_transfers = set()
         self.processed_burns = set()
+        self.valid_cards = cast(list, []) ### ADDRESSTRACK.
+        self.debug = False ### addition to check LOCK modifications.
+        self.cleanup_height = cleanup_height ### LOCK
 
         self.calc_state()
         self.checksum = not bool(self.total - sum(self.balances.values()))
@@ -411,16 +569,36 @@ class DeckState:
         amount = card["amount"][0]
 
         if ctype != 'CardIssue':
-            balance_check = sender in self.balances and self.balances[sender] >= amount
+
+            ### LOCKS: adding current_locks here prevents locked cards to be transfered.
+            ### They will be simply invalid, the rest would also not be transfered.
+            locked_amount = self._check_locks(sender, receiver, amount, card["blocknum"], card["network"])
+            # DEBUG information
+            if self.debug:
+                if card["locktime"]:
+                    print("CardLock:     blocknum {} sender {} receiver {} amount {} locktime {} lockhash {} lockhash_type {}".format(card["blocknum"], sender, receiver, amount, card["locktime"], card.get("lockhash"), card.get("lockhash_type")))
+                else:
+                    print("CardTransfer: blocknum {} sender {} receiver {} amount {}".format(card["blocknum"], sender, receiver, amount))
+                if len(self.locks):
+                    print("locked amount of sender {} before card: {}".format(sender, locked_amount))
+                    print("locked senders:", [s for s in self.locks])
+            balance_check = sender in self.balances and (self.balances[sender] - locked_amount) >= amount
 
             if balance_check:
+
                 self.balances[sender] -= amount
 
                 if 'CardBurn' not in ctype:
                     self._append_balance(amount, receiver)
 
+                    if card["locktime"]:
+                        # we add the lock to the receiver's address.
+                        self._add_lock(receiver, amount, card["locktime"], card.get("lockhash"), card.get("lockhash_type"))
+
                 return True
 
+            if self.debug:
+                print("Not valid: balance: {}, locked amount: {}, card amount: {}".format(self.balances.get(sender), locked_amount, amount))
             return False
 
         if 'CardIssue' in ctype:
@@ -455,9 +633,18 @@ class DeckState:
                 validate = self._process(card, ctype)
                 self.total += amount * validate  # This will set amount to 0 if validate is False
                 self.processed_issues |= {cid}
+                if validate: ### ADDED ###
+                    self.valid_cards.append(card_from_dict(card))
 
             if ctype == 'CardTransfer' and cid not in self.processed_transfers:
-                self._process(card, ctype)
+                # self._process(card, ctype) ### original
+                validate = self._process(card, ctype) ### changed from here
+                if validate:
+                    self.valid_cards.append(card_from_dict(card))
+                    # subtract the amount of the card from locks.
+                    if card["sender"] in self.locks:
+                        self._unlock_amount(card["sender"], card["receiver"][0], amount, card["network"])
+
                 self.processed_transfers |= {cid}
 
             if ctype == 'CardBurn' and cid not in self.processed_burns:
@@ -466,3 +653,135 @@ class DeckState:
                 self.total -= amount * validate
                 self.burned += amount * validate
                 self.processed_burns |= {cid}
+                if validate: ### changed from here
+                    self.valid_cards.append(card_from_dict(card))
+
+        ### LOCKS: cleanup if height is provided
+        if self.cleanup_height:
+            self._cleanup_locks()
+
+    def _cleanup_locks(self):
+        for address in list(self.locks):
+            print(address, self.locks[address], len(self.locks[address]))
+            # we go from the last index to the first, so if the list changes, indexes aren't modified.
+            for index in range(len(self.locks[address]) - 1, -1, -1):
+                lock = self.locks[address][index]
+                print(index, lock["locktime"])
+                if lock["locktime"] < self.cleanup_height:
+                    self._modify_lock(address, lock["amount"], index)
+
+
+    def _check_locks(self, sender: str, receiver: str, amount: int, blocknum: int, network: str) -> int:
+        if self.debug:
+            print("================================")
+            if len(self.locks):
+                print(self.locks)
+        ### LOCKS: we unset locks at the first card of the sender where the lock has expired.
+        # Unlocking after a transfer done to lock_address is only done after validating.
+        locked_amount = 0
+        if sender in self.locks:
+            # for index, lock in enumerate(self.locks[sender]):
+            # reversed loop, see rationale in _cleanup_locks.
+            for index in range(len(self.locks[sender]) - 1, -1, -1):
+                lock = self.locks[sender][index]
+                if lock["locktime"] < blocknum:
+                    # case 1: when the lock expires, the complete lock is reverted.
+                    # Thus we unlock the whole amount of the lock (lock["amount"]).
+                    self._modify_lock(sender, lock["amount"], index)
+
+                else:
+                    # address locks (type 1 to 6) - other types are still not implemented.
+                    if lock["lockhash_type"] in range(1, 6):
+                        # MODIF: added lock_address again to lock dict, to prevent hash_to_address
+                        # being calculated more than once.
+                        try:
+                            addr = lock["lock_address"]
+                        except KeyError:
+                            addr = hash_to_address(lock["lockhash"], lock["lockhash_type"], net_query(network))
+                            self.locks[sender][index].update({"lock_address" : addr })
+                        if addr != receiver:
+                            if self.debug:
+                                print("Active address/hash timelock: +", lock["amount"], "lock address", addr)
+                            locked_amount += self.locks[sender][index]["amount"]
+                    elif lock["lockhash_type"] == None:
+                        if self.debug:
+                            print("Active simple timelock: +", lock["amount"])
+                        locked_amount += self.locks[sender][index]["amount"]
+
+                    # old variant with specific lock_address:
+                    #if lock["address"] != receiver:
+                    #    # if lock_address is not defined, or not equal to receiver, then locked amount is increased.
+                    #    print("Active lock: +", lock["amount"], "lock address", lock["address"])
+                    #    locked_amount += self.locks[sender][index]["amount"]
+
+        return locked_amount
+
+    # NOTE: this only covers address locks for now!
+    # lock_address was renamed to rec_address, as it's a receiver which would "unlock a lock"
+    def _unlock_amount(self, sender: str, rec_address: str, amount: int, network: str) -> None:
+        # checks if the card was transfered to an address in self.locks.
+        # If yes, it unlocks an amount transferred to rec_address. Various locks can be affected.
+        unlocked_amount = amount
+        for index, lock in enumerate(self.locks[sender]):
+
+            # no lockhash: tokens cannot be unlocked before locktime expires.
+            if lock.get("lockhash") is None:
+                continue
+
+            try:
+                addr = lock["lock_address"]
+            except KeyError:
+                continue # locks without lock_address are still not implemented.
+            #addr = hash_to_address(lock["lockhash"], lock["lockhash_type"], net_query(network))
+
+            #if lock["address"] != lock_address:
+            if addr != rec_address:
+                continue
+
+            if unlocked_amount > lock["amount"]:
+                # if the unlocked amount is bigger than the amount of the particular lock,
+                # then the loop continues through the locks with the same lock address.
+                self._modify_lock(sender, lock["amount"], index)
+                unlocked_amount -= lock["amount"]
+                if self.debug:
+                    print("Unlocking entire lock amount", lock["amount"], "for receiving address", rec_address)
+                    if unlocked_amount > 0:
+                        print("Still to unlock:", unlocked_amount)
+            else:
+                self._modify_lock(sender, unlocked_amount, index)
+                if self.debug:
+                    print("Unlocking amount", unlocked_amount, "for receiving address", rec_address)
+                break
+
+    def _add_lock(self, address: str, amount: int, locktime: int, lockhash: str=None, lockhash_type: int=None) -> None:
+        lock_dict = {"locktime": locktime, "amount" : amount, "lockhash" : lockhash, "lockhash_type" : lockhash_type}
+        if address not in self.locks:
+           self.locks.update({address : [lock_dict] })
+        else:
+           self.locks[address].append(lock_dict)
+
+    def _modify_lock(self, address: str, unlocked_amount: int, index: int) -> None:
+        # modifies (i.e. lowers amount) or deletes a lock.
+        lock = self.locks[address][index]
+        if lock["amount"] > unlocked_amount:
+            self.locks[address][index]["amount"] -= unlocked_amount
+            if self.debug:
+                print("Modified lock: lowered by", unlocked_amount)
+        else:
+            # Delete locks with amount zero.
+            if len(self.locks[address]) > 1:
+                del self.locks[address][index]
+                if self.debug:
+                    print("Modified lock: deleted lock of", unlocked_amount)
+            else:
+                del self.locks[address]
+                if self.debug:
+                    print("Modified lock: deleted sender of lock list, unlocked", unlocked_amount)
+
+
+def card_from_dict(d): ### WORKAROUND. TODO: Look for a more elegant solution!
+    c = CardTransfer.__new__(CardTransfer)
+    for (key, value) in d.items():
+        setattr(c, key, value)
+    return c
+

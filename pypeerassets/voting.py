@@ -213,5 +213,5 @@ def find_vote_casts(provider: Provider, vote: Vote, choice_index: int) -> Iterab
 
         sender = find_tx_sender(provider, raw_tx)
         confirmations = raw_tx["confirmations"]
-        blocknum = provider.getblock(raw_tx["blockhash"])["height"]
+        blocknum = provider.getblock(raw_tx["blockhash"], decode=True)["height"] ### BUGFIX ###
         yield VoteCast(vote, sender, blocknum, confirmations, raw_tx["blocktime"])

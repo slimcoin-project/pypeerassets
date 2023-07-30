@@ -52,6 +52,7 @@ class Transaction(BtcPyTx):
         object.__setattr__(self, '_txid', txid)
         object.__setattr__(self, 'network', network)
         object.__setattr__(self, 'timestamp', timestamp)
+
         if txid != self.txid and txid is not None:
             raise ValueError('txid {} does not match transaction data {}'.format(txid, self.hexlify()))
 
@@ -70,11 +71,11 @@ class Transaction(BtcPyTx):
         return result
 
     @classmethod
-    def from_json(cls, tx_json, network=PeercoinMainnet):
+    def from_json(cls, tx_json, network=PeercoinMainnet): ### BUGFIX? added network as param to TxOut.from_json
         return cls(
             version=tx_json['version'],
             ins=[TxIn.from_json(txin_json) for txin_json in tx_json['vin']],
-            outs=[TxOut.from_json(txout_json) for txout_json in tx_json['vout']],
+            outs=[TxOut.from_json(txout_json, network=network) for txout_json in tx_json['vout']],
             locktime=Locktime(tx_json['locktime']),
             txid=tx_json['txid'],
             network=network,
@@ -279,7 +280,8 @@ def make_raw_transaction(
 
     network_params = net_query(network)
 
-    if network_params.name.startswith("peercoin"):
+    ### MODIFIED: added Slimcoin support, same tx structure than Peercoin.
+    if network_params.name.startswith("peercoin") or network_params.name.startswith("slimcoin"):
         return MutableTransaction(
             version=version,
             ins=inputs,
@@ -298,6 +300,9 @@ def make_raw_transaction(
     )
 
 
+"""
+ORIGINAL
+
 def find_parent_outputs(provider: Provider, utxo: TxIn) -> TxOut:
     '''due to design of the btcpy library, TxIn object must be converted to TxOut object before signing'''
 
@@ -305,6 +310,18 @@ def find_parent_outputs(provider: Provider, utxo: TxIn) -> TxOut:
     index = utxo.txout  # utxo index
     return TxOut.from_json(provider.getrawtransaction(utxo.txid,
                            1)['vout'][index],
+                           network=network_params)
+"""
+
+
+def find_parent_outputs(provider: Provider, utxo: TxIn) -> TxOut:
+    '''due to design of the btcpy library, TxIn object must be converted to TxOut object before signing'''
+
+    network_params = net_query(provider.network)
+    index = utxo.txout  # utxo index
+    txjson = provider.getrawtransaction(utxo.txid,
+                           1)['vout'][index]
+    return TxOut.from_json(txjson,
                            network=network_params)
 
 

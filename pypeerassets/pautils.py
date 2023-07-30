@@ -1,7 +1,7 @@
 
 '''miscellaneous utilities.'''
 
-from pypeerassets.provider import Provider, RpcNode, Cryptoid, Blockbook
+from pypeerassets.provider import Provider, RpcNode, Explorer, Cryptoid
 
 from pypeerassets.exceptions import (InvalidDeckSpawn,
                                      InvalidDeckMetainfo,
@@ -25,6 +25,9 @@ from typing import Iterable, Iterator, Optional, Tuple, List
 from pypeerassets.paproto_pb2 import DeckSpawn as DeckSpawnProto
 from pypeerassets.paproto_pb2 import CardTransfer as CardTransferProto
 from pypeerassets.protocol import Deck, CardTransfer, CardBundle
+from btcpy.structs.address import Address ### find_tx_sender coinbase bugfix ### ### LOCK ###
+from btcpy.lib.base58 import b58encode_check ### LOCK ###
+from pypeerassets.networks import net_query
 
 
 def load_p2th_privkey_into_local_node(provider: RpcNode, prod: bool=True) -> None:
@@ -51,7 +54,9 @@ def find_tx_sender(provider: Provider, raw_tx: dict) -> str:
     vin = raw_tx["vin"][0]
     txid = vin["txid"]
     index = vin["vout"]
+
     return provider.getrawtransaction(txid, 1)["vout"][index]["scriptPubKey"]["addresses"][0]
+
 
 
 def find_deck_spawns(provider: Provider, prod: bool=True) -> Iterable[str]:
@@ -68,7 +73,7 @@ def find_deck_spawns(provider: Provider, prod: bool=True) -> Iterable[str]:
         else:
             decks = (i["txid"] for i in provider.listtransactions("PATEST"))
 
-    if isinstance(provider, Cryptoid) or isinstance(provider, Blockbook):
+    if isinstance(provider, Cryptoid) or isinstance(provider, Explorer):
 
         if prod:
             decks = (i for i in provider.listtransactions(pa_params.P2TH_addr))
@@ -107,6 +112,7 @@ def deck_parser(args: Tuple[Provider, dict, int, str],
                 d["tx_confirmations"] = raw_tx["confirmations"]
             except KeyError:
                 d["tx_confirmations"] = 0
+
             return Deck(**d)
 
     except (InvalidDeckSpawn, InvalidDeckMetainfo, InvalidDeckVersion,
@@ -119,7 +125,7 @@ def deck_parser(args: Tuple[Provider, dict, int, str],
 def tx_serialization_order(provider: Provider, blockhash: str, txid: str) -> int:
     '''find index of this tx in the blockid'''
 
-    return provider.getblock(blockhash)["tx"].index(txid)
+    return provider.getblock(blockhash, decode=True)["tx"].index(txid) ### BUGFIX ###
 
 
 def read_tx_opreturn(vout: dict) -> bytes:
@@ -200,11 +206,12 @@ def validate_deckspawn_p2th(provider: Provider, rawtx: dict, p2th: str) -> bool:
     '''Return True if deck spawn pays to p2th in vout[0] and if the P2TH address
     is correct. Otherwise raises InvalidDeckSpawn.
     '''
-
     try:
         vout = rawtx["vout"][0]["scriptPubKey"].get("addresses")[0]
     except TypeError:
         '''TypeError: 'NoneType' object is not subscriptable error on some of the deck spawns.'''
+        raise InvalidDeckSpawn("Invalid Deck P2TH.")
+    except KeyError: ### DEBUG WORKAROUND: ADDRESSTRACK ###
         raise InvalidDeckSpawn("Invalid Deck P2TH.")
 
     if not vout == p2th:
@@ -238,6 +245,7 @@ def validate_card_transfer_p2th(deck: Deck, vout: dict) -> None:
         address = vout["scriptPubKey"].get("addresses")[0]
         if not address == deck.p2th_address:
             raise InvalidCardTransferP2TH(error)
+
     except TypeError as e:
         raise e
 
@@ -254,11 +262,16 @@ def parse_card_transfer_metainfo(protobuf: bytes, deck_version: int) -> dict:
     if not card.version == deck_version:
         raise CardVersionMismatch({'error': 'card version does not match deck version.'})
 
+    ### LOCK: added locktime, lockhash and lockhash_type
+
     return {
         "version": card.version,
         "number_of_decimals": card.number_of_decimals,
         "amount": list(card.amount),
-        "asset_specific_data": card.asset_specific_data
+        "asset_specific_data": card.asset_specific_data,
+        "locktime" : card.locktime,
+        "lockhash" : card.lockhash,
+        "lockhash_type" : card.lockhash_type
     }
 
 
@@ -289,7 +302,6 @@ def card_bundle_parser(bundle: CardBundle, debug=False) -> Iterator:
     try:
         # first vout of the bundle must pay to deck.p2th
         validate_card_transfer_p2th(bundle.deck, bundle.vouts[0])
-
         # second vout must be OP_RETURN with card_metainfo
         card_metainfo = parse_card_transfer_metainfo(
                             read_tx_opreturn(bundle.vouts[1]),
