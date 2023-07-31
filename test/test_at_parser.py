@@ -78,6 +78,68 @@ def test_issuance_invalid_limited_wrong_amount_bundle():
     valid = a.is_valid_issuance(provider=provider, card=invalid_card_lwrongamount_bundle1, total_issued_amount=15000000, tracked_address=BURNADDR, deck_factor=100000, endblock=limited_deck.endblock, debug=True)
     assert valid == False
 
+@pytest.mark.parametrize("card,total_issued_amount,deck", \
+                        [(valid_card_ul, 5745000, unlimited_deck ), \
+                         (valid_card_lsimple, 12000000, limited_deck), \
+                         (valid_card_lbundle1, 8000000, limited_deck)])
+def test_check_donation_valid(card, total_issued_amount, deck):
+    donation_tx = a.check_donation(provider=provider,
+                                 txid=card.donation_txid,
+                                 tracked_address=BURNADDR,
+                                 deck_factor=deck.multiplier * (10 ** deck.number_of_decimals),
+                                 total_issued_amount=total_issued_amount,
+                                 startblock=deck.startblock,
+                                 endblock=deck.endblock,
+                                 debug=False)
+    assert type(donation_tx) == dict
+    assert len(donation_tx["vin"]) > 0
+
+
+def test_check_donation_bad_txid():
+    with pytest.raises(ValueError) as excinfo:
+        deck = limited_deck
+        donation_tx = a.check_donation(provider=provider,
+                                 txid="1fa4",
+                                 tracked_address=BURNADDR,
+                                 deck_factor=deck.multiplier * (10 ** deck.number_of_decimals),
+                                 total_issued_amount=15000000,
+                                 startblock=deck.startblock,
+                                 endblock=deck.endblock,
+                                 debug=False)
+    assert "txid" in str(excinfo.value)
+
+def test_check_donation_wrong_block():
+    with pytest.raises(ValueError) as excinfo:
+        deck = limited_deck
+        card = invalid_card_lwrongblock
+        donation_tx = a.check_donation(provider=provider,
+                                 txid=card.donation_txid,
+                                 tracked_address=BURNADDR,
+                                 deck_factor=deck.multiplier * (10 ** deck.number_of_decimals),
+                                 total_issued_amount=12000000,
+                                 startblock=deck.startblock,
+                                 endblock=deck.endblock,
+                                 debug=False)
+    assert "before deadline" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("card,total_issued_amount,deck", \
+                        [(invalid_card_lwrongamount_simple, 15000000, limited_deck), \
+                         (invalid_card_lwrongamount_bundle1, 15000000, limited_deck)])
+def test_check_donation_wrong_amount(card, total_issued_amount, deck):
+    with pytest.raises(ValueError) as excinfo:
+        donation_tx = a.check_donation(provider=provider,
+                                 txid=card.donation_txid,
+                                 tracked_address=BURNADDR,
+                                 deck_factor=deck.multiplier * (10 ** deck.number_of_decimals),
+                                 total_issued_amount=total_issued_amount,
+                                 startblock=deck.startblock,
+                                 endblock=deck.endblock,
+                                 debug=False)
+    assert "not matching expected amount" in str(excinfo.value)
+
+
+
 
 def test_at_parser():
     # The bundle here results in a correct total amount. The only invalid card should be the last one.

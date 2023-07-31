@@ -13,9 +13,6 @@ NOTE: It was decided that the credited address is the one in the first input (vi
 where "burners" or "donors" explicitly define who gets credited in which proportion.
 """
 
-# TODO: adjust all unittests before committing this!
-
-# def is_valid_issuance(provider: Provider, card: object, total_issued_amount: int, tracked_address: str, multiplier: int, at_version: int=1, startblock: int=None, endblock: int=None, debug: bool=False) -> bool:
 def is_valid_issuance(provider: Provider,
                       card: object,
                       tracked_address: str,
@@ -28,7 +25,6 @@ def is_valid_issuance(provider: Provider,
 
     try:
         checked_tx = check_donation(provider, card.donation_txid, tracked_address, deck_factor, total_issued_amount=total_issued_amount, startblock=startblock, endblock=endblock)
-        # tx_sender = check_donation(provider, card.donation_txid, tracked_address, deck_factor, total_issued_amount=total_issued_amount, startblock=startblock, endblock=endblock)
         assert card.sender == pu.find_tx_sender(provider, checked_tx)
 
     except ValueError as ve:
@@ -123,6 +119,7 @@ def check_donation(provider: object,
     # check 1: txid must be valid
     try:
         tx = provider.getrawtransaction(txid, 1)
+        assert tx is not None
     except Exception as e:  # bad txid or bad provider
         raise ValueError("Bad txid or wrongly formatted provider.")
 
