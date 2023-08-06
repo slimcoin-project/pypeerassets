@@ -1,10 +1,10 @@
 from setuptools import setup
 
 setup(name='pypeerassets',
-      version='0.4.8-at',
-      description='Python implementation of the PeerAssets protocol with support of AT tokens.',
+      version='0.4.8+slm',
+      description='Python implementation of the PeerAssets protocol with support for Slimcoin and AT/PoB/dPoD tokens.',
       keywords=["blockchain", "digital assets", "protocol"],
-      url='https://github.com/d5000/pypeerassets',
+      url='https://github.com/slimcoin-project/pypeerassets',
       author='PeerAssets team / Slimcoin team',
       author_email='peerchemist@protonmail.ch',
       license='BSD',
