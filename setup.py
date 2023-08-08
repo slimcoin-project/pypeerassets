@@ -9,5 +9,5 @@ setup(name='pypeerassets',
       author_email='peerchemist@protonmail.ch',
       license='BSD',
       packages=['pypeerassets', 'pypeerassets.provider', 'pypeerassets.at'],
-      install_requires=['protobuf', 'peerassets-btcpy', 'peercoin_rpc']
+      install_requires=['protobuf<=3.20.3', 'peerassets-btcpy>=0.6.2', 'peercoin_rpc>=0.61']
       )
