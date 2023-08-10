@@ -13,7 +13,7 @@ class BaseTrackedTransaction(Transaction):
        (DT, AT, DEX)"""
 
 
-    def __init__(self, deck, provider=None, txid=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, blockheight=None, blockhash=None):
+    def __init__(self, deck, provider=None, txid=None, version=None, ins=[], outs=[], locktime=0, network=None, timestamp=None, blockhash=None):
 
         object.__setattr__(self, 'version', version)
         object.__setattr__(self, 'ins', tuple(ins))
@@ -27,11 +27,10 @@ class BaseTrackedTransaction(Transaction):
 
         blockseq = None
 
-        if (blockhash is None) and (blockheight is not None):
-            blockhash = provider.getblockhash(blockheight)
-
+        # The blockheight parameter has always to come from blockhash
+        # this ensures no unconfirmed transaction can slip through,
+        # even if not called with .from_json constructor
         try:
-            # block = provider.getblock(blockhash, True)
             block = provider.getblock(blockhash)
             blockheight = block["height"]
             blockseq = block["tx"].index(txid)

@@ -116,11 +116,14 @@ def check_donation(provider: object,
     # if not, raises error
     # total_issued_amount is optional, as some functions don't require the amount check.
 
-    # check 1: txid must be valid
+    # check 1: txid must be valid and confirmed
     try:
         tx = provider.getrawtransaction(txid, 1)
         # if we assert only tx exists then error messages "fall through" as they're also in JSON format.
-        assert tx.get("txid") is not None
+        # assert tx.get("txid") is not None
+        tx_blockhash = tx["blockhash"]
+    except KeyError:
+        raise ValueError("Transaction is not confirmed.")
     except Exception as e:  # bad txid or bad provider
         raise ValueError("Bad txid or wrongly formatted provider.")
 
@@ -146,7 +149,7 @@ def check_donation(provider: object,
 
     if endblock or startblock:
         # TODO: using the 'time' variable may be faster, as you only have to lookup the start/end blocks.
-        tx_height = provider.getblock(tx["blockhash"])["height"]
+        tx_height = provider.getblock(tx_blockhash)["height"]
 
         if endblock and (tx_height > endblock):
             raise ValueError("Issuance at block {}, after deadline {}.".format(tx_height, endblock))

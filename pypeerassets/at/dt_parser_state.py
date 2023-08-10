@@ -279,22 +279,6 @@ class ParserState(object):
             if debug: print("PARSER: Proposer issuance failed: Incorrect card issuer.")
             return False
 
-        # 2. Card must be issued after the last round deadline. Otherwise, a card could be valid for a couple of blocks,
-        # and then become invalid.
-        # DELETED: This check is innecessary, as it is done in the parser loop for all cards.
-        # try:
-        #    # MODIFIED: as the Proposer round is not longer necessary, modified [8][0][0] to [7][1][1] + 1
-        #    last_round_end = proposal_state.rounds[7][1][1] + 1 # modified from round_starts
-        # except (IndexError, AttributeError):
-        #    # if rounds attribute is still not set , e.g. because there was not a single Donation CardIssue.
-        #    # then we set rounds. Should normally not be necessary, as rounds is now finalized in update_approved_proposals.
-        #    proposal_state.set_rounds()
-        #    last_round_end = proposal_state.rounds[7][1][1] + 1
-
-        # if card_blocknum < last_round_end:
-        #     if debug: print("PARSER: Proposer issuance failed: card issued before end epoch of ProposalState.")
-        #     return False
-
         if len(proposal_state.donation_states) == 0:
             proposal_state.set_donation_states(self.current_blockheight)
 
