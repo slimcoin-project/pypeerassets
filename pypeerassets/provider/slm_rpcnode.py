@@ -47,6 +47,11 @@ class SlmRpcNode(RpcNode):
         # SLM adds a rescan option
         return self.req("importprivkey", [wif, label, rescan])
 
+    def getrawtransaction(self, txid, verbose=False):
+        verbose_int = 1 if verbose else 0
+        return self.req("getrawtransaction", [txid, verbose_int])
+
+
 """class SlmTransaction(object):
     # this is only to mimic the behavior of the btcpy Transaction object in pacli! only for proof-of-concept usage!
     # OBSOLETE.

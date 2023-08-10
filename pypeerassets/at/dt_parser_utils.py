@@ -132,10 +132,8 @@ def update_voters(voters={}, new_cards=[], weight=1, dec_diff=0, debug=False):
     # The dec_diff value is the difference between number_of_decimals of main deck/sdp deck.
     # dec_diff isn't applied to old voters, thus it cannot be merged with "weight".
 
-    # TODO: The dec_adjustment calculation will throw Type problems if the SDP token has more decimals than the main token.
-    # Perhaps use it as a decimal, and then convert all values to int again (check the precision!)
-
-    dec_adjustment = 10 ** dec_diff
+    # dec_adjustment has to be Decimal, because dec_diff can be negative
+    dec_adjustment = Decimal(10 ** dec_diff)
 
     # 1. Update cards of old SDP voters by weight.
     if weight != 1:

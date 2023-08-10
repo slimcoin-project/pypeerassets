@@ -119,7 +119,8 @@ def check_donation(provider: object,
     # check 1: txid must be valid
     try:
         tx = provider.getrawtransaction(txid, 1)
-        assert tx is not None
+        # if we assert only tx exists then error messages "fall through" as they're also in JSON format.
+        assert tx.get("txid") is not None
     except Exception as e:  # bad txid or bad provider
         raise ValueError("Bad txid or wrongly formatted provider.")
 
@@ -153,8 +154,5 @@ def check_donation(provider: object,
         if startblock and (tx_height < startblock):
             raise ValueError("Error: Issuance at block {}, before deadline {}.".format(tx_height, startblock))
 
-    #tx_sender = pu.find_tx_sender(provider, tx)
-
-    #return tx_sender
     return tx
 

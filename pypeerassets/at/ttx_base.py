@@ -25,16 +25,18 @@ class BaseTrackedTransaction(Transaction):
 
         object.__setattr__(self, 'input_addresses', self.set_input_addresses(provider=provider))
 
-        if blockheight is None:
+        blockseq = None
 
-            if blockhash is not None:
+        if (blockhash is None) and (blockheight is not None):
+            blockhash = provider.getblockhash(blockheight)
 
-                try:
-                    block = provider.getblock(blockhash, True)
-                    blockheight = block["height"]
-                    blockseq = block["tx"].index(txid)
-                except KeyError:
-                    blockheight, blockseq = None, None # unconfirmed transaction
+        try:
+            # block = provider.getblock(blockhash, True)
+            block = provider.getblock(blockhash)
+            blockheight = block["height"]
+            blockseq = block["tx"].index(txid)
+        except (KeyError, TypeError):
+            blockheight, blockseq = None, None # unconfirmed transaction
 
         object.__setattr__(self, 'blockheight', blockheight)
         object.__setattr__(self, 'blockseq', blockseq)
@@ -42,7 +44,7 @@ class BaseTrackedTransaction(Transaction):
         # Inputs and outputs must always be provided by constructors.
 
         if len(ins) == 0 or len(outs) < 3:
-            raise InvalidTrackedTransactionError("Creating a TrackedTransaction you must provide inputs and outputs.")
+            raise InvalidTrackedTransactionError("Creating a TrackedTransaction you must provide at least 3 outputs.")
 
         # other attributes come from datastr
         # CONVENTION: datastr is always in SECOND output (outs[1]) like in PeerAssets tx.
@@ -87,11 +89,11 @@ class BaseTrackedTransaction(Transaction):
 
     @property
     def txid(self):
-        return self._txid # only getter.
+        return self._txid
 
     @property
     def deckid(self):
-        return self.deck.id # this is a good approach, as self.deck always comes from the ParserState.
+        return self.deck.id # self.deck always comes from the ParserState.
 
     @classmethod
     def get_basicdata(cls, txid, provider):
@@ -101,7 +103,7 @@ class BaseTrackedTransaction(Transaction):
             data = pu.read_tx_opreturn(json["vout"][1])
         except KeyError:
             raise InvalidTrackedTransactionError("JSON output:", json)
-        return { "data" : data, "json" : json }
+        return {"data" : data, "json" : json}
 
     @classmethod
     def from_json(cls, tx_json, provider, deck=None):

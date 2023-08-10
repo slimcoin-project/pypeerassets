@@ -101,7 +101,6 @@ class RpcNode(Client, Provider):
 
 
     def listtransactions(self, account="", many=999, since=0, include_watchonly=True): ### NEW FEATURE ###
-        '''wrapper. May even have to be extended to allow more than 999 transactions.'''
         return self.req("listtransactions", [account, many, since, include_watchonly])
 
     def getblockchaininfo(self): ### NEW FEATURE ###
