@@ -60,16 +60,15 @@ def initialize_custom_card_attributes(card, deck, donation_txid=None):
 
     try:
         assert "at_type" in deck.__dict__ and deck.at_type in (c.ID_AT, c.ID_DT)
-        card.extended_data = parse_protobuf(card.asset_specific_data, "card")
 
-        if is_at_cardissue(card.extended_data) == True:
+        try:
+            card.extended_data = parse_protobuf(card.asset_specific_data, "card")
+            assert is_at_cardissue(card.extended_data) == True
             card.type = "CardIssue"
-
             card.donation_txid = donation_txid if donation_txid else card.extended_data["txid"].hex()
-            # card.donation_vout = card.extended_data["vout"] # TODO: re-check if this is really optional.
-        else:
-
-            card.type = "CardTransfer" # includes, for now, issuance attempts with completely invalid data
+        except (TypeError, AssertionError):
+            # TypeError is risen when the protobuf value is None
+            card.type = "CardTransfer"
 
         card.at_type = deck.at_type # # MODIF: replaces the obsolete card.extended_data.id
     except (ValueError, KeyError, AssertionError):
