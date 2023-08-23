@@ -24,7 +24,7 @@ def is_valid_issuance(provider: Provider,
                       debug: bool=False) -> bool:
 
     try:
-        checked_tx = check_donation(provider, card.donation_txid, tracked_address, deck_factor, total_issued_amount=total_issued_amount, startblock=startblock, endblock=endblock)
+        checked_tx = check_donation(provider, card.donation_txid, tracked_address, deck_factor, total_issued_amount=total_issued_amount)
         assert card.sender == pu.find_tx_sender(provider, checked_tx)
 
     except ValueError as ve:
@@ -34,8 +34,30 @@ def is_valid_issuance(provider: Provider,
 
     except AssertionError:
         if debug:
-            print("Error: Card sender {} not entitled to issue these cards (correct transaction sender: {}).".format(card.sender, tx_sender))
+            print("Invalid sender: Card sender {} not entitled to issue these cards (correct transaction sender: {}).".format(card.sender, tx_sender))
         return False
+
+    # last check, as most expensive: block height of card has to be equal or after donation,
+    # and donation block height in height-limited decks has to be correct.
+    # This avoids "hanging" cards which become valid later than when they were issued.
+    # TODO: using the 'time' variable may be faster, as you only have to lookup the start/end blocks.
+    tx_height = provider.getblock(checked_tx["blockhash"])["height"]
+
+    if card.blocknum < tx_height:
+        return False
+
+    if endblock or startblock:
+
+        if endblock and (tx_height > endblock):
+            if debug:
+                print("Invalid transaction: Issuance at block {}, after deadline {}.".format(tx_height, endblock))
+            return False
+
+        if startblock and (tx_height < startblock):
+            if debug:
+                print("Invalid transaction: Issuance at block {}, before deadline {}.".format(tx_height, startblock))
+            return False
+
     return True
 
 
@@ -107,8 +129,6 @@ def check_donation(provider: object,
                    tracked_address: str,
                    deck_factor: int=None,
                    total_issued_amount: int=None,
-                   startblock: int=None,
-                   endblock: int=None,
                    debug: bool=False):
 
     # bundles all checks to the donation/burn transaction itself,
@@ -146,16 +166,6 @@ def check_donation(provider: object,
     else:
         if total_tx_amount == 0:
             raise ValueError("Donation not spending nothing to the tracked address.")
-
-    if endblock or startblock:
-        # TODO: using the 'time' variable may be faster, as you only have to lookup the start/end blocks.
-        tx_height = provider.getblock(tx_blockhash)["height"]
-
-        if endblock and (tx_height > endblock):
-            raise ValueError("Issuance at block {}, after deadline {}.".format(tx_height, endblock))
-
-        if startblock and (tx_height < startblock):
-            raise ValueError("Error: Issuance at block {}, before deadline {}.".format(tx_height, startblock))
 
     return tx
 

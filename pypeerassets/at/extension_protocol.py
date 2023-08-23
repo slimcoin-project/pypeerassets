@@ -50,7 +50,7 @@ def initialize_custom_deck_attributes(deck, network, epoch_length=None, epoch_re
 
 
 def initialize_custom_card_attributes(card, deck, donation_txid=None):
-    ### AT ###
+
     # if deck contains correct addresstrack-specific metadata and the card references a txid,
     # the card type is CardIssue. Will be validated later by custom parser.
     # modified order because with AT tokens, deck issuer can be the receiver.
@@ -59,6 +59,7 @@ def initialize_custom_card_attributes(card, deck, donation_txid=None):
     # be burnt sending them to unspendable addresses.
 
     try:
+
         assert "at_type" in deck.__dict__ and deck.at_type in (c.ID_AT, c.ID_DT)
 
         try:
@@ -70,8 +71,10 @@ def initialize_custom_card_attributes(card, deck, donation_txid=None):
             # TypeError is risen when the protobuf value is None
             card.type = "CardTransfer"
 
-        card.at_type = deck.at_type # # MODIF: replaces the obsolete card.extended_data.id
+        card.at_type = deck.at_type
+
     except (ValueError, KeyError, AssertionError):
+
         # this happens with non-dt tokens using a custom parser,
         # or with faulty dt tokens with data not protobuf formatted, or one of the txid and vout values missing.
         # This doesn't raise an error, because if a non-compatible asset_specific_data in deck
