@@ -110,6 +110,11 @@ class ProposalState(object):
             # Proposal lifecycle begins in next epoch after the submission.
             self.start_epoch = self.first_ptx.epoch + 1
             self.dist_start = self.start_epoch * epoch_length
+
+            # Required timelock consists in the original start of phase 2,
+            # regardless of any proposal modifications.
+            self.first_ptx.set_required_timelock(self.start_epoch)
+            self.req_timelock = self.first_ptx.req_timelock
             self.security_periods[0] = [self.dist_start, self.dist_start + security_period_length - 1]
             voting_p1_start = self.security_periods[0][1] + 1
             self.voting_periods[0] = [voting_p1_start, voting_p1_start + voting_period_length - 1]
@@ -314,8 +319,8 @@ class ProposalState(object):
 
                 # If the timelock is not correct, the LockingTransaction is not added, and no DonationTransaction is taken into account.
                 # The DonationState will be incomplete/abandoned in this case. Only the SignallingTx is being added.
-                # if debug and locking_tx is not None: print("TX", tx.txid, "Locking tx:", locking_tx.txid, type(locking_tx))
-                if (locking_tx is not None) and self.validate_timelock(locking_tx):
+                if (locking_tx is not None) and locking_tx.timelock >= self.req_timelock:
+
 
                     # TODO is this really the most efficient way?
                     ltxes = deepcopy(self.locking_txes)
@@ -662,20 +667,6 @@ class ProposalState(object):
                 continue
 
         return valid_txes
-
-    def validate_timelock(self, ltx):
-        """Checks that the timelock of the donation is correct."""
-
-        # Timelock must be set at least to the block height of the start of the end epoch.
-        # We take the value of the first ProposalTransaction here, because in the case of Proposal Modifications,
-        # all LockedTransactions need to stay valid.
-
-        original_phase2_start = (self.start_epoch + self.first_ptx.epoch_number) * self.deck.epoch_length
-
-        if ltx.timelock >= original_phase2_start:
-            return True
-        else:
-            return False
 
     def check_round(self, tx: TrackedTransaction, dist_round: int) -> bool:
         """Checks in which round a transaction was sent."""

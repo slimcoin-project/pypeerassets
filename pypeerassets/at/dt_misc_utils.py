@@ -42,7 +42,7 @@ def sats_to_coins(sats: int, network_name: str=None, network: namedtuple=None) -
 def coins_to_sats(coins: Decimal, network_name: str=None, network: namedtuple=None) -> int:
     return int(coins * coin_value(network_name, network))
 
-def min_p2th_fee(network) -> int:
+def min_p2th_fee(network: object) -> int:
     # The minimal tx fee in PPC and derived coins is the same than the minimal amount for an output.
     # This value is however not defined in the network tuple.
     # As a placeholder we use the min_tx_fee, which in SLM is the same
@@ -54,8 +54,9 @@ def min_p2th_fee(network) -> int:
 
 ## States / Periods
 
-def get_votestate(provider, proposal_txid, debug=False):
+def get_votestate(provider: object, proposal_txid: str, debug: bool=False) -> list:
     """Get the state of the votes of a Proposal without calling the parser completely."""
+    # Used in dt_classes (l 96).
 
     proposal = get_proposal_state(provider, proposal_txid, debug_voting=debug)
     decimals = proposal.deck.number_of_decimals
@@ -71,11 +72,12 @@ def get_votestate(provider, proposal_txid, debug=False):
     return result
 
 def get_dstates_from_txid(txid: str, proposal_state: ProposalState, only_signalling=False):
-    # returns donation state from a signalling, locking or donation transaction.
-    # If the tx given includes a reserved amount; then it will be shown in two dstates, and both being returned.
-    # The only_signalling flag avoids that a txid gives two results (necessary for pacli's get_previous_tx_input_data).
-    # It only searches in txes marked as signalling and reserve transactions, which are the ones needed for this function;
-    # if allowing the other tx types, there could be a donation/locking tx as well.
+    """Returns donation states given a signalling, locking or donation transaction TXID.
+    If the tx given includes a reserved amount; then two states may be returned.
+    The only_signalling flag avoids that a txid gives two results (necessary for pacli's get_previous_tx_input_data).
+    It only searches in txes marked as signalling and reserve transactions, which are the ones needed for this function;
+    if allowing the other tx types, there could be a donation/locking tx as well."""
+    # TODO: Not used in pacli at all. Re-check if needed.
 
     allowed_txes = [ds.signalling_tx.txid, ds.reserve_tx.txid]
     if not only_signalling:
@@ -90,7 +92,9 @@ def get_dstates_from_txid(txid: str, proposal_state: ProposalState, only_signall
     return result
 
 def get_dstate_from_origin_tx(txid: str, provider: Provider):
-    # this is simpler. The donation state exactly corresponding to a signalling/reserve transaction is returned.
+    """The donation state exactly corresponding to a signalling/reserve transaction is returned."""
+    # Used in pacli.dt_utils once.
+
     try:
         rawtx = provider.getrawtransaction(txid, 1)
         op_return_output = rawtx["vout"][c.DATASTR_OUTPUT]
@@ -111,8 +115,9 @@ def get_dstate_from_origin_tx(txid: str, provider: Provider):
         return None
 
 def get_dstates_from_address(address: str, proposal_state: ProposalState, dist_round: int=None):
-    # returns donation state from an address used in a signalling, locking or donation transaction.
+    "Returns donation states given an address used in a signalling, locking or donation transaction."""
     # Not identic to get_dstates_from_donor_address, which only includes states matching the "official" donor address.
+    # TODO: Not used in pacli at all. Re-check if needed.
 
     states = []
     # print("Donation states:", proposal_state.donation_states)
@@ -144,8 +149,8 @@ def get_dstates_from_address(address: str, proposal_state: ProposalState, dist_r
     return states
 
 def get_dstates_from_donor_address(address: str, proposal_state: ProposalState, dist_round: int=None, all_states=False):
-    # returns donation state from a signalling, locking or donation transaction.
-    # This uses the donor address which is stored in the DonationState, not the "destination" address.
+    """Returns donation states given the donor address."""
+    # Used in dt_txtools and dt_utils, once each.
 
     states = []
     # print("Donation states:", proposal_state.donation_states)
@@ -168,12 +173,9 @@ def get_donation_states(provider, proposal_id=None, proposal_tx=None, tx_txid=No
     proposal_state = get_proposal_state(provider, proposal_id=proposal_id, proposal_tx=proposal_tx, debug_donations=debug)
 
     if tx_txid is not None:
-        # MODIFIED: gives now a list, because it can have two results if the tx includes a reserved amount.
-        # result = get_dstate_from_txid(txid, proposal_state)
         result = get_dstates_from_txid(tx_txid, proposal_state)
     elif donor_address is not None:
         result = get_dstates_from_donor_address(donor_address, proposal_state, dist_round=dist_round)
-
     elif address is not None:
         # MODIFIED: we now only use get_dstates_from_address in my_donation_states
         states = get_dstates_from_address(address, proposal_state, dist_round=dist_round)
@@ -193,9 +195,9 @@ def get_donation_states(provider, proposal_id=None, proposal_tx=None, tx_txid=No
 
     return result
 
-def find_proposal(proposal_id, provider, deckid=None, deck=None, deck_version=1, production=True) -> ProposalTransaction:
-    # MODIF: name changed to match find_deck syntax.
-    # best thing is if we know deckid or deck.
+def find_proposal(proposal_id: str, provider: object, deckid: str=None, deck: object=None, deck_version: int=1, production: bool=True) -> ProposalTransaction:
+    """Returns a proposal transaction given the proposal ID."""
+
     basicdata = ProposalTransaction.get_basicdata(proposal_id, provider)
     if deck is None:
         if deckid is None:
@@ -207,6 +209,9 @@ def find_proposal(proposal_id, provider, deckid=None, deck=None, deck_version=1,
 
 
 def get_parser_state(provider, deck=None, deckid=None, lastblock=None, force_continue=False, force_dstates=False, debug=False, debug_voting=False, debug_donations=False, deck_version=1, production=True):
+    """Returns the state of the parser at a block position.
+       Not to be confused by the DeckState. The parser only
+       deals with CardIssues."""
 
     if not deck:
         if not deckid:
@@ -224,8 +229,7 @@ def get_parser_state(provider, deck=None, deckid=None, lastblock=None, force_con
     return pst
 
 def get_proposal_state(provider, proposal_id=None, proposal_tx=None, deck=None, debug=False, debug_donations=False, debug_voting=False):
-    # version 2: does not create an additional proposal state and always does the complete check.
-    # MODIFIED: parameter phase eliminated. If we needed it, we could also derive it from the ptx values.
+    """Returns a proposal state, given the ID or a proposal TX."""
 
     current_blockheight = provider.getblockcount()
     if not proposal_tx:
@@ -249,7 +253,10 @@ def get_proposal_state(provider, proposal_id=None, proposal_tx=None, deck=None, 
 
     return proposal
 
-def format_votes(decimals, votes):
+def format_votes(decimals: int, votes: dict):
+    """Returns a formatted dict of votes."""
+    # Used here.
+
     fvotes = {}
     for outcome in ["positive", "negative"]:
         balance = Decimal(votes[outcome]) / 10**decimals
@@ -279,7 +286,7 @@ def deck_p2th_from_id(network: str, deck_id: str) -> str:
                          privkey=bytearray.fromhex(deck_id)).address
 
 def deck_from_p2th(tx: dict, tx_type: str, provider: Provider): # we could do this also with Transaction object ...
-    # We give a transaction with P2TH output and receive the deck object.
+    """Returns a Deck object, given a transaction with P2TH output."""
     # loops through DT decks and checks their P2TH addresses.
     # this is independent from any deckid in the metadata.
     try:

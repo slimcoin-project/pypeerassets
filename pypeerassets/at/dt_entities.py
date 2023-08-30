@@ -277,6 +277,11 @@ class ProposalTransaction(TrackedTransaction):
         object.__setattr__(self, 'req_amount', req_amount) # Requested amount of coin units.
         object.__setattr__(self, 'first_ptx_txid', first_ptx_txid)
 
+    def set_required_timelock(self, tx_epoch):
+        req_timelock = (1 + tx_epoch + self.epoch_number) * self.deck.epoch_length
+        object.__setattr__(self, 'req_timelock', req_timelock)
+
+
 class VotingTransaction(TrackedTransaction):
     """Very simple custom protocol, because the original PeerAssets voting protocol has two problems:
     # 1. it requires an extra transaction to be sent (which would have to be sent by the Proposer => more fees)
