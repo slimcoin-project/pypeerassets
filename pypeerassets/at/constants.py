@@ -46,6 +46,10 @@ P2TH_MODIFIER = { "proposal" : TtxID.PROPOSAL.value, "voting" : TtxID.VOTING.val
 DT_ID = ID_DT = DeckTypeID.DT.value
 AT_ID = ID_AT = DeckTypeID.AT.value
 
+# Abbreviations for deck identifiers
+
+DECK_TYPES = [[None], ["at", "pob"], ["dt", "pod"]]
+
 # TTX identifiers
 
 ID_NONE = TtxID.NONE.value
@@ -65,4 +69,10 @@ TTXIDDICT = { "proposal" : TtxID.PROPOSAL.value,
 
 def get_id(tx_type: str):
     return TTXIDDICT[tx_type]
+
+def get_deck_type(deck_type: str):
+    for index, decktype_values in enumerate(DECK_TYPES):
+        if deck_type in decktype_values:
+            return index
+
 
