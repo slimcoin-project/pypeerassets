@@ -36,9 +36,10 @@ def is_legacy_blockchain(network_shortname, item="watchonly"):
     result = network_shortname in LEGACY_CHAINS.get(item)
     return result
 
-def legacy_import(provider: Provider, p2th_address: str, p2th_wif: str, rescan: bool=False) -> None:
+def legacy_import(provider: Provider, p2th_address: str, p2th_wif: str, rescan: bool=False, silent: bool=False) -> None:
 
-    print("Legacy blockchain import, imports WIF key.")
+    if not silent:
+        print("Legacy blockchain import, imports WIF key.")
     # this checks if a P2TH address is already imported. If not, import it (only rpcnode).
     p2th_account = provider.getaccount(p2th_address)
 
