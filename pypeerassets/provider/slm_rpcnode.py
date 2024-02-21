@@ -51,19 +51,3 @@ class SlmRpcNode(RpcNode):
         verbose_int = 1 if verbose else 0
         return self.req("getrawtransaction", [txid, verbose_int])
 
-
-"""class SlmTransaction(object):
-    # this is only to mimic the behavior of the btcpy Transaction object in pacli! only for proof-of-concept usage!
-    # OBSOLETE.
-    def __init__(self, hex_tx, provider):
-        self.hex = hex_tx
-        #print(self.hex, type(self.hex))
-        self.json = provider.decoderawtransaction(hex_tx)
-        #print(self.json)
-        self.txid = self.json["txid"]
-    def hexlify(self):
-        return self.hex"""
-
-
-
-

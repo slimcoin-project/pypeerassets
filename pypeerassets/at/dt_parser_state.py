@@ -233,7 +233,9 @@ class ParserState(object):
 
         proposal_list = []
         tx_attr = "all_{}_txes".format(tx_type)
-        txes = dpu.get_marked_txes(self.provider, self.deck.derived_p2th_address(tx_type), min_blockheight=min_blockheight, max_blockheight=max_blockheight)
+        # p2th_account = self.deck.derived_p2th_address(tx_type) # OLD behaviour
+        p2th_account = self.deck.id + tx_type.upper()
+        txes = dpu.get_marked_txes(self.provider, p2th_account, min_blockheight=min_blockheight, max_blockheight=max_blockheight)
         for q, rawtx in enumerate(txes):
             try:
                 if tx_type == "donation":

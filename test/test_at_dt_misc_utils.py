@@ -1,16 +1,15 @@
 import pytest
 import json
-import pypeerassets
+import pypeerassets as pa
 import pypeerassets.at.dt_misc_utils as mu
-from pypeerassets.provider import RpcNode
-# from pypeerassets.at.dt_parser_utils import deck_from_tx
+from pypeerassets.provider import SlmRpcNode
 
 # TODO: datastr format has to be updated.
 
 settingsfile = open("settings.json", "r")
 credentials = json.load(settingsfile)
 
-PROVIDER = RpcNode(testnet=True, username=credentials["rpcuser"], password=credentials["rpcpass"], ip=None, port=credentials["port"], directory=None)
+PROVIDER = SlmRpcNode(testnet=True, username=credentials["rpcuser"], password=credentials["rpcpass"], ip=None, port=credentials["port"], directory=None)
 DECK_ID = "617005e36d23794763521ac3bad6d53a0ad6ee4259c8e45d8e81cdd09d67d595" # epoch length 22 blocks
 DECK_ID2 = "4151f408a453af433ba1239ed8be8c9a549234980c7c053f3255ea7988b07d00" # longer deck for public testing
 DECK_P2TH = "mg5tRy8UUD5H1pwiyZnjeNzTdtfFrX6d1n"
@@ -33,31 +32,29 @@ def test_deck_p2th_from_id():
 
 def test_create_unsigned_tx_signalling_manual():
     # manually selecting input.
-    # deck = deck_from_tx(DECK_ID2, PROVIDER)
     deck = pa.find_deck(PROVIDER, DECK_ID2, 1)
     dstr = b"DS" + bytes.fromhex(PROPOSAL_TXID)
-    unsigned = mu.create_unsigned_tx(deck, input_txid=INPUT_TXID, input_vout=2, address="mmiUdqJTBtUc5hCGVYLPnqtNivsWSEZuoq", amount=444444, provider=PROVIDER, tx_type="signalling", data=dstr)
+    unsigned = mu.create_unsigned_tx(deck, PROVIDER, "signalling", "tslm", input_txid=INPUT_TXID, input_vout=2, address="mmiUdqJTBtUc5hCGVYLPnqtNivsWSEZuoq", amount=444444, data=dstr)
     assert unsigned.outs[3].script_pubkey.__str__() == 'OP_DUP OP_HASH160 d72e5400710bf2c852eed36c64fe5c0f393e61ac OP_EQUALVERIFY OP_CHECKSIG'
 
 def test_create_unsigned_tx_signalling_auto():
     # Using peerassets feature to select a suitable input.
     deck = pa.find_deck(PROVIDER, DECK_ID2, 1)
-    # deck = deck_from_tx(DECK_ID2, PROVIDER)
     dstr = b"DS" + bytes.fromhex(PROPOSAL_TXID)
-    unsigned = mu.create_unsigned_tx(deck, input_address="n18j5ESg1Lz7Z1N4ZwTttjGVjBDNXbgbch", address="mmiUdqJTBtUc5hCGVYLPnqtNivsWSEZuoq", amount=444444, provider=PROVIDER, tx_type="signalling", data=dstr, proposal_txid=PROPOSAL_TXID)
+    unsigned = mu.create_unsigned_tx(deck, PROVIDER, "signalling", "tslm", input_address="n18j5ESg1Lz7Z1N4ZwTttjGVjBDNXbgbch", address="mmiUdqJTBtUc5hCGVYLPnqtNivsWSEZuoq", amount=444444, data=dstr, proposal_txid=PROPOSAL_TXID)
     assert unsigned.outs[3].script_pubkey.__str__() == 'OP_DUP OP_HASH160 d72e5400710bf2c852eed36c64fe5c0f393e61ac OP_EQUALVERIFY OP_CHECKSIG'
 
 def test_create_unsigned_tx_donation_auto():
     # Using peerassets feature to select a suitable input.
-    deck = deck_from_tx(DECK_ID2, PROVIDER)
+    deck = pa.find_deck(DECK_ID2, PROVIDER, 1)
     dstr = b"DD" + bytes.fromhex(PROPOSAL_TXID)
-    unsigned = mu.create_unsigned_tx(deck, input_address="n18j5ESg1Lz7Z1N4ZwTttjGVjBDNXbgbch", amount=444444, proposal_txid=PROPOSAL_TXID, provider=PROVIDER, tx_type="donation", data=dstr)
+    unsigned = mu.create_unsigned_tx(deck, PROVIDER, "donation", "tslm", input_address="n18j5ESg1Lz7Z1N4ZwTttjGVjBDNXbgbch", amount=444444, proposal_txid=PROPOSAL_TXID, data=dstr)
     assert unsigned.outs[3].script_pubkey.__str__() == 'OP_DUP OP_HASH160 d72e5400710bf2c852eed36c64fe5c0f393e61ac OP_EQUALVERIFY OP_CHECKSIG'
 
 def test_create_unsigned_tx_locking_auto():
     # Using peerassets feature to select a suitable input.
-    deck = deck_from_tx(DECK_ID2, PROVIDER)
+    deck = pa.find_deck(DECK_ID2, PROVIDER, 1)
     dstr = b"DL" + bytes.fromhex(PROPOSAL_TXID)
-    unsigned = mu.create_unsigned_tx(deck, input_address="n18j5ESg1Lz7Z1N4ZwTttjGVjBDNXbgbch", amount=444444, address="mmiUdqJTBtUc5hCGVYLPnqtNivsWSEZuoq", proposal_txid=PROPOSAL_TXID, provider=PROVIDER, tx_type="locking", data=dstr, cltv_timelock=2754000)
+    unsigned = mu.create_unsigned_tx(deck, PROVIDER, "locking", "tslm", input_address="n18j5ESg1Lz7Z1N4ZwTttjGVjBDNXbgbch", amount=444444, address="mmiUdqJTBtUc5hCGVYLPnqtNivsWSEZuoq", proposal_txid=PROPOSAL_TXID, data=dstr, cltv_timelock=2754000)
     print(unsigned)
     # assert unsigned.outs[3].script_pubkey.__str__() == 'OP_DUP OP_HASH160 d72e5400710bf2c852eed36c64fe5c0f393e61ac OP_EQUALVERIFY OP_CHECKSIG'

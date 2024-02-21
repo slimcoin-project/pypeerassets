@@ -83,8 +83,6 @@ class RpcNode(Client, Provider):
     def getbalance_old(self, address): ### NEW FEATURE, because getbalance doesn't work with addresses in rpcnode. ###
         '''wrapper, because there is no address balance feature for rpcnode.
            Seems to work, but it's possible that not all addresses can be shown.'''
-        # OBSOLETE. Does not show all adresses but only those that have been used!
-        # better base it on listunspent?
         groups = self.req("listaddressgroupings")
         for g in groups:
             for entry in g:

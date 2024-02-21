@@ -23,7 +23,8 @@ def get_marked_txes(provider, p2th_account, min_blockheight=None, max_blockheigh
     start = 0
 
     while True:
-        newtxes = provider.listtransactions(p2th_account, 999, start)
+        # newtxes = provider.listtransactions(p2th_account, 999, start)
+        newtxes = provider.listtransactions(account=p2th_account, many=999, since=start)
         for tx in newtxes:
            try:
                tx_blocktime = tx["blocktime"]
@@ -68,7 +69,9 @@ def get_proposal_states(provider, deck, current_blockheight=None, all_signalling
     statedict = {}
     used_firsttxids = []
 
-    for rawtx in get_marked_txes(provider, deck.derived_p2th_address("proposal")):
+    # p2th_account = deck.derived_p2th_address("proposal") # OLD behaviour
+    p2th_account = deck.id + "PROPOSAL"
+    for rawtx in get_marked_txes(provider, p2th_account):
         try:
             if debug:
                 print("PARSER: Found ProposalTransaction", rawtx["txid"])
