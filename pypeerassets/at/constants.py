@@ -48,7 +48,7 @@ AT_ID = ID_AT = DeckTypeID.AT.value
 
 # Abbreviations for deck identifiers
 
-DECK_TYPES = [[None], ["at", "pob"], ["dt", "pod"]]
+DECK_TYPES = [[None], ["dt", "pod", "dpod"], ["at", "pob", "dico"]]
 
 # TTX identifiers
 
