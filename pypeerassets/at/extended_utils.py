@@ -39,21 +39,27 @@ def process_cards_by_bundle(cards, debug: bool=False):
 
     for cindex, card in enumerate(cards):
 
+        if debug:
+            print("Processing position", cindex)
+
         if cindex < last_processed_position:
             # in cards processed as part of a bundle, the issued amount is ignored
             # this can only happen in the case of CardIssues.
             yield (card, None)
 
-        if card.type == "CardIssue":
+        elif card.type == "CardIssue":
             # we only process bundles of CardIssues.
             # For the validity of other types (CardTransfer/CardBurn) bundles don't matter.
+            if debug:
+                print("Processing CardIssue TXID", card.txid, ". Last processed position at tx processing start:", last_processed_position)
+
             total_issued_amount, last_processed_position = get_issuance_bundle(cards, cindex)
 
             if cindex != last_processed_position:
                 # first_processed_position = cindex
 
                 if debug:
-                    print("Bundle detected from position", cindex, "to position", last_processed_position)
+                    print("Bundle detected from current position", cindex, "to position", last_processed_position)
                     print("Total coins issued:", total_issued_amount)
 
                 yield (card, total_issued_amount)
