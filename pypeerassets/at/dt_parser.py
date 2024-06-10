@@ -62,7 +62,7 @@ def dt_parser(cards: list, provider: object, deck: object, current_blockheight: 
                 # epoch_postprocess updates voters and valid_cards
                 if debug: print("PARSER: Postprocessing cards of this epoch ...")
                 pst.epoch_postprocess(valid_epoch_cards)
-                valid_epoch_cards == []
+                valid_epoch_cards = []
 
             # epoch(s) without cards is/are processed.
             if debug: print("PARSER: Processing epochs without cards: {}-{}".format(pst.epoch, card_epoch - 1))

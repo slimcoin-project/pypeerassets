@@ -93,7 +93,6 @@ class RpcNode(Client, Provider):
 
     def getbalance(self, address): ### version 2. Uses listunspent (faster) and does not reject empty addresses ###
         unspent = self.listunspent(address=address)
-        #print(unspent)
         values = [ Decimal(v["amount"]) for v in unspent ]
         return sum(values)
 
