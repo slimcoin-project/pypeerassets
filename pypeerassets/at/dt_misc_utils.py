@@ -267,20 +267,26 @@ def format_votes(decimals: int, votes: dict):
 
 ### Address and P2TH tools
 
-def import_p2th_address(provider: Provider, p2th_address: str, accountname: str=None) -> None:
-    # this checks if a P2TH address is already imported. If not, import it (only rpcnode).
+def import_p2th_address(provider: Provider, p2th_address: str=None, accountname: str=None, legacy: bool=False, wif_key: str=None) -> None:
+    # this checks if a P2TH address is already imported. If not, import it.
+    # Only works if address import is supported (legacy not!)
+    # TODO this should be replaced by a function which directly takes the Deck attributes
+    # to get the P2TH keys.
 
     if not accountname:
         accountname = p2th_address # compatibility with old behavior
 
-    p2th_account = provider.getaccount(accountname)
+    p2th_account = provider.getaccount(p2th_address)
 
     if (type(p2th_account) == dict) and (p2th_account.get("code") == -5):
         raise ValueError("Invalid address.")
 
     if (p2th_account is None) or (p2th_account != accountname):
-        provider.importaddress(p2th_address)
-        # provider.setaccount(p2th_address, accountname) # address is also the account name.
+        if legacy and wif_key:
+            provider.importprivkey(wif_key, accountname)
+        else:
+            provider.importaddress(p2th_address)
+            provider.setaccount(p2th_address, accountname)
 
 def deck_p2th_from_id(network: str, deck_id: str) -> str:
     # helper function giving the p2th.

@@ -1,34 +1,21 @@
 import pytest
 import json
 import pypeerassets.at.at_parser as a
-from .at_dt_dummy_classes import DummyATDeck, DummyATCard
+from .at_dt_dummy_classes import DummyATDeck, DummyATCard, DummyProvider
 
 with open("at_dummy_txes.json", "r") as dummyfile:
     tx_dummies = json.load(dummyfile)
 
-# The block hashes and heights correspond to real blocks in the 2023 testnet blockchain.
-block_dummies = [{"height" : 132463, "hash" : "0000bca5ab2f35deda8bca8e317a285933abb3d34c709749f0e3f46ea4860bee"},
+# The block hashes and heights correspond to real blocks in the 2023 TSLM testnet blockchain.
+# Note: These are the blocks where the donations were sent, not the claim transactions!
+block_dummies = [{"height" : 131651, "hash" : "00003648486769b65df222c2d2fbed1b65898609cada345cbf000bd0f0f78344"},
+                 {"height" : 132463, "hash" : "0000bca5ab2f35deda8bca8e317a285933abb3d34c709749f0e3f46ea4860bee"},
                  {"height" : 132472, "hash" : "0000d4feb2f9270bd623273f8c5539b543506cf0a6dae6e5618a06197f97f4f7"},
                  {"height" : 50, "hash" : "000000bc97783912780624dcce85efce226f286f45b7ccc379be08928ac4709e"}]
 
-class DummyProvider:
-    def __init__(self):
-        pass
-
-    def getrawtransaction(self, txid, json_mode):
-        assert json_mode == 1
-        for tx in tx_dummies:
-            if tx["txid"] == txid:
-                return tx
-
-    def getblock(self, blockhash):
-        for b in block_dummies:
-            if b["hash"] == blockhash:
-                return b
-
 
 # basic variables
-provider = DummyProvider()
+provider = DummyProvider(tx_dummies, block_dummies)
 
 BURNADDR="mmSLiMCoinTestnetBurnAddress1XU5fu"
 unlimited_deck = DummyATDeck(deckid="fb93cce7aceb9f7fda228bc0c0c2eca8c56c09c1d846a04bd6a59cae2a895974", at_address=BURNADDR, multiplier=100, startblock=None, endblock=None, number_of_decimals=4)

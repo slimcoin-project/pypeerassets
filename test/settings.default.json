@@ -1,1 +1,3 @@
-{ "rpcuser" : "", "rpcpass" : "", "port" : 9904 }
+# comment out all comment lines
+# use 41685 for SLM port, 9904 PPC port, as network: tppc or tslm
+{ "rpcuser" : "", "rpcpass" : "", "port" : 41685, "network" : "tslm" }

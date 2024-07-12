@@ -14,7 +14,6 @@ LEGACY_CHAINS = { "mintx" : ("slm", "tslm", "ppc", "tppc"),
 
 LEGACY_MINTX = { ("slm", "tslm", "tppc") : 10000,
                  ("ppc") : 1000 }
-# TODO: ppc and tppc values are from memory. re-check!
 
 def is_legacy_blockchain(network_shortname, item="watchonly"):
     # this help function returns blockchains who do not support watch addresses and need the WIF key to import

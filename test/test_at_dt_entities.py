@@ -19,7 +19,6 @@ with open("./dt_dummy_txes.json", "r") as dummyfile:
 
 PROVIDER = n.SlmRpcNode(testnet=True, username=credentials["rpcuser"], password=credentials["rpcpass"], ip=None, port=credentials["port"], directory=None)
 
-
 def test_signalling_transaction_from_json():
     tx = e.SignallingTransaction.from_json(dummy_signalling, PROVIDER)
     assert type(tx) == e.SignallingTransaction

@@ -60,6 +60,8 @@ def get_priority_slot(tx: TrackedTransaction, rtxes: list, stxes: list, av_amoun
         slot_rest = max(0, av_amount - ramount)
         if slot_rest > 0:
             slot = get_raw_slot(tx.amount, slot_rest, total_amount=samount)
+        else:
+            slot = 0
 
         if debug: print("SLOT: tx amount: {}, slot rest: {}".format(tx.amount, slot_rest))
 

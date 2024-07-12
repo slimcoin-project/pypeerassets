@@ -1,1 +1,1 @@
-{ "rpcuser" : "limcoinertest", "rpcpass" : "124jcoriD3N9drump", "port" : 41685 }
+{ "rpcuser" : "limcoinertest", "rpcpass" : "124jcoriD3N9drump", "port" : 41685 , "network" : "tslm"}
