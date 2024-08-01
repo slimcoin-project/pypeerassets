@@ -9,7 +9,7 @@ from pypeerassets.networks import net_query
 from pypeerassets.hash_encoding import HASHTYPE, hash_to_address
 from collections import namedtuple
 
-def initialize_custom_deck_attributes(deck, network, epoch_length=None, epoch_reward=None, min_vote=None, sdp_periods=None, sdp_deck=None, multiplier=None, at_address=None, debug=False):
+def initialize_custom_deck_attributes(deck, network, epoch_length=None, epoch_reward=None, min_vote=None, sdp_periods=None, sdp_deck=None, multiplier=None, at_address=None, debug=False) -> None:
     ### additional Deck attributes for AT/DT types
 
 
@@ -49,7 +49,7 @@ def initialize_custom_deck_attributes(deck, network, epoch_length=None, epoch_re
             print("No valid AT/DT deck.")
 
 
-def initialize_custom_card_attributes(card, deck, donation_txid=None):
+def initialize_custom_card_attributes(card, deck, donation_txid=None) -> None:
 
     # if deck contains correct addresstrack-specific metadata and the card references a txid,
     # the card type is CardIssue. Will be validated later by custom parser.
@@ -81,14 +81,8 @@ def initialize_custom_card_attributes(card, deck, donation_txid=None):
         # by chance gets interpreted as AT or DT, it should not be necessarily be invalid.
         card.type = "CardTransfer"
 
-def get_at_address(data: dict, network: namedtuple) -> bool: ### changed from datastring to data, bytes to object. Added network param.
-    # this needs the identification as addresstrack deck.
-    # before this was: is_at_deck
-    # try:
+def get_at_address(data: dict, network: namedtuple) -> str: ### changed from datastring to data, bytes to object. Added network param.
 
-        # ident = data["id"]
-
-        #if ident == AT_ID:
     try:
         address = hash_to_address(data["hash"], data["hash_type"], network)
     except NotImplementedError:
@@ -99,12 +93,6 @@ def get_at_address(data: dict, network: namedtuple) -> bool: ### changed from da
     try:
         assert is_valid_address(address, data["hash_type"], network)
         return address
-
-        # data.update({"at_address" : address })
-        # return True
-
-        #elif ident == DT_ID:
-        #    return True
 
     except AssertionError: # datastring not existing or too short
         raise ValueError("Invalid address.")

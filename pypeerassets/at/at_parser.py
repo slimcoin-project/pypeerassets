@@ -165,8 +165,8 @@ def check_donation(provider: object,
         print("TX {}: Total donated/burnt amount: {}".format(tx["txid"], total_tx_amount))
 
     if total_issued_amount:
-        if (total_tx_amount * deck_factor) != total_issued_amount:
-            raise ValueError("Donation value {} not matching expected amount {}.".format(total_tx_amount, total_issued_amount))
+        if int(total_tx_amount * deck_factor) != total_issued_amount:
+            raise ValueError("Donation value {} not matching expected amount {}.".format(total_tx_amount * deck_factor, total_issued_amount))
     else:
         if total_tx_amount == 0:
             raise ValueError("Donation not spending nothing to the tracked address.")
@@ -180,10 +180,10 @@ def check_donation(provider: object,
     if endblock or startblock:
 
         if endblock and (tx_height > endblock):
-            raise ValueError("Issuance at block {}, after deadline {}.".format(tx_height, endblock))
+            raise ValueError("Referenced transaction confirmed at block {}, after deadline {}.".format(tx_height, endblock))
 
         if startblock and (tx_height < startblock):
-            raise ValueError("Error: Issuance at block {}, before deadline {}.".format(tx_height, startblock))
+            raise ValueError("Referenced transaction confirmed at block {}, before deadline {}.".format(tx_height, startblock))
 
     return tx
 
