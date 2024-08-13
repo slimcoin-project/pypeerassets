@@ -148,7 +148,7 @@ def update_voters(voters={}, new_cards=[], weight=1, dec_diff=0, debug=False):
            new_amount = int(old_amount * weight) * dec_adjustment
            voters.update({voter : new_amount})
 
-           if debug: print("Updating SDP balance:", old_amount * 10 ** dec_diff, "to:", voters[voter], "- weight:", weight)
+           if debug: print("Updating SDP balance:", old_amount * dec_adjustment, "to:", voters[voter], "- weight:", weight)
 
     # 2. Add votes of new cards
     for card in new_cards:
