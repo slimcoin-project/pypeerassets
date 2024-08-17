@@ -545,7 +545,7 @@ class DeckState:
     # Locktime: self.lock is dict of senders, with dicts including locktime and amount.
     # cleanup_height cleans locks remaining after the last card.
 
-    def __init__(self, cards: Generator, cleanup_height: int=None) -> None:
+    def __init__(self, cards: Generator, cleanup_height: int=None, debug: bool=False) -> None:
 
         self.cards = cards
         self.total = 0
@@ -556,7 +556,7 @@ class DeckState:
         self.processed_transfers = set()
         self.processed_burns = set()
         self.valid_cards = cast(list, []) ### ADDRESSTRACK.
-        self.debug = False ### addition to check LOCK modifications.
+        self.debug = debug ### addition to check LOCK modifications.
         self.cleanup_height = cleanup_height ### LOCK
 
         self.calc_state()
@@ -662,11 +662,12 @@ class DeckState:
 
     def _cleanup_locks(self):
         for address in list(self.locks):
-            print(address, self.locks[address], len(self.locks[address]))
+            if self.debug:
+               print("Locks on address", address, self.locks[address], len(self.locks[address]))
             # we go from the last index to the first, so if the list changes, indexes aren't modified.
             for index in range(len(self.locks[address]) - 1, -1, -1):
                 lock = self.locks[address][index]
-                print(index, lock["locktime"])
+                # print(index, lock["locktime"])
                 if lock["locktime"] < self.cleanup_height:
                     self._modify_lock(address, lock["amount"], index)
 

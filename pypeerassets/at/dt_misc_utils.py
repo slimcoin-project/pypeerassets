@@ -56,7 +56,6 @@ def min_p2th_fee(network: object) -> int:
 
 def get_votestate(provider: object, proposal_txid: str, debug: bool=False) -> list:
     """Get the state of the votes of a Proposal without calling the parser completely."""
-    # Used in dt_classes (l 96).
 
     proposal = get_proposal_state(provider, proposal_txid, debug_voting=debug)
     decimals = proposal.deck.number_of_decimals
