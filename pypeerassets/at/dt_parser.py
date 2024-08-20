@@ -51,7 +51,10 @@ def dt_parser(cards: list, provider: object, deck: object, current_blockheight: 
         card_epoch = card.blocknum // deck.epoch_length # deck epoch count starts at genesis block
         if debug: print("PARSER: Checking card", card.txid, "in epoch", card_epoch, "- current epoch:", pst.epoch)
 
-        if card_epoch > pst.epoch:
+
+        if card_epoch > pst.end_epoch:
+            break
+        elif card_epoch > pst.epoch:
             # this happens if the card is located after the epoch we're currently processing
             # so it will happen:
             # 1) when all cards of an epoch have been processed and it's the next one's turn

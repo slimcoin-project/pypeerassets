@@ -393,7 +393,7 @@ class CardTransfer:
             self.tx_confirmations = 0
 
         # Modifications for AT and DT features.
-        # this function defines the type of the CardTransfer and some other attributes.
+        # Defines the type of the CardTransfer and some other attributes.
         # if deck contains correct addresstrack-specific metadata and the card references a txid,
         # the card type is CardIssue. Will be validated later by custom parser.
         # modified order because with AT tokens, deck issuer can be the receiver.
