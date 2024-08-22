@@ -49,11 +49,11 @@ def dt_parser(cards: list, provider: object, deck: object, current_blockheight: 
     for (card, bundle_amount) in process_cards_by_bundle(cards, debug=debug):
 
         card_epoch = card.blocknum // deck.epoch_length # deck epoch count starts at genesis block
-        if debug: print("PARSER: Checking card", card.txid, "in epoch", card_epoch, "- current epoch:", pst.epoch)
-
+        if debug: print("PARSER: Next card {} in epoch {} - current epoch: {}".format(card.txid, card_epoch, pst.epoch))
 
         if card_epoch > pst.end_epoch:
             break
+
         elif card_epoch > pst.epoch:
             # this happens if the card is located after the epoch we're currently processing
             # so it will happen:
@@ -63,7 +63,7 @@ def dt_parser(cards: list, provider: object, deck: object, current_blockheight: 
 
             if len(valid_epoch_cards) > 0:
                 # epoch_postprocess updates voters and valid_cards
-                if debug: print("PARSER: Postprocessing cards of this epoch ...")
+                if debug: print("PARSER: Postprocessing cards of epoch {} ...".format(pst.epoch))
                 pst.epoch_postprocess(valid_epoch_cards)
                 valid_epoch_cards = []
 
@@ -73,7 +73,7 @@ def dt_parser(cards: list, provider: object, deck: object, current_blockheight: 
             epoch_initialized = False
             if debug: print("PARSER: Processing of cardless epochs finished at epoch", pst.epoch)
 
-        if card_epoch == pst.epoch:
+        elif card_epoch == pst.epoch:
 
             # Processing the epoch with the current CardTransfer.
             if not epoch_initialized:
@@ -95,12 +95,15 @@ def dt_parser(cards: list, provider: object, deck: object, current_blockheight: 
 
     if len(valid_epoch_cards) > 0:
         pst.epoch_postprocess(valid_epoch_cards)
+        if debug: print("PARSER: Postprocessing cards of epoch {} ...".format(pst.epoch))
 
     # if no more cards are recorded, we only process the rest until the current blockheight if force_continue was set
     #  i.e. for informational purposes. (e.g. proposal state or get_votes commands)
 
     if force_continue:
+        if debug: print("PARSER: Processing epochs without cards: {}-{}".format(pst.epoch, card_epoch - 1))
         pst.process_cardless_epochs(pst.epoch, pst.end_epoch)
+        if debug: print("PARSER: Processing of cardless epochs finished at epoch", pst.epoch)
 
     if force_dstates:
         pst.force_dstates()

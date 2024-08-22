@@ -122,11 +122,27 @@ def get_sdp_weight(epochs_from_start: int, sdp_periods: int) -> Decimal:
     # (e.g. if there are 3 SDP epochs, last epoch will have weight 0.33)
     # IMPROVEMENT: Maybe it would make sense if this gives an int value which later is divided into 100,
     # because anyway there must be some rounding being done.
-    return (Decimal((sdp_periods - epochs_from_start) * 100) // sdp_periods) / 100
+    # TODO: can maybe optimized with * 0.01 instead of / 100
+    # return (Decimal((sdp_periods - epochs_from_start) * 100) // sdp_periods) / 100
+    return (Decimal((sdp_periods - epochs_from_start) * 100) // sdp_periods) * Decimal("0.01")
 
 ### Voting
 
-def update_voters(voters={}, new_cards=[], weight=1, dec_diff=0, debug=False):
+def update_sdp_weight(voters: dict, weight: Decimal, dec_diff: int=0, debug: bool=False) -> None:
+   """After an epoch with completed proposals is recorded, the SDP weight is changed."""
+
+   dec_adjustment = Decimal(10 ** dec_diff)
+
+   # MODIFIED: Adjustment to get rounding to the precision of the voting token.
+   for voter in voters:
+       old_amount = Decimal(voters[voter]) / dec_adjustment
+       new_amount = int(old_amount * weight) * dec_adjustment
+       voters.update({voter : new_amount})
+
+   if debug: print("Updating SDP balance of voter {}: {} to {}. Weight: {}".format(voter, old_amount * dec_adjustment, voters[voter], weight))
+
+def update_voters(voters: dict, new_cards: list, weight: Decimal=Decimal("1"), dec_diff: int=0, debug: bool=False) -> None:
+    """Updates voters when they are affected by a Card transfer (of any type)."""
 
     # It is only be applied to new_cards if they're SDP cards (as these are the SDP cards added).
     # voter dict:
@@ -138,8 +154,8 @@ def update_voters(voters={}, new_cards=[], weight=1, dec_diff=0, debug=False):
     # dec_adjustment has to be Decimal, because dec_diff can be negative
     dec_adjustment = Decimal(10 ** dec_diff)
 
-    # 1. Update cards of old SDP voters by weight.
-    if weight != 1:
+    # 1. Update cards of old SDP voters by weight. # NO!
+    """if weight != 1:
 
         for voter in voters:
 
@@ -148,11 +164,11 @@ def update_voters(voters={}, new_cards=[], weight=1, dec_diff=0, debug=False):
            new_amount = int(old_amount * weight) * dec_adjustment
            voters.update({voter : new_amount})
 
-           if debug: print("Updating SDP balance:", old_amount * dec_adjustment, "to:", voters[voter], "- weight:", weight)
+           if debug: print("Updating SDP balance of voter {}: {} to {}. Weight: {}".format(voter, old_amount * dec_adjustment, voters[voter], weight))"""
 
     # 2. Add votes of new cards
     for card in new_cards:
-        # if debug: print("Card data:", card.sender, card.receiver, card.amount, card.type)
+        if debug: print("Card data:", card.txid, card.sender, card.receiver, card.amount, card.type)
 
         if card.type != "CardBurn":
 
@@ -177,11 +193,11 @@ def update_voters(voters={}, new_cards=[], weight=1, dec_diff=0, debug=False):
             rest = -int(sum(card.amount)) # MODIFIED: weight here does not apply!
 
             if card.sender not in voters:
-                if debug: print("Card sender not in voters. Resting the rest:", rest)
+                if debug: print("Card sender {} not in voters. Resting the rest: {}".format(card.sender, rest * dec_adjustment))
                 voters.update({card.sender : rest * dec_adjustment})
             else:
                 old_amount = voters[card.sender]
-                if debug: print("Card sender updated from:", old_amount, "to:", old_amount + rest * dec_adjustment)
+                if debug: print("Card sender {} updated from: {} to: {}".format(card.sender, old_amount, old_amount + rest * dec_adjustment))
                 voters.update({card.sender : old_amount + rest * dec_adjustment})
 
     return voters

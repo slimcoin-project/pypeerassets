@@ -15,12 +15,13 @@ import pypeerassets.at.dt_parser_utils as dpu
 from copy import deepcopy
 
 class ParserState(object):
-    """A ParserState contains the current state of all important variables for a single deck,
+    """A ParserState contains the current state of all important variables for a single dPoD (DT) deck,
        while the card parser is running.
        A sub_state is a dict to allow to create a ParserState in a pre-processed state.
        Currently not used but useful for further updates."""
 
     def __init__(self, deck: object, initial_cards: list, provider: object, epoch: int=None, start_epoch: int=None, end_epoch: int=None,  current_blockheight: int=None, debug: bool=False, debug_voting: bool=False, debug_donations: bool=False, epochs_with_completed_proposals: int=0, **sub_state):
+        """Initializing is done in two parts: main attributes and sub-state attributes (keyword arguments)."""
 
         self.deck = deck
         self.initial_cards = initial_cards
@@ -70,7 +71,8 @@ class ParserState(object):
         # enabled_voters variable is calculated once per epoch, taking into account card issuances and card transfers.
         # enabled_voters are all voters with valid balances, and their balance.
         # used_issuance_tuples list joins all issuances of sender, txid, vout
-        dict_items = ("proposal_states", "approved_proposals", "valid_proposals", "donation_txes", "enabled_voters")
+        # MODIF: added sdp_voters and dpod_voters, need to be segregated.
+        dict_items = ("proposal_states", "approved_proposals", "valid_proposals", "donation_txes", "enabled_voters", "sdp_voters", "dpod_voters")
         list_items = ("signalling_txes", "locking_txes", "voting_txes", "used_issuance_tuples", "valid_cards", "sdp_cards")
 
         for key in dict_items + list_items:
@@ -87,7 +89,7 @@ class ParserState(object):
         if self.debug: print("PARSER: Initial cards:", len(self.initial_cards))
 
     def init_parser(self):
-        """Bundles all on-chain extractions."""
+        """Bundles all on-chain transaction retrievals (SDP cards and TrackedTransactions)."""
 
         # Initial balance of SDP cards
         if self.sdp_deck != None:
@@ -118,8 +120,8 @@ class ParserState(object):
         if self.debug: print(q, "found.")
 
     def force_dstates(self):
+        """Allows to set all donation states even if no card has been issued."""
 
-        # Allows to set all donation states even if no card has been issued.
         for p in self.proposal_states.values():
             if self.debug_donations: print("PARSER: Setting donation states for Proposal:", p.id)
 
@@ -131,9 +133,8 @@ class ParserState(object):
                 p.set_donation_states(self.current_blockheight, debug=self.debug_donations)
 
     def get_sdp_cards(self):
+        """Retrieves the SDP cards."""
 
-        # NOTE: find_all_valid_cards does not filter out all invalid cards, only those determined by the parser type!
-        # This means we need to get the balances via DeckState.
         from pypeerassets.__main__ import find_all_valid_cards
 
         if self.debug_voting: print("VOTING: Searching for SDP Token Cards ...")
@@ -141,25 +142,36 @@ class ParserState(object):
         valid_sdp_cards = self.remove_invalid_cards(all_sdp_cards)
         return valid_sdp_cards
 
-    def get_sdp_balances(self):
+    @staticmethod
+    def remove_invalid_cards(cards):
+        """Filters out all invalid cards. It uses the DeckState from PeerAssets with a slight modification."""
+        # TODO: could perhaps better fit in the dt_parser_utils module. Is not uses in other modules.
 
-        upper_limit = self.epoch * self.deck.epoch_length # balance at the start of the epoch.
+        from pypeerassets.protocol import DeckState
+
+        state = DeckState(cards)
+        return state.valid_cards
+
+    def get_sdp_epoch_cards(self):
+        """Retrieves all valid transfers from self.sdp_cards of the SDP token in the current epoch."""
+
+        next_epoch_start = self.epoch * self.deck.epoch_length # balance at the start of the epoch.
 
         if self.epoch == self.start_epoch:
             if self.debug_voting: print("VOTING: Retrieving old SDP cards ...")
-            lower_limit = 0
+            first_epoch_block = 0
         else:
-            lower_limit = (self.epoch - 1) * self.deck.epoch_length # balance at the start of the epoch.
+            first_epoch_block = (self.epoch - 1) * self.deck.epoch_length # balance at the start of the epoch.
 
-        if self.debug_voting: print("VOTING: Blocklimit for this epoch:", upper_limit, "Epoch number:", self.epoch)
-        if self.debug_voting: print("VOTING: Card blocks:", [card.blocknum for card in self.sdp_cards])
+        if self.debug_voting: print("VOTING: Last block for current epoch {}: {}".format(self.epoch, next_epoch_start))
+        if self.debug_voting: print("VOTING: SDP Card blocks:", [card.blocknum for card in self.sdp_cards])
 
-        cards = [ card for card in self.sdp_cards if (lower_limit <= card.blocknum < upper_limit) ]
+        cards = [card for card in self.sdp_cards if (first_epoch_block <= card.blocknum < next_epoch_start)]
 
         return cards
 
     def update_approved_proposals(self):
-        # Filters proposals which were approved in the first-round-voting.
+        """Filters proposals which were approved in the first voting phase."""
         # TODO: To boost efficiency and avoid redundant checks, one could delete all
         # already approved proposals from the original list (which should be renamed to "unchecked proposals")
         # Would also allow differentiate between unchecked and unapproved proposals.
@@ -190,9 +202,9 @@ class ParserState(object):
 
 
     def update_valid_ending_proposals(self):
-        # this function checks all proposals which end in a determinated epoch
-        # valid proposals are those who are voted in round1 and round2 with _more_ than 50% (50% is not enough).
-        # Only checks round-2 votes.
+        """Checks all proposals which end in a determinated epoch.
+         Valid proposals are those who are voted in both voting phases with _more_ than 50% (50% is not enough).
+         Only checks round-2 votes."""
 
         ending_valid_proposals = {}
         for pstate in self.approved_proposals.values():
@@ -226,6 +238,12 @@ class ParserState(object):
                     pstate.state = "completed"
 
         self.valid_proposals.update(ending_valid_proposals)
+
+        # SDP balances are updated according to reduction formula by SDP period
+        # this was previously in the wrong place.
+
+        sdp_weight = dpu.get_sdp_weight(self.epochs_with_completed_proposals, self.deck.sdp_periods)
+        dpu.update_sdp_weight(voters=self.sdp_voters, weight=sdp_weight, dec_diff=self.sdp_decimal_diff, debug=self.debug_voting)
 
     def get_tracked_txes(self, tx_type, min_blockheight=None, max_blockheight=None):
         """Retrieves TrackedTransactions (except votes and proposals) for a deck from the blockchain
@@ -271,6 +289,7 @@ class ParserState(object):
             return 0
 
     def validate_proposer_issuance(self, dtx_id, card_units, card_sender, card_blocknum):
+        """Validation method for proposers. The dtx_id here is the ProposalTransaction's TXID."""
 
         debug = self.debug_donations
         proposal_state = self.valid_proposals[dtx_id] # checked just before the call, so no "try/except" necessary.
@@ -292,7 +311,6 @@ class ParserState(object):
         return True
 
     def validate_donation_issuance(self, dtx_id, card_units, card_sender):
-
         """Main validation function for donations. Checks for each issuance if the donation was correct.
         The donation transaction ID is provided (by the issue transaction)
         and it is checked if it corresponds to a real donation."""
@@ -328,7 +346,7 @@ class ParserState(object):
         # check B: Does the txid correspond to a valid DonationTransaction?
         # We go through the DonationStates per round and search for the dtx_id.
         # When we find it, we get the DonationState for the card issuance.
-        # MODIF: should be slightly faster
+
         for rd_states in proposal_state.donation_states:
             for ds in rd_states.values():
                 try:
@@ -339,12 +357,7 @@ class ParserState(object):
             else:
                 continue
             break
-        #dstates = [d for rd_states in proposal_state.donation_states for d in rd_states.values()]
-        #for ds in dstates:
-        #    if ds.donation_tx is not None:
-        #        # if debug: print("PARSER: Checking donation state:", ds.id, "with donation tx", ds.donation_tx.txid)
-        #        if ds.donation_tx.txid == dtx_id:
-        #            break
+
         else:
             if debug: print("PARSER: Donation issuance failed: No matching donation state found.")
             return False
@@ -368,14 +381,6 @@ class ParserState(object):
         else:
             ds.state = "claimed"
             return True
-
-    @staticmethod
-    def remove_invalid_cards(cards):
-        from pypeerassets.protocol import DeckState
-        # this function filters out ALL invalid cards. It uses the DeckState from PeerAssets with a slight modification.
-        state = DeckState(cards)
-        return state.valid_cards
-
 
     def check_card(self, card, issued_amount=None):
         """Checks a CardIssue for validity. CardTransfers are always valid (they will be later processed by DeckState)."""
@@ -420,7 +425,8 @@ class ParserState(object):
             return True
 
     def epoch_init(self):
-        # Called when the card loop enters a new epoch.
+        """Called when the card loop enters a new epoch.
+           Calculates SDP voter balances, then updates states of approved and ending proposals."""
 
         debug = self.debug_voting
         epoch_firstblock, epoch_lastblock = self.epoch * self.deck.epoch_length, (self.epoch + 1) * self.deck.epoch_length - 1
@@ -435,15 +441,14 @@ class ParserState(object):
             if sdp_epochs_remaining <= self.deck.sdp_periods:
 
                 # We set apart all CardTransfers of SDP voters before the epoch start
-                sdp_epoch_balances = self.get_sdp_balances()
+                sdp_epoch_cards = self.get_sdp_epoch_cards()
 
-                # Weight is calculated according to the epoch
-                # Weight is reduced only in epochs where proposals were completely approved.
-                sdp_weight = dpu.get_sdp_weight(self.epochs_with_completed_proposals, self.deck.sdp_periods)
+                if len(sdp_epoch_cards) > 0:
+                    updated_sdp_voters = dpu.update_voters(voters=self.sdp_voters, new_cards=sdp_epoch_cards, debug=self.debug_voting, dec_diff=self.sdp_decimal_diff)
+                    self.sdp_voters.update(updated_sdp_voters)
+                    self.update_enabled_voters()
+                    if self.debug_voting: print("VOTING: SDP Voters updated to:", self.sdp_voters)
 
-                if len(sdp_epoch_balances) > 0:
-                    updated_sdp_voters = dpu.update_voters(self.enabled_voters, sdp_epoch_balances, weight=sdp_weight, debug=self.debug_voting, dec_diff=self.sdp_decimal_diff)
-                    self.enabled_voters.update(updated_sdp_voters)
 
         # As card issues can occur any time after the proposal has been voted
         # we always need to process all valid proposals voted up to this epoch.
@@ -457,17 +462,46 @@ class ParserState(object):
         if debug: print("VOTING: Valid ending proposals after epoch:", self.epoch, list(self.valid_proposals.keys()))
 
 
+    def update_enabled_voters(self):
+        for voter in self.enabled_voters:
+
+            sdp_balance = self.sdp_voters[voter] if voter in self.sdp_voters else Decimal("0")
+            dpod_balance = self.dpod_voters[voter] if voter in self.dpod_voters else Decimal("0")
+            if self.debug_voting:
+                orig_balance = self.enabled_voters[voter] if voter in self.enabled_voters else Decimal("0")
+                print("VOTING: Enabled voter {} updated: Original balance: {} SDP: {} dPoD: {}".format(voter, orig_balance, sdp_balance, dpod_balance))
+            self.enabled_voters.update({voter : sdp_balance + dpod_balance})
+
+        for dpod_voter in self.dpod_voters:
+            if dpod_voter not in self.enabled_voters:
+                dpod_balance = self.dpod_voters[dpod_voter]
+                self.enabled_voters.update({dpod_voter : dpod_balance})
+                if self.debug_voting:
+                    print("VOTING: New enabled dPoD voter: {} with balance {}.".format(dpod_voter, dpod_balance))
+
+        for sdp_voter in self.sdp_voters:
+            if sdp_voter not in self.enabled_voters:
+                sdp_balance = self.sdp_voters[sdp_voter]
+                self.enabled_voters.update({sdp_voter : sdp_balance})
+                if self.debug_voting:
+                    print("VOTING: New enabled SDP voter: {} with balance {}.".format(sdp_voter, sdp_balance))
+
+
     def epoch_postprocess(self, valid_epoch_cards):
+        """Postprocesses epochs with cards."""
         # if debug: print("Valid cards found in this epoch:", len(valid_epoch_cards))
 
-        self.enabled_voters.update(dpu.update_voters(voters=self.enabled_voters, new_cards=valid_epoch_cards, debug=self.debug_voting))
-        # if debug: print("New voters balances:", self.enabled_voters)
+        # self.enabled_voters.update(dpu.update_voters(voters=self.enabled_voters, new_cards=valid_epoch_cards, debug=self.debug_voting))
+        self.dpod_voters.update(dpu.update_voters(voters=self.enabled_voters, new_cards=valid_epoch_cards, debug=self.debug_voting))
 
-        # if it's integrated into DeckState we probably don't need this, as we have DeckState.valid_cards
+        # NEW method: updating of SDP voters in enabled_voters requires checking those in both categories.
+        self.update_enabled_voters()
+
         self.valid_cards += valid_epoch_cards
 
 
     def process_cardless_epochs(self, start, end):
+        """Process all epochs without cards between start and end."""
 
         for epoch in range(start, end + 1):
             self.epoch = epoch
