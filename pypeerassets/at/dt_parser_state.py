@@ -492,7 +492,7 @@ class ParserState(object):
         # if debug: print("Valid cards found in this epoch:", len(valid_epoch_cards))
 
         # self.enabled_voters.update(dpu.update_voters(voters=self.enabled_voters, new_cards=valid_epoch_cards, debug=self.debug_voting))
-        self.dpod_voters.update(dpu.update_voters(voters=self.enabled_voters, new_cards=valid_epoch_cards, debug=self.debug_voting))
+        self.dpod_voters.update(dpu.update_voters(voters=self.dpod_voters, new_cards=valid_epoch_cards, debug=self.debug_voting))
 
         # NEW method: updating of SDP voters in enabled_voters requires checking those in both categories.
         self.update_enabled_voters()
