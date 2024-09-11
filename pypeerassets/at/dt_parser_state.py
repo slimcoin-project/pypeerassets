@@ -153,7 +153,13 @@ class ParserState(object):
         return state.valid_cards
 
     def get_sdp_epoch_cards(self):
-        """Retrieves all valid transfers from self.sdp_cards of the SDP token in the current epoch."""
+        """Processes all valid transfers from self.sdp_cards of the SDP token up to the last block before the current epoch."""
+        # NOTE: If this is called in the start epoch, then all SDP cards up to the last block before the start epoch are processed.
+        # Otherwise only the last epoch before the current epoch start is retrieved.
+        # TODO: To improve code maintainability this could be changed in the following way:
+        # - it gets called from epoch_postprocess instead of epoch_init
+        # - this function is changed so the *current* epoch is checked, not the last epoch.
+        # re-check this!
 
         next_epoch_start = self.epoch * self.deck.epoch_length # balance at the start of the epoch.
 
@@ -163,7 +169,8 @@ class ParserState(object):
         else:
             first_epoch_block = (self.epoch - 1) * self.deck.epoch_length # balance at the start of the epoch.
 
-        if self.debug_voting: print("VOTING: Last block for current epoch {}: {}".format(self.epoch, next_epoch_start))
+        # NOTE: changed, as the next_epoch_start block is not more valid for this epoch, see below.
+        if self.debug_voting: print("VOTING: Last block for current epoch {}: {}".format(self.epoch, next_epoch_start - 1))
         if self.debug_voting: print("VOTING: SDP Card blocks:", [card.blocknum for card in self.sdp_cards])
 
         cards = [card for card in self.sdp_cards if (first_epoch_block <= card.blocknum < next_epoch_start)]
@@ -491,7 +498,6 @@ class ParserState(object):
         """Postprocesses epochs with cards."""
         # if debug: print("Valid cards found in this epoch:", len(valid_epoch_cards))
 
-        # self.enabled_voters.update(dpu.update_voters(voters=self.enabled_voters, new_cards=valid_epoch_cards, debug=self.debug_voting))
         self.dpod_voters.update(dpu.update_voters(voters=self.dpod_voters, new_cards=valid_epoch_cards, debug=self.debug_voting))
 
         # NEW method: updating of SDP voters in enabled_voters requires checking those in both categories.
