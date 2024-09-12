@@ -70,16 +70,17 @@ def dt_parser(cards: list, provider: object, deck: object, current_blockheight: 
             # epoch(s) without cards is/are processed.
             if debug: print("PARSER: Processing epochs without cards: {}-{}".format(pst.epoch, card_epoch - 1))
             pst.process_cardless_epochs(pst.epoch, card_epoch - 1)
+            if debug: print("PARSER: Processing of cardless epochs finished at the end of epoch", pst.epoch)
+            pst.epoch += 1 # setting epoch to card epoch, out from process_cardless_epochs
             epoch_initialized = False
-            if debug: print("PARSER: Processing of cardless epochs finished at epoch", pst.epoch)
 
-        elif card_epoch == pst.epoch:
+
+        if card_epoch == pst.epoch: # NOTE: changed from elif to if, so it is called after the cardless epochs.
 
             # Processing the epoch with the current CardTransfer.
             if not epoch_initialized:
                 pst.epoch_init()
                 epoch_initialized = True
-
 
             issued_amount = card.amount[0] if bundle_amount is None else bundle_amount
 
@@ -94,19 +95,18 @@ def dt_parser(cards: list, provider: object, deck: object, current_blockheight: 
                     valid_bundles.append(card.txid)
 
     if len(valid_epoch_cards) > 0:
+        # TODO: postprocessing seems to have some problems, see in epoch 557: VOTING: New enabled dPoD voter: mtYvCVBtEayA5y6szGSrSgGwHQfe44Bgh2 with balance -100.
+        if debug: print("PARSER: Postprocessing cards of FINAL epoch {} ...".format(pst.epoch))
         pst.epoch_postprocess(valid_epoch_cards)
-        if debug: print("PARSER: Postprocessing cards of epoch {} ...".format(pst.epoch))
 
     # if no more cards are recorded, we only process the rest until the current blockheight if force_continue was set
     #  i.e. for informational purposes. (e.g. proposal state or get_votes commands)
 
     if force_continue:
         if pst.epoch < pst.end_epoch:
-            # TODO: this seems to repeat processing of an epoch!
-            # if debug: print("PARSER: FINAL processing of epochs without cards: {}-{}".format(pst.epoch, card_epoch - 1))
             if debug: print("PARSER: FINAL processing of epochs without cards: {}-{}".format(pst.epoch, pst.end_epoch))
             pst.process_cardless_epochs(pst.epoch, pst.end_epoch)
-            if debug: print("PARSER: FINAL processing of cardless epochs finished at epoch", pst.epoch)
+            if debug: print("PARSER: FINAL processing of cardless epochs finished at the end of epoch", pst.epoch)
         else:
             if debug: print("PARSER: No epochs left to process after last card.")
 

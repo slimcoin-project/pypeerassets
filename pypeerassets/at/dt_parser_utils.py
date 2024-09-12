@@ -141,7 +141,7 @@ def update_sdp_weight(voters: dict, weight: Decimal, dec_diff: int=0, debug: boo
 
    if debug: print("Updating SDP balance of voter {}: {} to {}. Weight: {}".format(voter, old_amount * dec_adjustment, voters[voter], weight))
 
-def update_voters(voters: dict, new_cards: list, weight: Decimal=Decimal("1"), dec_diff: int=0, debug: bool=False) -> None:
+def update_voters(voters: dict, new_cards: list, sdp: bool=False, weight: Decimal=Decimal("1"), dec_diff: int=0, debug: bool=False) -> None:
     """Updates voters when they are affected by a Card transfer (of any type)."""
 
     # It is only be applied to new_cards if they're SDP cards (as these are the SDP cards added).
@@ -154,21 +154,39 @@ def update_voters(voters: dict, new_cards: list, weight: Decimal=Decimal("1"), d
     # dec_adjustment has to be Decimal, because dec_diff can be negative
     dec_adjustment = Decimal(10 ** dec_diff)
 
-    # 1. Update cards of old SDP voters by weight. # NO!
-    """if weight != 1:
-
-        for voter in voters:
-
-           # MODIFIED: Adjustment to get rounding to the precision of the voting token.
-           old_amount = Decimal(voters[voter]) / dec_adjustment
-           new_amount = int(old_amount * weight) * dec_adjustment
-           voters.update({voter : new_amount})
-
-           if debug: print("Updating SDP balance of voter {}: {} to {}. Weight: {}".format(voter, old_amount * dec_adjustment, voters[voter], weight))"""
-
     # 2. Add votes of new cards
+    illegal_bundles = []
     for card in new_cards:
-        if debug: print("Card data:", card.txid, card.sender, card.receiver, card.amount, card.type)
+        if debug: print("VOTING: Processing card with data:", card.txid, card.sender, card.receiver, card.amount, card.type)
+
+        # TODO: workarounds to ignore illegal CardTransfers for the dPoD token - check if this can be improved with a generator approach
+
+        if (not sdp) and (card.type != "CardIssue"):
+            # easiest case: CardTransfer with completely inexistent cards
+            if card.sender not in voters:
+                if debug:
+                    print("VOTING: Ignoring illegal card: Sender without balance.")
+                continue
+            # case 2: already checked bundles
+            elif card.txid in illegal_bundles:
+                if debug:
+                    print("VOTING: Ignoring illegal card: Already checked illegal bundle:", card.txid)
+                continue
+            # card amount over balance
+            elif sum(card.amount) * dec_adjustment > voters[card.sender]:
+                if debug:
+                    print("VOTING: Ignoring illegal card: Sender balance lower than received amount.")
+                continue
+            else:
+                # bundle amount over balance
+                bundle = [c for c in new_cards if c.txid == card.txid]
+                if len(bundle) > 1:
+                    bundle_amount = sum([sum(c.amount) for c in bundle]) * dec_adjustment
+                    if bundle_amount > voters[card.sender]:
+                        if debug:
+                            print("VOTING: Ignoring illegal card: Sender balance lower than bundle amount.")
+                        illegal_bundles.append(card.txid)
+                        continue
 
         if card.type != "CardBurn":
 

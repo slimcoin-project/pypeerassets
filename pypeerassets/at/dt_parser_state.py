@@ -451,7 +451,7 @@ class ParserState(object):
                 sdp_epoch_cards = self.get_sdp_epoch_cards()
 
                 if len(sdp_epoch_cards) > 0:
-                    updated_sdp_voters = dpu.update_voters(voters=self.sdp_voters, new_cards=sdp_epoch_cards, debug=self.debug_voting, dec_diff=self.sdp_decimal_diff)
+                    updated_sdp_voters = dpu.update_voters(sdp=True, voters=self.sdp_voters, new_cards=sdp_epoch_cards, debug=self.debug_voting, dec_diff=self.sdp_decimal_diff)
                     self.sdp_voters.update(updated_sdp_voters)
                     self.update_enabled_voters()
                     if self.debug_voting: print("VOTING: SDP Voters updated to:", self.sdp_voters)
@@ -504,6 +504,7 @@ class ParserState(object):
         self.update_enabled_voters()
 
         self.valid_cards += valid_epoch_cards
+        self.epoch += 1 # MODIFIED. Better here than in dt_parser main loop as it always has to be counted up here.
 
 
     def process_cardless_epochs(self, start, end):
@@ -513,6 +514,5 @@ class ParserState(object):
             self.epoch = epoch
             self.epoch_init()
             # the postprocess step can be skipped, as there are no cards.
-        self.epoch += 1 # TODO re-check! This sets the epoch to the one where the card is.
 
 
