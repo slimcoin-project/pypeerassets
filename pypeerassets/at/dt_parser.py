@@ -65,14 +65,16 @@ def dt_parser(cards: list, provider: object, deck: object, current_blockheight: 
                 # epoch_postprocess updates voters and valid_cards
                 if debug: print("PARSER: Postprocessing cards of epoch {} ...".format(pst.epoch))
                 pst.epoch_postprocess(valid_epoch_cards)
+                pst.epoch += 1 # EPOCH CHANGE after postprocessing
                 valid_epoch_cards = []
 
-            # epoch(s) without cards is/are processed.
-            if debug: print("PARSER: Processing epochs without cards: {}-{}".format(pst.epoch, card_epoch - 1))
-            pst.process_cardless_epochs(pst.epoch, card_epoch - 1)
-            if debug: print("PARSER: Processing of cardless epochs finished at the end of epoch", pst.epoch)
-            pst.epoch += 1 # setting epoch to card epoch, out from process_cardless_epochs
-            epoch_initialized = False
+            # If the card epoch is still above the current epoch after the epoch change, epoch(s) without cards is/are processed.
+            if card_epoch > pst.epoch:
+                if debug: print("PARSER: Processing epochs without cards: {}-{}".format(pst.epoch, card_epoch - 1))
+                pst.process_cardless_epochs(pst.epoch, card_epoch - 1) # contains several EPOCH CHANGEs
+                if debug: print("PARSER: Processing of cardless epochs finished at the end of epoch", pst.epoch)
+                pst.epoch += 1 # EPOCH CHANGE: setting epoch to card epoch, out from process_cardless_epochs
+                epoch_initialized = False
 
 
         if card_epoch == pst.epoch: # NOTE: changed from elif to if, so it is called after the cardless epochs.
@@ -95,7 +97,6 @@ def dt_parser(cards: list, provider: object, deck: object, current_blockheight: 
                     valid_bundles.append(card.txid)
 
     if len(valid_epoch_cards) > 0:
-        # TODO: postprocessing seems to have some problems, see in epoch 557: VOTING: New enabled dPoD voter: mtYvCVBtEayA5y6szGSrSgGwHQfe44Bgh2 with balance -100.
         if debug: print("PARSER: Postprocessing cards of FINAL epoch {} ...".format(pst.epoch))
         pst.epoch_postprocess(valid_epoch_cards)
 

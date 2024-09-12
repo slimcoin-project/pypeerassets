@@ -504,7 +504,6 @@ class ParserState(object):
         self.update_enabled_voters()
 
         self.valid_cards += valid_epoch_cards
-        self.epoch += 1 # MODIFIED. Better here than in dt_parser main loop as it always has to be counted up here.
 
 
     def process_cardless_epochs(self, start, end):
