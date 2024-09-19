@@ -118,12 +118,15 @@ def deck_spawn(provider: Provider, deck: Deck, inputs: dict,
                                            network=deck.network)),  # p2th
 
         tx_output(network=deck.network, value=op_return_txout_value,
-                  n=1, script=nulldata_script(deck.metainfo_to_protobuf)),  # op_return
+                  n=1, script=nulldata_script(deck.metainfo_to_protobuf))]  # op_return
 
+    if change_sum > 0: # AT: modified, change only used when value not exact.
+
+        txouts.append(
         tx_output(network=deck.network, value=change_sum,
                   n=2, script=p2pkh_script(address=change_address,
                                            network=deck.network))  # change
-              ]
+              )
 
     unsigned_tx = make_raw_transaction(network=deck.network,
                                        inputs=inputs['utxos'],

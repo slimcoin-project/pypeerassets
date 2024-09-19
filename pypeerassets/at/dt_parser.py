@@ -37,7 +37,7 @@ def dt_parser(cards: list, provider: object, deck: object, current_blockheight: 
     if debug: print("PARSER: Starting epoch loop ...")
 
     if not pst.end_epoch:
-        pst.end_epoch = pst.current_blockheight // deck.epoch_length # NOTE: modified, still includes the incomplete epoch which just started
+        pst.end_epoch = pst.current_blockheight // deck.epoch_length # NOTE: modified: end_epoch is now the last epoch to be processed.
 
     if debug: print("PARSER: Start and end epoch:", pst.start_epoch, pst.end_epoch)
 
