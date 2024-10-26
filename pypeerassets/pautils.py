@@ -309,12 +309,14 @@ def card_bundle_parser(bundle: CardBundle, debug=False) -> Iterator:
                             )
 
     # if any of this exceptions is raised, return None
+    ### added IndexError. can be thrown by card_metainfo if tx has only 1 output
     except (InvalidCardTransferP2TH,
             CardVersionMismatch,
             CardNumberOfDecimalsMismatch,
             RecieverAmountMismatch,
             DecodeError,
             TypeError,
+            IndexError,
             InvalidNulldataOutput) as e:
 
         if debug:
