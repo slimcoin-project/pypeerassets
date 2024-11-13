@@ -51,3 +51,6 @@ class SlmRpcNode(RpcNode):
         verbose_int = 1 if verbose else 0
         return self.req("getrawtransaction", [txid, verbose_int])
 
+    def getburndata(self):
+        return self.req("getburndata")
+
