@@ -72,7 +72,7 @@ class TransactionDraft():
         elif sats:
             amount_coins = self.sats_to_coins(sats)
         else:
-            raise ValueError()
+            raise ValueError("No amount of coins or sats was given.")
 
         new_output = patx.tx_output(network=self.network.shortname, value=amount_coins, n=output_index, script=script)
 
@@ -102,8 +102,11 @@ class TransactionDraft():
         change_amount = self.input_sats - self.get_required_amount()
         if self.debug:
             print("Change amount:", change_amount)
-        self.add_p2pkh_output(address, sats=change_amount, output_index=output_index)
-        self.change_output_index = output_index
+        if change_amount > 0:
+            self.add_p2pkh_output(address, sats=change_amount, output_index=output_index)
+            self.change_output_index = output_index
+        elif self.debug:
+            print("No change output needed, change amount is 0.")
 
 
     def add_metadata_item(self):
