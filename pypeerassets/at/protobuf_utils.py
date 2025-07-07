@@ -94,12 +94,14 @@ def serialize_deck_extended_data(network: tuple, deck: object=None, params: dict
         d.min_vote = params["min_vote"]
         d.special_periods = params["sdp_periods"]
         d.voting_token_deckid = params["sdp_deckid"]
+        d.extradata = params.get("extradata")
     elif d.id == c.AT_ID:
         d.multiplier = params["multiplier"]
         d.hash = address_to_hash(params["at_address"], params["addr_type"], network)
         d.hash_type = params["addr_type"]
         d.startblock = params["startblock"]
         d.endblock = params["endblock"]
+        d.extradata = params.get("extradata")
 
     check_size(d, network)
     return d.SerializeToString()

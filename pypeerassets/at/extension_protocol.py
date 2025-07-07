@@ -25,6 +25,7 @@ def initialize_custom_deck_attributes(deck, network, epoch_length=None, epoch_re
             # optional attributes
             deck.startblock = data.get("startblock")
             deck.endblock = data.get("endblock")
+            deck.extradata = data.get("extradata")
         else:
             assert data["id"] == c.ID_DT
             deck.epoch_length = epoch_length if epoch_length else data["epoch_len"]
@@ -34,6 +35,7 @@ def initialize_custom_deck_attributes(deck, network, epoch_length=None, epoch_re
             # optional attributes
             deck.min_vote = min_vote if min_vote else data.get("min_vote")
             deck.sdp_periods = sdp_periods if sdp_periods else data.get("special_periods")
+            deck.extradata = data.get("extradata")
 
             try:
                 deck.sdp_deckid = sdp_deck.hex() if sdp_deck else data.get("voting_token_deckid").hex()
