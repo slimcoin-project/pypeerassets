@@ -624,6 +624,10 @@ class DeckState:
 
         for card in self._sort_cards(self.cards):
 
+            if self.cleanup_height:
+                if card["blocknum"] > self.cleanup_height:
+                    break
+
             # txid + blockseq + cardseq, as unique ID
             cid = str(card["txid"] + str(card["blockseq"]) + str(card["cardseq"]))
             ctype = card["type"]
@@ -661,6 +665,8 @@ class DeckState:
             self._cleanup_locks()
 
     def _cleanup_locks(self):
+        if self.debug:
+            print("Cleaning up locks up to blockheight:", self.cleanup_height)
         for address in list(self.locks):
             if self.debug:
                print("Locks on address", address, self.locks[address], len(self.locks[address]))
@@ -669,14 +675,18 @@ class DeckState:
                 lock = self.locks[address][index]
                 # print(index, lock["locktime"])
                 if lock["locktime"] < self.cleanup_height:
+                    if self.debug:
+                        print("Cleaning up lock:", lock)
                     self._modify_lock(address, lock["amount"], index)
+                elif self.debug:
+                    print("Lock preserved:", lock)
 
 
     def _check_locks(self, sender: str, receiver: str, amount: int, blocknum: int, network: str) -> int:
         if self.debug:
             print("================================")
             if len(self.locks):
-                print(self.locks)
+                print("Current locks at block {}: {}".format(blocknum, self.locks))
         ### LOCKS: we unset locks at the first card of the sender where the lock has expired.
         # Unlocking after a transfer done to lock_address is only done after validating.
         locked_amount = 0
@@ -718,7 +728,6 @@ class DeckState:
         return locked_amount
 
     # NOTE: this only covers address locks for now!
-    # lock_address was renamed to rec_address, as it's a receiver which would "unlock a lock"
     def _unlock_amount(self, sender: str, rec_address: str, amount: int, network: str) -> None:
         # checks if the card was transfered to an address in self.locks.
         # If yes, it unlocks an amount transferred to rec_address. Various locks can be affected.
@@ -733,9 +742,7 @@ class DeckState:
                 addr = lock["lock_address"]
             except KeyError:
                 continue # locks without lock_address are still not implemented.
-            #addr = hash_to_address(lock["lockhash"], lock["lockhash_type"], net_query(network))
 
-            #if lock["address"] != lock_address:
             if addr != rec_address:
                 continue
 
