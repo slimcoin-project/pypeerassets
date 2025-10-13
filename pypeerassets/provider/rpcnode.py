@@ -114,4 +114,3 @@ class RpcNode(Client, Provider):
 
     def getblock(self, blockhash, decode=True): ### NEW: overrides getblock because the original expects a decode (boolean) value, otherwise doesn't work as expected. This is a bug in the Peerassets original code.
         return self.req("getblock", [blockhash, decode])
-

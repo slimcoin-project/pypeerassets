@@ -54,3 +54,6 @@ class SlmRpcNode(RpcNode):
     def getburndata(self):
         return self.req("getburndata")
 
+    def getmemorypool(self): # this is a legacy command, can't be added to PPC version
+        return self.req("getmemorypool")
+
