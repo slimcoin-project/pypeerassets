@@ -551,13 +551,15 @@ class DeckState:
         self.total = 0
         self.burned = 0
         self.balances = cast(dict, {})
-        self.locks = cast(dict, {}) ### LOCK
         self.processed_issues = set()
         self.processed_transfers = set()
         self.processed_burns = set()
-        self.valid_cards = cast(list, []) ### ADDRESSTRACK.
-        self.debug = debug ### addition to check LOCK modifications.
-        self.cleanup_height = cleanup_height ### LOCK
+
+        # addresstrack and lock modifications
+        self.valid_cards = cast(list, [])
+        self.debug = debug
+        self.locks = cast(dict, {})
+        self.cleanup_height = cleanup_height
 
         self.calc_state()
         self.checksum = not bool(self.total - sum(self.balances.values()))
@@ -575,7 +577,7 @@ class DeckState:
             locked_amount = self._check_locks(sender, receiver, amount, card["blocknum"], card["network"])
             # DEBUG information
             if self.debug:
-                if card["locktime"]:
+                if card["locktime"]: # this detects a CardLock
                     print("CardLock:     blocknum {} sender {} receiver {} amount {} locktime {} lockhash {} lockhash_type {}".format(card["blocknum"], sender, receiver, amount, card["locktime"], card.get("lockhash"), card.get("lockhash_type")))
                 else:
                     print("CardTransfer: blocknum {} sender {} receiver {} amount {}".format(card["blocknum"], sender, receiver, amount))
@@ -637,12 +639,11 @@ class DeckState:
                 validate = self._process(card, ctype)
                 self.total += amount * validate  # This will set amount to 0 if validate is False
                 self.processed_issues |= {cid}
-                if validate: ### ADDED ###
+                if validate:
                     self.valid_cards.append(card_from_dict(card))
 
             if ctype == 'CardTransfer' and cid not in self.processed_transfers:
-                # self._process(card, ctype) ### original
-                validate = self._process(card, ctype) ### changed from here
+                validate = self._process(card, ctype)
                 if validate:
                     self.valid_cards.append(card_from_dict(card))
                     # subtract the amount of the card from locks.
@@ -681,49 +682,55 @@ class DeckState:
                 elif self.debug:
                     print("Lock preserved:", lock)
 
-
-    def _check_locks(self, sender: str, receiver: str, amount: int, blocknum: int, network: str) -> int:
+    def _check_locks(self, cardsender: str, receiver: str, amount: int, blocknum: int, network: str) -> int:
         if self.debug:
             print("================================")
             if len(self.locks):
                 print("Current locks at block {}: {}".format(blocknum, self.locks))
-        ### LOCKS: we unset locks at the first card of the sender where the lock has expired.
+        # we unset locks at each CardTransfer
         # Unlocking after a transfer done to lock_address is only done after validating.
         locked_amount = 0
-        if sender in self.locks:
-            # for index, lock in enumerate(self.locks[sender]):
-            # reversed loop, see rationale in _cleanup_locks.
-            for index in range(len(self.locks[sender]) - 1, -1, -1):
-                lock = self.locks[sender][index]
+        original_locks = self.locks.copy()
+        for locksender in original_locks.keys():
+            for index in range(len(self.locks[locksender]) - 1, -1, -1):
+                # reversed loop, see rationale in _cleanup_locks.
+                # we check all locks for expiration, not only those of the card sender,
+                # so expired locks do not clutter up the lock dict.
+                try:
+                    lock = self.locks[locksender][index]
+                except KeyError:
+                    break # can happen after the last lock was removed
                 if lock["locktime"] < blocknum:
-                    # case 1: when the lock expires, the complete lock is reverted.
+                    # when the lock expires, the complete lock is reverted.
                     # Thus we unlock the whole amount of the lock (lock["amount"]).
-                    self._modify_lock(sender, lock["amount"], index)
+                    self._modify_lock(locksender, lock["amount"], index)
 
-                else:
+                elif cardsender == locksender:
+
                     # address locks (type 1 to 6) - other types are still not implemented.
                     if lock["lockhash_type"] in range(1, 6):
-                        # MODIF: added lock_address again to lock dict, to prevent hash_to_address
+                        # MODIF: added lock_address to lock dict, to prevent hash_to_address
                         # being calculated more than once.
-                        try:
+                        if "lock_address" not in lock.keys():
+                            addr = calc_lock_address(lock, network)
+                            self.locks[locksender][index].update({"lock_address" : addr })
+                        else:
                             addr = lock["lock_address"]
-                        except KeyError:
-                            addr = hash_to_address(lock["lockhash"], lock["lockhash_type"], net_query(network))
-                            self.locks[sender][index].update({"lock_address" : addr })
+
                         if addr != receiver:
                             if self.debug:
                                 print("Active address/hash timelock: +", lock["amount"], "lock address", addr)
-                            locked_amount += self.locks[sender][index]["amount"]
+                            locked_amount += self.locks[locksender][index]["amount"]
                     elif lock["lockhash_type"] == None:
                         if self.debug:
                             print("Active simple timelock: +", lock["amount"])
-                        locked_amount += self.locks[sender][index]["amount"]
+                        locked_amount += self.locks[locksender][index]["amount"]
 
                     # old variant with specific lock_address:
                     #if lock["address"] != receiver:
                     #    # if lock_address is not defined, or not equal to receiver, then locked amount is increased.
                     #    print("Active lock: +", lock["amount"], "lock address", lock["address"])
-                    #    locked_amount += self.locks[sender][index]["amount"]
+                    #    locked_amount += self.locks[locksender][index]["amount"]
 
         return locked_amount
 
@@ -732,16 +739,23 @@ class DeckState:
         # checks if the card was transfered to an address in self.locks.
         # If yes, it unlocks an amount transferred to rec_address. Various locks can be affected.
         unlocked_amount = amount
-        for index, lock in enumerate(self.locks[sender]):
+        # sort: highest index is with the lowest locktime,
+        # this means early locks will be cleared first
+        self.locks[sender].sort(key=lambda x: x['locktime'], reverse=True)
+        for index in range(len(self.locks[sender]) - 1, -1, -1):
+            lock = self.locks[sender][index]
 
-            # no lockhash: tokens cannot be unlocked before locktime expires.
-            if lock.get("lockhash") is None:
+            # no lockhash or wrong type: tokens cannot be unlocked before locktime expires.
+            if lock.get("lockhash") is None or lock["lockhash_type"] not in range(1, 6):
+                if self.debug:
+                    print("Cannot unlock lock of type {} or without lockhash.".format(lock["lockhash_type"]))
                 continue
 
-            try:
+            if "lock_address" not in lock.keys():
+                addr = calc_lock_address(lock, network)
+                self.locks[sender][index].update({"lock_address" : addr })
+            else:
                 addr = lock["lock_address"]
-            except KeyError:
-                continue # locks without lock_address are still not implemented.
 
             if addr != rec_address:
                 continue
@@ -792,4 +806,7 @@ def card_from_dict(d): ### WORKAROUND. TODO: Look for a more elegant solution!
     for (key, value) in d.items():
         setattr(c, key, value)
     return c
+
+def calc_lock_address(lock: dict, network: str) -> None:
+    return hash_to_address(lock["lockhash"], lock["lockhash_type"], net_query(network))
 
