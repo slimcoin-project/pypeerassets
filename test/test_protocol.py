@@ -6,6 +6,8 @@ from pypeerassets.protocol import (CardTransfer, Deck, IssueMode,
                                    validate_card_issue_modes, DeckState)
 from pypeerassets.exceptions import OverSizeOPReturn, InvalidCardIssue
 
+# Note: modifications were made due to Locktime feature.
+
 
 def test_deck_object():
     '''test creation of deck objects'''
@@ -113,11 +115,14 @@ def test_card_transfer_object():
                                        'txid': None,
                                        'type': 'CardTransfer',
                                        'version': 1,
-                                       'deck_p2th': None
+                                       'deck_p2th': None,
+                                       'locktime' : None
                                        }
 
 
 def test_oversize_card_object():
+    # note: this was modified to a 288 bytes OP_RETURN string
+    # due to increase of standard value to 256 bytes in PPC.
 
     deck = Deck(
         name="decky",
@@ -134,7 +139,7 @@ def test_oversize_card_object():
         card_transfer = CardTransfer(
             deck=deck,
             receiver=[Kutil(network='ppc').address for i in range(80)],
-            amount=[random.randint(20, 12000) for i in range(80)],
+            amount=[random.randint(20000, 4000000) for i in range(80)],
             version=1,
         )
 

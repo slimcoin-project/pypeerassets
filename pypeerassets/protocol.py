@@ -2,6 +2,7 @@
 
 # EXPERIMENTAL: All code changes related to "address tracking" assets are marked with ADDRESSTRACK
 # EXPERIMENTAL: This is the version with locktime and lockhash, suitable for DEXes.
+# TODO: AT burns are still shown as CardTransfers.
 
 from enum import Enum
 from operator import itemgetter
@@ -108,7 +109,7 @@ class Deck:
         # so the ugly self argument isn't necessary.
         # a class "ExtensionAttributes" or similar would be best.
 
-        if self.issue_mode == IssueMode.CUSTOM.value:
+        if self.asset_specific_data and self.issue_mode == IssueMode.CUSTOM.value:
 
             ep.initialize_custom_deck_attributes(self, network, epoch_length=epoch_length, epoch_reward=epoch_reward, min_vote=min_vote, sdp_periods=sdp_periods, sdp_deck=sdp_deck, multiplier=multiplier, at_address=at_address)
 
@@ -370,6 +371,7 @@ class CardTransfer:
 
         self.receiver = receiver
         self.amount = amount
+        self.type = None
 
         # Modifications for Locktime features
         self.locktime = locktime
@@ -396,14 +398,15 @@ class CardTransfer:
         # Defines the type of the CardTransfer and some other attributes.
         # if deck contains correct addresstrack-specific metadata and the card references a txid,
         # the card type is CardIssue. Will be validated later by custom parser.
-        # modified order because with AT tokens, deck issuer can be the receiver.
-        # CardBurn is not implemented in AT, because the deck issuer should be
-        # able to participate normally in the transfer process. Cards can however
-        # be burnt sending them to unspendable addresses. (TODO - this is probably not longer true.)
+        # MODIF: CardBurn also works for AT and DT tokens now.
+        # Rationale: There is no reason to encourage re-use of addresses here.
 
         if deck.issue_mode == IssueMode.CUSTOM.value:
             ep.initialize_custom_card_attributes(self, deck, donation_txid=donation_txid)
 
+        if self.type is not None:
+             # if issue mode is already set by extension, preserve it.
+            pass
         elif self.sender == deck.issuer:
             # if deck issuer is issuing cards to the deck issuing address,
             # card is burn and issue at the same time - which is invalid!
@@ -425,8 +428,11 @@ class CardTransfer:
         else:
             self.type = "CardTransfer"
 
-        if type:
+        if type: # allows overriding, but not of the InvalidCardIssue
             self.type = type
+
+        self.cid = "{}{}{}".format(str(txid), str(blockseq), str(cardseq))
+
 
     @property
     def metainfo_to_protobuf(self) -> bytes:
@@ -631,18 +637,18 @@ class DeckState:
                     break
 
             # txid + blockseq + cardseq, as unique ID
-            cid = str(card["txid"] + str(card["blockseq"]) + str(card["cardseq"]))
+            # cid = str(card["txid"] + str(card["blockseq"]) + str(card["cardseq"]))
             ctype = card["type"]
             amount = card["amount"][0]
 
-            if ctype == 'CardIssue' and cid not in self.processed_issues:
+            if ctype == 'CardIssue' and card["cid"] not in self.processed_issues:
                 validate = self._process(card, ctype)
                 self.total += amount * validate  # This will set amount to 0 if validate is False
-                self.processed_issues |= {cid}
+                self.processed_issues |= {card["cid"]}
                 if validate:
                     self.valid_cards.append(card_from_dict(card))
 
-            if ctype == 'CardTransfer' and cid not in self.processed_transfers:
+            if ctype == 'CardTransfer' and card["cid"] not in self.processed_transfers:
                 validate = self._process(card, ctype)
                 if validate:
                     self.valid_cards.append(card_from_dict(card))
@@ -650,20 +656,24 @@ class DeckState:
                     if card["sender"] in self.locks:
                         self._unlock_amount(card["sender"], card["receiver"][0], amount, card["network"])
 
-                self.processed_transfers |= {cid}
+                self.processed_transfers |= {card["cid"]}
 
-            if ctype == 'CardBurn' and cid not in self.processed_burns:
+            if ctype == 'CardBurn' and card["cid"] not in self.processed_burns:
                 validate = self._process(card, ctype)
 
                 self.total -= amount * validate
                 self.burned += amount * validate
-                self.processed_burns |= {cid}
+                self.processed_burns |= {card["cid"]}
                 if validate: ### changed from here
                     self.valid_cards.append(card_from_dict(card))
 
         ### LOCKS: cleanup if height is provided
         if self.cleanup_height:
             self._cleanup_locks()
+
+    def valid_burns(self):
+        valid_card_set = set([c.cid for c in self.valid_cards])
+        return valid_card_set & self.processed_burns
 
     def _cleanup_locks(self):
         if self.debug:
@@ -800,6 +810,9 @@ class DeckState:
                 if self.debug:
                     print("Modified lock: deleted sender of lock list, unlocked", unlocked_amount)
 
+def calc_lock_address(lock: dict, network: str) -> None:
+    return hash_to_address(lock["lockhash"], lock["lockhash_type"], net_query(network))
+
 
 def card_from_dict(d): ### WORKAROUND. TODO: Look for a more elegant solution!
     c = CardTransfer.__new__(CardTransfer)
@@ -807,6 +820,5 @@ def card_from_dict(d): ### WORKAROUND. TODO: Look for a more elegant solution!
         setattr(c, key, value)
     return c
 
-def calc_lock_address(lock: dict, network: str) -> None:
-    return hash_to_address(lock["lockhash"], lock["lockhash_type"], net_query(network))
+
 

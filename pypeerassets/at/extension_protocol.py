@@ -1,7 +1,6 @@
 # idea to develop further: the original classes could provide an extension_data attribute with type dict.
 # first field is the extension name (i.e. "AT")
 # second field is another dict of the current attributes.
-# MODIF: "identify" integrated here.
 
 import pypeerassets.at.constants as c
 from pypeerassets.at.protobuf_utils import parse_protobuf
@@ -30,7 +29,7 @@ def initialize_custom_deck_attributes(deck, network, epoch_length=None, epoch_re
             assert data["id"] == c.ID_DT
             deck.epoch_length = epoch_length if epoch_length else data["epoch_len"]
             deck.standard_round_unit = deck.epoch_length // c.DT_ROUND_DIVISION # value of this constant: 28
-            deck.epoch_reward = epoch_reward if epoch_reward else data["reward"] # shouldn't this better be called "epoch_reward" ?? # TODO
+            deck.epoch_reward = epoch_reward if epoch_reward else data["reward"]
 
             # optional attributes
             deck.min_vote = min_vote if min_vote else data.get("min_vote")
@@ -56,9 +55,6 @@ def initialize_custom_card_attributes(card, deck, donation_txid=None) -> None:
     # if deck contains correct addresstrack-specific metadata and the card references a txid,
     # the card type is CardIssue. Will be validated later by custom parser.
     # modified order because with AT tokens, deck issuer can be the receiver.
-    # CardBurn is not implemented in AT, because the deck issuer should be
-    # able to participate normally in the transfer process. Cards can however
-    # be burnt sending them to unspendable addresses.
 
     try:
 
@@ -71,17 +67,19 @@ def initialize_custom_card_attributes(card, deck, donation_txid=None) -> None:
             card.donation_txid = donation_txid if donation_txid else card.extended_data["txid"].hex()
         except (TypeError, AssertionError):
             # TypeError is risen when the protobuf value is None
-            card.type = "CardTransfer"
+            pass
+            # card.type = "CardTransfer"
 
         card.at_type = deck.at_type
 
     except (ValueError, KeyError, AssertionError):
 
+        pass
         # this happens with non-dt tokens using a custom parser,
         # or with faulty dt tokens with data not protobuf formatted, or one of the txid and vout values missing.
         # This doesn't raise an error, because if a non-compatible asset_specific_data in deck
         # by chance gets interpreted as AT or DT, it should not be necessarily be invalid.
-        card.type = "CardTransfer"
+        # card.type = "CardTransfer"
 
 def get_at_address(data: dict, network: namedtuple) -> str: ### changed from datastring to data, bytes to object. Added network param.
 
