@@ -1,7 +1,9 @@
 import pytest
 import json
 import pypeerassets.at.at_parser as a
+import pypeerassets.at.constants as c
 from .at_dt_dummy_classes import DummyATDeck, DummyATCard, DummyProvider
+from pypeerassets.protocol import Deck, CardTransfer
 
 with open("at_dummy_txes.json", "r") as dummyfile:
     tx_dummies = json.load(dummyfile)
@@ -18,7 +20,20 @@ block_dummies = [{"height" : 131651, "hash" : "00003648486769b65df222c2d2fbed1b6
 provider = DummyProvider(tx_dummies, block_dummies)
 
 BURNADDR="mmSLiMCoinTestnetBurnAddress1XU5fu"
-unlimited_deck = DummyATDeck(deckid="fb93cce7aceb9f7fda228bc0c0c2eca8c56c09c1d846a04bd6a59cae2a895974", at_address=BURNADDR, multiplier=100, startblock=None, endblock=None, number_of_decimals=4)
+#unlimited_deck = DummyATDeck(deckid="fb93cce7aceb9f7fda228bc0c0c2eca8c56c09c1d846a04bd6a59cae2a895974", at_address=BURNADDR, multiplier=100, startblock=None, endblock=None, number_of_decimals=4)
+unlimited_deck = Deck(id="fb93cce7aceb9f7fda228bc0c0c2eca8c56c09c1d846a04bd6a59cae2a895974",
+                      name="unlimitedTestDeck",
+                      network="tslm",
+                      version=1,
+                      production=True,
+                      issue_mode=1, # custom
+                      at_type=c.ID_AT,
+                      at_address=BURNADDR,
+                      addr_type="p2pkh",
+                      multiplier=100,
+                      startblock=None,
+                      endblock=None,
+                      number_of_decimals=4)
 limited_deck = DummyATDeck(deckid="66c25ad60538a9de0a7895d833a4a3aeeacdd75b1db9c5dd69c3746dd21d39be", at_address=BURNADDR, multiplier=1000, startblock=132000, endblock=140000, number_of_decimals=2)
 
 # The following cards correspond to real AT/PoB token cards in the 2023 testnet blockchain.

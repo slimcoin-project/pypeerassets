@@ -88,14 +88,14 @@ def serialize_deck_extended_data(network: tuple, deck: object=None, params: dict
     d = DeckExtendedDataProto()
     d.id = params["at_type"]
 
-    if d.id == c.DT_ID:
+    if d.id == c.ID_DT:
         d.epoch_len = params["epoch_length"]
         d.reward = params["epoch_reward"]
         d.min_vote = params["min_vote"]
         d.special_periods = params["sdp_periods"]
         d.voting_token_deckid = params["sdp_deckid"]
         d.extradata = params.get("extradata")
-    elif d.id == c.AT_ID:
+    elif d.id == c.ID_AT:
         d.multiplier = params["multiplier"]
         d.hash = address_to_hash(params["at_address"], params["addr_type"], network)
         d.hash_type = params["addr_type"]

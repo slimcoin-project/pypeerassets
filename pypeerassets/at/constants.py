@@ -37,14 +37,16 @@ class TtxID(Enum):
 
 # P2TH modifier
 
-# old: P2TH_MODIFIER = { "proposal" : 1, "voting" : 2, "donation" : 3, "signalling" : 4, "locking" : 5 }
-# TODO this is a first workaround to stabilize protocol asap, should later be solved more elegant.
-P2TH_MODIFIER = { "proposal" : TtxID.PROPOSAL.value, "voting" : TtxID.VOTING.value, "signalling" : TtxID.SIGNALLING.value, "locking" : TtxID.LOCKING.value, "donation" : TtxID.DONATION.value }
+P2TH_MODIFIER = { "proposal" : TtxID.PROPOSAL.value,
+                  "voting" : TtxID.VOTING.value,
+                  "signalling" : TtxID.SIGNALLING.value,
+                  "locking" : TtxID.LOCKING.value,
+                  "donation" : TtxID.DONATION.value }
 
-# Deck identifiers
+# Short deck identifiers
 
-DT_ID = ID_DT = DeckTypeID.DT.value
-AT_ID = ID_AT = DeckTypeID.AT.value
+ID_DT = DeckTypeID.DT.value
+ID_AT = DeckTypeID.AT.value
 
 # Abbreviations for deck identifiers
 

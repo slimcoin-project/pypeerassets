@@ -1,5 +1,6 @@
 import pytest
 import pypeerassets.at.extension_protocol as ep
+import pypeerassets.at.constants as c
 
 from pypeerassets.networks import SlimcoinTestnet
 

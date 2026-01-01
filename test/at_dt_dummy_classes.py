@@ -1,3 +1,8 @@
+# NOTE: The purpose of the DummyDeck/DummyCard classes is to circunvent the Deck/Card initialization
+# enabling to separate test units.
+# TODO: evaluate if this is not counter-productive,
+# as the vanilla unittests use the original Deck/CardTransfer objects.
+
 class TestObj(object):
    """Minimal test object to fill with keyword arguments. Mostly used for TrackedTransactions."""
    __test__ = False

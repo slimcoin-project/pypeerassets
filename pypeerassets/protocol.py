@@ -23,7 +23,7 @@ from pypeerassets.networks import net_query
 import pypeerassets.at.extension_protocol as ep
 ### LOCK ###
 from pypeerassets.hash_encoding import hash_to_address
-from pypeerassets.at.constants import P2TH_MODIFIER, DT_ID, AT_ID
+from pypeerassets.at.constants import P2TH_MODIFIER, ID_DT, ID_AT
 from pypeerassets.provider import Provider
 
 # P2TH_MODIFIER = { "proposal" : 1, "voting" : 2, "donation" : 3, "signalling" : 4, "locking" : 5 }
@@ -87,7 +87,11 @@ class Deck:
                  min_vote: int=None,
                  sdp_periods: int=None,
                  sdp_deck: str=None,
-                 at_address: str=None) -> None:
+                 at_address: str=None,
+                 addr_type: str=None,
+                 startblock: int=None,
+                 endblock: int=None,
+                 extradata: bytes=None) -> None:
         '''
         Initialize deck object, load from dictionary Deck(**dict) or initilize
         with kwargs Deck("deck", 3, "ONCE")'''
@@ -109,9 +113,22 @@ class Deck:
         # so the ugly self argument isn't necessary.
         # a class "ExtensionAttributes" or similar would be best.
 
-        if self.asset_specific_data and self.issue_mode == IssueMode.CUSTOM.value:
+        if self.issue_mode == IssueMode.CUSTOM.value:
 
-            ep.initialize_custom_deck_attributes(self, network, epoch_length=epoch_length, epoch_reward=epoch_reward, min_vote=min_vote, sdp_periods=sdp_periods, sdp_deck=sdp_deck, multiplier=multiplier, at_address=at_address)
+            ep.initialize_custom_deck_attributes(self,
+                                                 network,
+                                                 at_type=at_type,
+                                                 epoch_length=epoch_length,
+                                                 epoch_reward=epoch_reward,
+                                                 min_vote=min_vote,
+                                                 sdp_periods=sdp_periods,
+                                                 sdp_deck=sdp_deck,
+                                                 multiplier=multiplier,
+                                                 at_address=at_address,
+                                                 addr_type=addr_type,
+                                                 startblock=startblock,
+                                                 endblock=endblock,
+                                                 extradata=extradata)
 
 
     @property ### MODIFIED VERSION TO OPTIMIZE SPEED ###
@@ -528,11 +545,11 @@ def validate_card_issue_modes(issue_mode: int, cards: list, provider: Provider=N
 
             try: # AT/DT. The AttributeError is thrown when no Protobuf data is found.
 
-                if cards[0].at_type == DT_ID:  # modification for extended parsers
+                if cards[0].at_type == ID_DT:  # modification for extended parsers
                     import pypeerassets.at.dt_parser as dtp
                     parsed_cards = parser_fn(cards, dtp.dt_parser, provider, deck)
 
-                elif cards[0].at_type == AT_ID:
+                elif cards[0].at_type == ID_AT:
                     import pypeerassets.at.at_parser as atp
                     parsed_cards = parser_fn(cards, atp.at_parser, provider, deck)
 

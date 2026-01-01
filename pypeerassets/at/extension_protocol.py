@@ -8,25 +8,43 @@ from pypeerassets.networks import net_query
 from pypeerassets.hash_encoding import HASHTYPE, hash_to_address
 from collections import namedtuple
 
-def initialize_custom_deck_attributes(deck, network, epoch_length=None, epoch_reward=None, min_vote=None, sdp_periods=None, sdp_deck=None, multiplier=None, at_address=None, debug=False) -> None:
-    ### additional Deck attributes for AT/DT types
 
+### additional Deck attributes for AT/DT types
 
+def initialize_custom_deck_attributes(deck,
+                                      network,
+                                      at_type=None,
+                                      epoch_length=None,
+                                      epoch_reward=None,
+                                      min_vote=None,
+                                      sdp_periods=None,
+                                      sdp_deck=None,
+                                      multiplier=None,
+                                      at_address=None,
+                                      addr_type=None,
+                                      startblock=None,
+                                      endblock=None,
+                                      extradata=None,
+                                      debug=False) -> None:
     try:
-        data = parse_protobuf(deck.asset_specific_data, "deck")
 
-        if data["id"] == c.ID_AT:
+        # Note: this construction triggers KeyError if the data is incomplete
+        data = parse_protobuf(deck.asset_specific_data, "deck") if deck.asset_specific_data else {}
+        deck.at_type = at_type if at_type else data["id"]
 
-            deck.at_address = get_at_address(data, net_query(network))
+        if deck.at_type == c.ID_AT:
+
+            deck.at_address = at_address if at_address else get_at_address(data, net_query(network))
             deck.multiplier = multiplier if multiplier else data["multiplier"]
-            deck.addr_type = data["hash_type"] ### new. needed for hash_encoding.
+            deck.addr_type = addr_type if addr_type else data["hash_type"]
 
             # optional attributes
-            deck.startblock = data.get("startblock")
-            deck.endblock = data.get("endblock")
-            deck.extradata = data.get("extradata")
-        else:
-            assert data["id"] == c.ID_DT
+            deck.startblock = startblock if startblock else data.get("startblock")
+            deck.endblock = endblock if endblock else data.get("endblock")
+            deck.extradata = extradata if extradata else data.get("extradata")
+
+        elif deck.at_type == c.ID_DT:
+
             deck.epoch_length = epoch_length if epoch_length else data["epoch_len"]
             deck.standard_round_unit = deck.epoch_length // c.DT_ROUND_DIVISION # value of this constant: 28
             deck.epoch_reward = epoch_reward if epoch_reward else data["reward"]
@@ -34,20 +52,20 @@ def initialize_custom_deck_attributes(deck, network, epoch_length=None, epoch_re
             # optional attributes
             deck.min_vote = min_vote if min_vote else data.get("min_vote")
             deck.sdp_periods = sdp_periods if sdp_periods else data.get("special_periods")
-            deck.extradata = data.get("extradata")
+            deck.extradata = extradata if extradata else data.get("extradata")
 
             try:
                 deck.sdp_deckid = sdp_deck.hex() if sdp_deck else data.get("voting_token_deckid").hex()
             except AttributeError:
                 deck.sdp_deckid = None
-        deck.at_type = data["id"]
 
-    except (ValueError, KeyError):
+        else:
+            if debug:
+                print("No valid AT/DT deck.")
+
+    except (ValueError, KeyError, TypeError):
         if debug:
             print("Non-Standard asset-specific data. Not adding special parameters.")
-    except AssertionError:
-        if debug:
-            print("No valid AT/DT deck.")
 
 
 def initialize_custom_card_attributes(card, deck, donation_txid=None) -> None:
