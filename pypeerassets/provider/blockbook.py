@@ -85,7 +85,7 @@ class Blockbook(Provider):
         except KeyError:
             raise InsufficientFunds('Insufficient funds.')
 
-    def select_inputs(self, address: str, amount: int) -> dict:
+    def select_inputs(self, address: str, amount: int, locktime: int=0) -> dict:
 
         utxos = []
         utxo_sum = Decimal(-0.01)  # starts from negative due to minimal fee
@@ -94,7 +94,7 @@ class Blockbook(Provider):
                 utxos.append(
                     TxIn(txid=tx['txid'],
                          txout=tx['vout'],
-                         sequence=Sequence.max(),
+                         sequence=self.calc_sequence(locktime),
                          script_sig=ScriptSig.unhexlify(script))
                          )
 

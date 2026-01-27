@@ -18,7 +18,7 @@ except ImportError:
 class RpcNode(Client, Provider):
     '''JSON-RPC connection to local Peercoin node'''
 
-    def select_inputs(self, address: str, amount: Decimal) -> dict:
+    def select_inputs(self, address: str, amount: Decimal, locktime: int=0) -> dict:
         '''finds apropriate utxo's to include in rawtx, while being careful
         to never spend old transactions with a lot of coin age.
         Argument is intiger, returns list of apropriate UTXO's'''
@@ -34,7 +34,7 @@ class RpcNode(Client, Provider):
                 utxos.append(
                         MutableTxIn(txid=tx['txid'],
                                     txout=tx['vout'],
-                                    sequence=Sequence.max(),
+                                    sequence=self.calc_sequence(locktime),
                                     script_sig=ScriptSig.empty())
                          )
 

@@ -95,7 +95,7 @@ class Cryptoid(Provider):
         query = 'unspent' + "&active=" + address
         return cast(dict, self.api_req(query))['unspent_outputs']
 
-    def select_inputs(self, address: str, amount: int) -> dict:
+    def select_inputs(self, address: str, amount: int, locktime: int=0) -> dict:
         '''select UTXOs'''
 
         utxos = []
@@ -105,7 +105,7 @@ class Cryptoid(Provider):
                 utxos.append(
                     TxIn(txid=tx['tx_hash'],
                          txout=tx['tx_ouput_n'],
-                         sequence=Sequence.max(),
+                         sequence=self.calc_sequence(locktime),
                          script_sig=ScriptSig.unhexlify(tx['script']))
                          )
 

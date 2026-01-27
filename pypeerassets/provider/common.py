@@ -5,6 +5,7 @@ from decimal import Decimal
 import urllib.request
 
 from btcpy.structs.address import Address, InvalidAddress
+from btcpy.structs.transaction import Sequence
 
 from pypeerassets.exceptions import UnsupportedNetwork
 from pypeerassets.pa_constants import PAParams, param_query
@@ -122,3 +123,10 @@ class Provider(ABC):
             return False
 
         return True
+
+    def calc_sequence(self, locktime: int=0):
+
+        if int(locktime) > 0:
+            return Sequence(0xFFFFFFFE) # value to enable locktime field
+        else:
+            return Sequence.max()
