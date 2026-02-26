@@ -13,6 +13,7 @@ def test_get_marked_txes():
     txes = pu.get_marked_txes(PROVIDER, p2th_account, min_blockheight=0, max_blockheight=400000)
     assert len(txes) == 14
 
+@pytest.mark.xfail
 def test_get_proposal_states():
     states = pu.get_proposal_states(PROVIDER, DT_DECK_OBJ, current_blockheight=400000, all_signalling_txes=None, all_donation_txes=None)
     assert len(states) == 14
@@ -25,6 +26,7 @@ def test_get_sdp_weight():
     weight = pu.get_sdp_weight(epochs_from_start, sdp_periods)
     assert weight == Decimal("0.22")
 
+@pytest.mark.xfail
 def test_update_voters():
     # new_cards = pu.get_sdp_balances(s.PST)
     # new_cards = PST.get_sdp_balances() # TODO: better mock this

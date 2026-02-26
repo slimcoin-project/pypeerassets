@@ -7,7 +7,7 @@ from btcpy.structs.transaction import Locktime
 from btcpy.structs.sig import P2pkhSolver
 
 from pypeerassets.kutil import Kutil
-from pypeerassets.provider import Explorer
+from pypeerassets.provider import Explorer, SlmRpcNode
 from pypeerassets.networks import net_query
 from pypeerassets.transactions import (
     MutableTransaction,
@@ -69,19 +69,27 @@ def test_wif_export():
     assert mykey.wif == 'U624wXL6iT7XZ9qeHsrtPGEiU78V1YxDfwq75Mymd61Ch56w47KE'
 
 
+# Note: Modified for slimassets. Needs RPC connection. Explorer doesn't work.
 def test_sign_transaction():
+    with open("settings.json", "r") as settingsfile: # TODO: the settings.json file should not be necessary. We could use pacli.Settings but better not depend on pacli here?
+        import json
+        settings = json.load(settingsfile)
+        PROVIDER = SlmRpcNode(testnet=True, username=settings["rpcuser"], password=settings["rpcpass"], ip=None, port=settings["port"], directory=None)
 
-    network_params = net_query('tppc')
-    provider = Explorer(network='tppc')
-    key = Kutil(network='tppc',
+    network_params = net_query('tslm')
+    # provider = Explorer(network='tppc')
+    provider = PROVIDER
+    # address: mxXYivKBsdM3udEMQMJVu3xAxnWthFuGZN, keep it funded for this test
+    # wif key: cStDLkf4eM8S9bY7ZrPAdzvNSFp1GnvGToZv5FgHZDKzHvdAUdGB
+    key = Kutil(network='tslm',
                 privkey=bytearray.fromhex('9e321f5379c2d1c4327c12227e1226a7c2e08342d88431dcbb0063e1e715a36c')
                 )
-    dest_address = 'mwn75Gavp6Y1tJxca53HeCj5zzERqWagr6'
+    dest_address = "mnntkbbuRnKdD33wjvdcMPW4E99dfWrMLR" # 'mwn75Gavp6Y1tJxca53HeCj5zzERqWagr6'
 
     unspent = provider.select_inputs(key.address, 0.63)  # 0.69
-    output = tx_output(network='tppc',
+    output = tx_output(network='tslm',
                        value=Decimal(0.1),
-                       n=0, script=p2pkh_script(network='tppc',
+                       n=0, script=p2pkh_script(network='tslm',
                                                 address=dest_address)
                        )
 

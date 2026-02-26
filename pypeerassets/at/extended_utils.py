@@ -1,4 +1,5 @@
-# bundles functions for both AT and DT tokens.
+# Functions for both AT and DT tokens.
+# These functions do not perform validation, they only detect bundles and prepare them for validation.
 
 def get_issuance_bundle(cards: list, i: int):
     # Due to pa.pautils.card_postprocess: if a card has multiple amounts,
@@ -11,7 +12,7 @@ def get_issuance_bundle(cards: list, i: int):
 
     try:
         while cards[i].txid == cards[i + 1].txid:
-            # if a bundle is detected, we perform a check to ensure the sender is identic
+            # if a bundle is detected (same txid in card and card+1), we perform a check to ensure the sender is identic
             # so possible future protocol changes (e.g. allowing multiple senders per tx) do not affect this.
             thiscard, nextcard = cards[i], cards[i + 1]
             if not thiscard.sender == nextcard.sender:

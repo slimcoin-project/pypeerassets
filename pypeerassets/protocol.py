@@ -112,9 +112,7 @@ class Deck:
         # TODO: for beta 2: the custom attributes should go into a single dict-style attribute of the deck,
         # so the ugly self argument isn't necessary.
         # a class "ExtensionAttributes" or similar would be best.
-
         if self.issue_mode == IssueMode.CUSTOM.value:
-
             ep.initialize_custom_deck_attributes(self,
                                                  network,
                                                  at_type=at_type,
@@ -448,7 +446,8 @@ class CardTransfer:
         if type: # allows overriding, but not of the InvalidCardIssue
             self.type = type
 
-        self.cid = "{}{}{}".format(str(txid), str(blockseq), str(cardseq))
+        if self.txid: # only calculate cid if there is a txid. cid is only needed in DeckState.
+            self.cid = "{}{}{}".format(str(self.txid), str(self.blockseq), str(self.cardseq))
 
 
     @property

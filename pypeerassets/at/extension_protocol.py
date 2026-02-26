@@ -27,15 +27,18 @@ def initialize_custom_deck_attributes(deck,
                                       extradata=None,
                                       debug=False) -> None:
     try:
-
         # Note: this construction triggers KeyError if the data is incomplete
         data = parse_protobuf(deck.asset_specific_data, "deck") if deck.asset_specific_data else {}
         deck.at_type = at_type if at_type else data["id"]
-
         if deck.at_type == c.ID_AT:
 
-            deck.at_address = at_address if at_address else get_at_address(data, net_query(network))
             deck.multiplier = multiplier if multiplier else data["multiplier"]
+            # TODO: this byte/type check COULD be done with all attributes.
+            # They can't be incorrect however if taken from protobuf string. So re-check if this is really necessary.
+            # only via pautils.deck_parser are decks created in the original code,
+            # pacli lets them create with Deck.__new() but only with the original attributes.
+            assert deck.multiplier < 2 ** 32 # do not allow higher than 32 bit multipliers
+            deck.at_address = at_address if at_address else get_at_address(data, net_query(network))
             deck.addr_type = addr_type if addr_type else data["hash_type"]
 
             # optional attributes
@@ -63,7 +66,7 @@ def initialize_custom_deck_attributes(deck,
             if debug:
                 print("No valid AT/DT deck.")
 
-    except (ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError, AssertionError):
         if debug:
             print("Non-Standard asset-specific data. Not adding special parameters.")
 
@@ -80,7 +83,7 @@ def initialize_custom_card_attributes(card, deck, donation_txid=None) -> None:
 
         try:
             card.extended_data = parse_protobuf(card.asset_specific_data, "card")
-            assert is_at_cardissue(card.extended_data) == True
+            assert looks_like_at_cardissue(card.extended_data) == True
             card.type = "CardIssue"
             card.donation_txid = donation_txid if donation_txid else card.extended_data["txid"].hex()
         except (TypeError, AssertionError):
@@ -91,7 +94,6 @@ def initialize_custom_card_attributes(card, deck, donation_txid=None) -> None:
         card.at_type = deck.at_type
 
     except (ValueError, KeyError, AssertionError):
-
         pass
         # this happens with non-dt tokens using a custom parser,
         # or with faulty dt tokens with data not protobuf formatted, or one of the txid and vout values missing.
@@ -109,36 +111,34 @@ def get_at_address(data: dict, network: namedtuple) -> str: ### changed from dat
         raise ValueError("Necessary items not found.")
 
     try:
-        assert is_valid_address(address, data["hash_type"], network)
+        assert looks_like_valid_address(address, data["hash_type"], network)
         return address
 
     except AssertionError: # datastring not existing or too short
         raise ValueError("Invalid address.")
-    # return False
 
-def is_at_cardissue(data: dict) -> bool:
+def looks_like_at_cardissue(data: dict) -> bool:
     # addresstrack (AT and DT) issuance transactions reference the txid of the donation in "card.asset_specific_data"
 
-    # WORKAROUND. vout is not saved in protobuf if it's 0.
-    #if "vout" not in data:
-    #    data.update({ "vout": 0 })
+    # We can only check the length of the txid here, and if the vout is not int. vout is not saved in protobuf if it's 0.
     try:
         assert len(data["txid"]) == 32
-        # assert data["vout"] is not None
+        if "vout" in data:
+            assert type(int(data["vout"])) == int
 
-    except (UnboundLocalError, AssertionError): # with protobuf we don't need IndexError, TypeError "as e" not needed here?
+    except (UnboundLocalError, AssertionError, ValueError): # ValueError is risen if vout is not int
         return False
 
     return True
 
-def is_valid_address(address: str, hash_type: int, network: namedtuple) -> bool:
+def looks_like_valid_address(address: str, hash_type: int, network: namedtuple) -> bool:
     # ultra-simplified method to ensure the address format is correct, without rpc node connection
     # could be replaced with a full regex validator as it's not really heavy
 
     try:
         b58pref = network.base58_prefixes
         if hash_type in (2, 3): # p2pkh & p2sh => p2pk too?
-            address_prefixes = [ key for key in b58pref.keys() if b58pref.get(key) == HASHTYPE[hash_type] ]
+            address_prefixes = [key for key in b58pref.keys() if b58pref.get(key) == HASHTYPE[hash_type]]
             assert address[0] in address_prefixes
             assert 26 < len(address) <= 35
         else:

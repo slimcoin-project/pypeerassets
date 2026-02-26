@@ -25,7 +25,7 @@ from pypeerassets.transactions import (
     tx_output,
     sign_transaction
 )
-from pypeerassets.provider import Cryptoid
+from pypeerassets.provider import Cryptoid, SlmRpcNode
 import pypeerassets as pa
 
 
@@ -118,21 +118,31 @@ def test_make_raw_transaction():
     tx = make_raw_transaction("peercoin", [], [], Locktime(300000))
     assert isinstance(tx, MutableTransaction)
 
+@pytest.mark.parametrize("provider", [Cryptoid, SlmRpcNode])
+def test_sign_transaction(provider):
+    if provider == SlmRpcNode:
+        with open("settings.json", "r") as settingsfile: # TODO: the settings.json file should not be necessary. We could use pacli.Settings but better not depend on pacli here?
+            import json
+            settings = json.load(settingsfile)
+            provider = SlmRpcNode(testnet=True, username=settings["rpcuser"], password=settings["rpcpass"], ip=None, port=settings["port"], directory=None)
+            network = "tslm"
+    else:
+        pytest.skip("Cryptoid not compatible with this test code.")
+        network = "tppc"
+        provider = Cryptoid(network='tppc')
 
-def test_sign_transaction():
+    network_params = net_query(network)
 
-    network_params = net_query('tppc')
-
-    provider = Cryptoid(network='tppc')
-    key = pa.Kutil(network='tppc',
+    key = pa.Kutil(network=network,
                    privkey=bytearray.fromhex('9e321f5379c2d1c4327c12227e1226a7c2e08342d88431dcbb0063e1e715a36c')
                    )
-    dest_address = pa.Kutil(network='tppc').address
+
+    dest_address = pa.Kutil(network=network).address
     unspent = provider.select_inputs(key.address, 1)
 
-    output = tx_output(network='tppc',
+    output = tx_output(network=network,
                        value=Decimal(0.1),
-                       n=0, script=p2pkh_script(network='tppc',
+                       n=0, script=p2pkh_script(network=network,
                                                 address=dest_address)
                        )
 
